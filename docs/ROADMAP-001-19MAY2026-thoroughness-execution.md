@@ -21,7 +21,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **E** | Reporting & ergonomics | ~1.5 days | ⬜ | `v0.6.0` |
 | **F** | GraphQL depth | ~1 day | ⬜ | `v0.7.0` |
 | **G** | Tests + hardening | ~1 day | ⬜ | `v0.8.0` |
-| **H** | **Jabber / XMPP / comp pentesting tooling** *(added 2026-05-19)* | ~2 days | ⬜ | `v0.9.0` |
+| **H** | **Jabber / XMPP tooling** *(added 2026-05-19; scoped via [ADR-001](ADR-001-19MAY2026-jabber-scope.md))* | ~2 days | ⬜ (planned — execution gated on operator go) | `v0.9.0` |
 
 **Total estimate:** ~12 working days. Iterations B–H are independent and can be reordered or parallelized once A is shipped.
 
@@ -310,38 +310,59 @@ Tag `v0.8.0`. After this iteration, consider whether interfaces are stable enoug
 
 ---
 
-## Iteration H — Jabber / XMPP / comp pentesting tooling *(added 2026-05-19)*
+## Iteration H — Jabber / XMPP tooling *(added 2026-05-19; scoped 2026-05-19)*
 
-**Origin:** user milestone, not in REVIEW-001. Captured here as the planning placeholder.
+**Origin:** user milestone, not in REVIEW-001.
 
-**Why:** XMPP / Jabber is a recurring blind spot in network enum kits. Self-hosted Jabber (Ejabberd, Prosody, Openfire) and corporate IM (Cisco Jabber over CUCM/CUP, Microsoft Lync/SfB legacy XMPP gateways) are common on engagements and frequently miscofigured (open registration, S2S to anywhere, weak BOSH/WebSocket auth, plaintext auth, XEP-0077 in-band reg, MUC enumeration leaking org structure, MAM history leakage, in-band file transfer letting an attacker stage payloads).
+**Scope decisions:** locked in [ADR-001](ADR-001-19MAY2026-jabber-scope.md). Summary:
+- **D1** target surface = XMPP/Jabber only (Ejabberd, Prosody, Openfire). Cisco UC, SIP/voice, and modern team chat are deferred to future iterations.
+- **D2** enumeration + single-cred validation only. **No spray.**
+- **D3** OpenFire CVE-2023-32315 ships as default-detect / `--exploit`-full-chain / `--cleanup`-reverse. Mandatory typed-FQDN confirmation on `--exploit`.
+- **D4** stdlib-only Python (matches `gql.py` precedent). No `requirements.txt` in `jabber/`.
 
-**Scope (initial — refined before execution):**
+**Why:** XMPP is the recurring blind spot in network enum kits. Self-hosted Jabber routinely ships with open in-band registration (XEP-0077), permissive S2S to any domain, unencrypted BOSH/WebSocket endpoints, MUC enumeration that leaks org structure, MAM history exposure, and OpenFire admin consoles fronted by CVE-2023-32315.
+
+### Per-item plan
 
 | Item | Scope | Files | Status |
 |---|---|---|---|
-| H.1 | Service categorization for XMPP/Jabber in nmap-parse | `network/nmap-parse.py` ports 5222 (c2s), 5223 (legacy SSL c2s), 5269 (s2s), 5280/5281 (BOSH/HTTP-bind), 5298 (link-local), 7777 (Openfire FT proxy), 9090/9091 (Openfire admin) | ⬜ |
-| H.2 | `network/enum-jabber.sh` dispatcher | banner grab, STARTTLS probe, cert collection (SANs → org domains), advertised SASL mechanisms, in-band registration probe (XEP-0077), server features `<iq type='get'><query xmlns='http://jabber.org/protocol/disco#info'/></iq>`, MUC discovery (`disco#items` on `conference.<domain>`), s2s reachability test, BOSH/WebSocket endpoint detection | ⬜ |
-| H.3 | `jabber/jabber-user-enum.py` | XEP-0077 IBR username probing, SASL response-based enum (server distinguishes "user unknown" from "bad password"), MUC nickname harvest, vcard-temp lookup if anon | ⬜ |
-| H.4 | `jabber/jabber-spray.py` | SASL PLAIN/SCRAM-SHA1/SCRAM-SHA256 spray with per-user delay + lockout awareness; supports `--throttle` from iteration G | ⬜ |
-| H.5 | Openfire admin-console default creds + CVE-2023-32315 path-traversal admin auth bypass probe | `network/enum-jabber.sh` extension or `jabber/openfire-quickwin.sh` | ⬜ |
-| H.6 | Ejabberd / Prosody admin-API exposure check (Ejabberd commands API on /api, Prosody mod_admin_telnet on 5582) | `network/enum-jabber.sh` extension | ⬜ |
-| H.7 | Cisco Jabber / Unified Communications notes — CUCM XML services (5060/5061 SIP, 8443 admin) cross-link; UDS user-lookup `https://<cucm>:8443/cucm-uds/users?name=...` | `network/enum-jabber.sh` companion / `network/enum-cucm.sh` (new — scope decision at exec time) | ⬜ |
-| H.8 | XMPP MITM harness — STARTTLS-stripping probe (does server fall back to plaintext?), invalid-cert behavior | `jabber/jabber-tls-probe.py` | ⬜ |
-| H.9 | README + workflow doc | `jabber/README.md` | ⬜ |
+| H.1 | Add XMPP/Jabber service categories to nmap-parse: 5222 (c2s STARTTLS), 5223 (legacy implicit-TLS c2s), 5269 (s2s), 5280/5281 (BOSH / WebSocket / HTTP-bind), 5298 (link-local), 7777 (Openfire file-transfer proxy), 9090/9091 (Openfire admin console). Two categories: `xmpp` and `openfire-admin` so the dispatchers can route differently. | `network/nmap-parse.py` | ⬜ |
+| H.2 | `enum-jabber.sh` dispatcher routed automatically by `auto-enum.sh` based on H.1 categorization. Phases: (a) raw banner via `nc`, (b) STARTTLS feature probe + cert collection (SANs feed domain inventory), (c) advertised SASL mechanisms parse, (d) XEP-0077 in-band-registration probe (no actual register — just `<iq type='get'><query xmlns='jabber:iq:register'/></iq>` to confirm IBR is advertised), (e) server `disco#info` + `disco#items`, (f) MUC discovery on `conference.<domain>` with anonymous-and-then-auth attempts, (g) BOSH/WebSocket endpoint detection on 5280/5281. All output to `$OUT/<ip>/`. | `network/enum-jabber.sh` (new), sources `network/_lib.sh` | ⬜ |
+| H.3 | `jabber-user-enum.py` — XEP-0077 username probing (server discloses "user already exists" vs "registration successful" via the `<conflict/>` element); SASL response-based enum (Ejabberd/Openfire distinguish "user unknown" from "bad password" in the SASL failure XML); MUC `disco#items` on a target room to harvest nicknames; vcard-temp `<vCard xmlns='vcard-temp'/>` lookup on harvested JIDs if anon vcard is enabled. Stdlib-only (per ADR-001 D4). Output: a JID-list file + an evidence-per-method file. | `jabber/jabber-user-enum.py` (new) | ⬜ |
+| H.4 | `jabber-validate.py` — single-credential validation only (per ADR-001 D2 — **no spray**). Accepts `--jid` + `--password`, attempts SASL PLAIN / SCRAM-SHA-1 / SCRAM-SHA-256 against the host, confirms auth or surfaces the SASL failure reason (`<not-authorized/>`, `<account-disabled/>`, etc.). Stdlib-only. | `jabber/jabber-validate.py` (new) | ⬜ |
+| H.5 | `openfire-cve-2023-32315.py` — default behavior: detection only (probes the path-traversal signature, reports version + verdict). `--exploit`: typed-FQDN confirm → admin create via the bypass → JSP webshell plugin upload → returns webshell URL + writes `<out>/exploit_log.txt` with admin-username, plugin-name, timestamp. `--cleanup <log>`: takes the log from a prior `--exploit` run, deletes the admin user via the legitimate REST API, removes the plugin. README must document `--cleanup` before `--exploit`. Stdlib (urllib) + bash glue. Per ADR-001 D3. | `jabber/openfire-cve-2023-32315.py` (new) | ⬜ |
+| H.6 | Ejabberd / Prosody admin-API exposure check — detection only. Probes Ejabberd commands API on `<host>/api/` (returns 401 vs 200 vs 404 — flag if any method responds without auth), Prosody `mod_admin_telnet` on TCP 5582, `mod_admin_web` on 5280/admin. | `jabber/jabber-admin-api-probe.sh` (new), wired into `enum-jabber.sh` as a final phase | ⬜ |
+| H.7 | README + workflow doc. Order of sections: safety invariants (from ADR-001), `--cleanup` before `--exploit` for the OpenFire helper, common workflows (enum → user-enum → validate → optionally OpenFire), tool index. | `jabber/README.md` (new) | ⬜ |
+| H.8 | `deps-check.sh` — detect `nc`, `openssl s_client`, Python stdlib XML modules (assert importable). No new external deps required by iteration H. | `deps-check.sh` | ⬜ |
+| H.9 | Top-level `README.md` — add `jabber/` row to the layout tree + scripts table, and `enum-jabber.sh` row under network dispatchers. | `README.md` | ⬜ |
 
-**Open scope questions to resolve before execution (planning to be done on Opus):**
+**Prerequisites:** A (inherits `nxc_creds_array` pattern + `ldap_url` IPv6 bracketing for any LDAP cross-references). Independent of B–G.
 
-1. **Do we want write-capable tooling?** H.3/H.4 are enumeration and credential validation respectively — keep within the §9 invariant of `--write`-gated changes. H.5 (CVE-2023-32315) needs a hard `--exploit` flag with explicit operator confirmation since it creates an admin user.
-2. **Library vs stdlib?** Pure-stdlib Python (matching `gql.py` precedent) is feasible for XMPP — the protocol is XML-over-TCP. But `slixmpp`/`aioxmpp` would massively reduce boilerplate. Recommendation: stdlib-only for the probe/enum tools (deployable on any jump box), slixmpp-optional for the spray/MITM tools where the protocol depth justifies it.
-3. **Cisco Jabber / CUCM scope** — is "comp pentesting" specifically Cisco-stack? If yes, expand H.7 to its own iteration (H.5 in a renumbering): SIP enum (SIPVicious-style), TFTP firmware download, IAX2 if applicable, sip-trunk relay test, MRA gateway probe.
-4. **Voice / messaging adjacency** — RTP/SRTP capture, Asterisk Manager API, FreeSWITCH ESL are arguably in-scope for "comp" (communications) pentesting. ADR needed before pulling them in.
+**Acceptance criteria** (per item, all must pass before tagging `v0.9.0`):
+- H.1: `nmap-parse.py --list-categories` shows `xmpp` and `openfire-admin`; a test fixture containing `<port portid="5222">` and `<port portid="9090">` is routed to those categories.
+- H.2: `enum-jabber.sh --targets /tmp/lab.txt --output /tmp/out` against a Prosody container produces non-empty `<out>/<ip>/banner.txt`, `cert.pem`, `sasl_mechs.txt`, `ibr_probe.xml`, `disco_info.xml`, `muc_items.xml`. No crash with empty `ENUM_*` env.
+- H.3: against a Prosody container with a known account `alice@example.org`, XEP-0077 probe correctly returns `EXISTS` for `alice` and `AVAILABLE` for `nobody-here`; SASL response-based check returns `USER_UNKNOWN` vs `BAD_PASSWORD` distinguishably.
+- H.4: against the same Prosody, `jabber-validate.py --jid alice@example.org --password correct` returns `AUTH_OK rc=0`; wrong password returns `AUTH_FAIL: <not-authorized/>` rc=1.
+- H.5: against vulnerable Openfire 4.7.4 container, default run reports `VULNERABLE` with version banner; `--exploit` after typed-FQDN confirm creates the admin, uploads webshell, returns URL; `--cleanup` removes both. Against patched 4.7.5+ container, default run reports `NOT VULNERABLE`.
+- H.6: against the Prosody container with `mod_admin_telnet` enabled on 5582, the probe reports `EXPOSED admin_telnet`; with it disabled, `NOT_EXPOSED`.
+- H.7: README opens with the safety section, documents `--cleanup` before `--exploit` for OpenFire helper, and provides a copy-pasteable end-to-end example.
+- H.9: top-level README's layout tree includes `jabber/`; scripts table includes the four jabber helpers and the dispatcher.
 
-**Prerequisites:** A (to inherit the array-quoting + URL helpers). Independent of B–G.
+**Commit cadence:**
+- H.1: `feat(network): add xmpp + openfire-admin service categories to nmap-parse`
+- H.2: `feat(network): add enum-jabber.sh dispatcher`
+- H.3: `feat(jabber): jabber-user-enum.py — XEP-0077 + SASL + MUC nick harvest`
+- H.4: `feat(jabber): jabber-validate.py — single-credential SASL validation`
+- H.5: `feat(jabber): openfire CVE-2023-32315 — detect / exploit / cleanup`
+- H.6: `feat(jabber): admin-API exposure probe (ejabberd/prosody)`
+- H.7+H.8+H.9: `docs(jabber): README + deps-check + top-level README update`
+- Release: `chore(repo): release v0.9.0 — iteration H jabber/XMPP tooling`
 
-**Acceptance:** dispatcher executes against a Prosody/Ejabberd lab container and produces evidence files; user-enum exercises XEP-0077 against a known-good test account and correctly differentiates success/failure; OpenFire CVE probe correctly identifies vulnerable vs patched (against patched 4.7.5+ and vulnerable 4.7.4 lab containers); SASL spray honors `--throttle` and respects the safety invariant of not spraying without an explicit per-target rate cap.
+Tag `v0.9.0`.
 
-**Pre-execution requirements:** one ADR (`docs/ADR-001-<DATE>-jabber-scope.md`) resolving the four open scope questions above, then a per-item sequencing plan (in this same roadmap, replacing this placeholder).
+### Out of scope for H (recorded by ADR-001)
+
+Cisco UC stack, SIP/voice telephony, modern team chat, password spray, CVE-2023-32315 persistence variant, server-to-server SSRF reconnaissance. Any of these would need a fresh ADR before being added.
 
 ---
 

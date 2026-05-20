@@ -9,7 +9,12 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.2.0)*
+### Added
+- `docs/ADR-001-19MAY2026-jabber-scope.md`: Architecture Decision Record locking in scope for iteration H (Jabber/XMPP tooling). Records four decisions: XMPP-only surface (Cisco UC, SIP/voice, modern team chat deferred), no spray (enum + single-cred validation only), OpenFire CVE-2023-32315 ships as detect-default / `--exploit` full-chain / `--cleanup` reverse with typed-FQDN confirm, stdlib-only Python.
+- `docs/ROADMAP-001-...`: iteration H placeholder replaced with full per-item plan (H.1–H.9), commit cadence, and acceptance criteria all bound to ADR-001.
+
+### Refactored
+- ROADMAP-001 iteration A marked complete (tag `v0.2.0` shipped).
 
 ---
 
