@@ -186,6 +186,18 @@ while read -r target; do
         done
     fi
 
+    # --- 7. admin-API exposure probe (Ejabberd /api/, Prosody mod_admin_*) ---
+    # One per HOST (not per port — the probe targets fixed admin ports of its own)
+    # so we de-dupe by tracking IPs we've already probed in this run.
+    probe_marker="$OUT/_admin_probed_${ip}.done"
+    if [ ! -e "$probe_marker" ]; then
+        admin_probe="$SCRIPT_DIR/../jabber/jabber-admin-api-probe.sh"
+        if [ -x "$admin_probe" ]; then
+            bash "$admin_probe" --host "$ip" --out "$out_dir" >> "$out_dir/_admin_probe.log" 2>&1 || true
+            touch "$probe_marker"
+        fi
+    fi
+
 done < "$TARGETS"
 
 # Final hint with workflow pointers
@@ -197,6 +209,12 @@ Next steps once the dispatcher has populated $OUT:
   * If you have a candidate credential — run jabber-validate.py against it.
   * If openfire-admin was also enumerated (ports 9090/9091) — run the
     openfire-cve-2023-32315 helper in detection mode against those hosts.
+  * The admin-API probe runs automatically (jabber-admin-api-probe.sh) and
+    surfaces any EXPOSED ejabberd-api / prosody-mod_admin_telnet / mod_admin_web
+    findings inline in this dispatcher's log.
 EOF
+
+# Clean up per-host probe markers
+rm -f "$OUT"/_admin_probed_*.done
 
 log "jabber dispatcher done."
