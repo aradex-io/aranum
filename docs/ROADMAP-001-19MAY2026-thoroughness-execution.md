@@ -21,7 +21,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **E** | Reporting & ergonomics | ~1.5 days | ⬜ | `v0.6.0` |
 | **F** | GraphQL depth | ~1 day | ⬜ | `v0.7.0` |
 | **G** | Tests + hardening | ~1 day | ⬜ | `v0.8.0` |
-| **H** | **Jabber / XMPP tooling** *(added 2026-05-19; scoped via [ADR-001](ADR-001-19MAY2026-jabber-scope.md))* | ~2 days | ⬜ (planned — execution gated on operator go) | `v0.9.0` |
+| **H** | **Jabber / XMPP tooling** *(added 2026-05-19; scoped via [ADR-001](ADR-001-19MAY2026-jabber-scope.md))* | ~2 days | ✅ done 2026-05-19 — tag `v0.9.0` | `v0.9.0` |
 
 **Total estimate:** ~12 working days. Iterations B–H are independent and can be reordered or parallelized once A is shipped.
 
@@ -311,6 +311,8 @@ Tag `v0.8.0`. After this iteration, consider whether interfaces are stable enoug
 ---
 
 ## Iteration H — Jabber / XMPP tooling *(added 2026-05-19; scoped 2026-05-19)*
+
+**Completed:** 2026-05-19 — tag `v0.9.0`
 
 **Origin:** user milestone, not in REVIEW-001.
 

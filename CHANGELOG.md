@@ -9,6 +9,14 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
+*(empty — accumulating since v0.9.0)*
+
+---
+
+## [v0.9.0] — 2026-05-19
+
+**Iteration H** of ROADMAP-001 — Jabber/XMPP pentesting tooling per [ADR-001](docs/ADR-001-19MAY2026-jabber-scope.md). Iteration H jumps the version from v0.2.0 to v0.9.0 to match the roadmap's tag plan (B–G iterations are not yet shipped; their tag slots are reserved).
+
 ### Added
 - `jabber/README.md`: complete tool index + workflow for iteration H. Opens with safety summary (read first), documents the `--cleanup`-before-`--exploit` discipline for the OpenFire CVE helper, walks the typical workflow (discover → enum-jabber → user-enum → validate → optional Openfire detect/exploit/cleanup), gives the JSP plugin manifest template, and explicitly lists what the iteration does NOT do and why (no spray, no XEP-0077 conflict-probe, no Cisco UC, no bundled webshell, no Openfire persistence variant). (ROADMAP-001 H.7)
 - `deps-check.sh`: new `JABBER / XMPP` section verifying `nc`, `openssl`, and the Python stdlib modules the jabber/ helpers depend on (`socket`, `ssl`, `base64`, `hashlib`, `hmac`, `urllib.request`, `xml.etree.ElementTree`). No new external deps required by iteration H. (ROADMAP-001 H.8)
@@ -23,7 +31,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 - `docs/ROADMAP-001-...`: iteration H placeholder replaced with full per-item plan (H.1–H.9), commit cadence, and acceptance criteria all bound to ADR-001.
 
 ### Refactored
-- ROADMAP-001 iteration A marked complete (tag `v0.2.0` shipped).
+- ROADMAP-001 iteration A marked complete (tag `v0.2.0` shipped); iteration H marked complete (all nine sub-items, this release).
 
 ---
 
