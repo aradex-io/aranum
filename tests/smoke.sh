@@ -374,6 +374,59 @@ else
 fi
 
 # -----------------------------------------------------------------
+section "11b. --throttle (G.7) — default + operator-explicit precedence"
+# -----------------------------------------------------------------
+# Validation interface chosen at G.7 design time per advisor:
+# `auto-enum.sh --throttle --dry-run` prints the effective env. Smoke asserts
+# that (a) --throttle alone sets parallel=1, NUCLEI_RATE=20, NO_FFUF=1,
+# NO_NIKTO=1, and (b) an explicit -P N wins over --throttle's default.
+out=$(bash network/auto-enum.sh -i network/test.xml -o /tmp/aratool-throttle.$$ --throttle --dry-run 2>&1)
+rm -rf /tmp/aratool-throttle.$$
+echo "$out" | grep -qE 'parallel:[[:space:]]+1[[:space:]]+\(--throttle default' \
+    && p "throttle: parallel=1 default applied" \
+    || f "throttle: parallel=1 default NOT applied"
+echo "$out" | grep -qE 'NUCLEI_RATE:[[:space:]]+20' \
+    && p "throttle: NUCLEI_RATE=20 default applied" \
+    || f "throttle: NUCLEI_RATE=20 default NOT applied"
+echo "$out" | grep -qE 'NO_FFUF:[[:space:]]+1' \
+    && p "throttle: NO_FFUF=1 default applied" \
+    || f "throttle: NO_FFUF=1 default NOT applied"
+
+out=$(bash network/auto-enum.sh -i network/test.xml -o /tmp/aratool-throttle-x.$$ --throttle --dry-run -P 8 2>&1)
+rm -rf /tmp/aratool-throttle-x.$$
+echo "$out" | grep -qE 'parallel:[[:space:]]+8[[:space:]]+\(operator-explicit' \
+    && p "throttle: operator -P 8 wins over --throttle default" \
+    || f "throttle: operator -P 8 was overridden by --throttle (precedence bug)"
+
+# Library helpers
+out=$(bash -c '. network/_lib.sh; echo "off=$(throttle_delay)|$(throttle_nmap_args)"; export ENUM_THROTTLE=1; echo "on=$(throttle_delay)|$(throttle_nmap_args)"')
+echo "$out" | grep -qx "off=0|"     && p "throttle_delay/nmap_args: off-state returns 0 and empty" || f "throttle off-state wrong: $out"
+echo "$out" | grep -qx "on=1|-T2"   && p "throttle_delay/nmap_args: on-state returns 1 and -T2"   || f "throttle on-state wrong: $out"
+
+# -----------------------------------------------------------------
+section "11c. write-gates (G.8) — every gated helper dry-runs without its gate"
+# -----------------------------------------------------------------
+# CLAUDE.md §9 invariant 1 — six helpers gained explicit gate flags this iteration.
+# Smoke asserts each exits 0 + prints "DRY RUN" without its gate.
+check_gate() {
+    local cmd="$1" name="$2"
+    local out rc
+    out=$(timeout 10 bash -c "$cmd" 2>&1)
+    rc=$?
+    if [ "$rc" -eq 0 ] && echo "$out" | grep -qi "DRY RUN"; then
+        p "gate: $name dry-runs without its gate flag"
+    else
+        f "gate: $name FAILED dry-run check (rc=$rc, out=${out:0:120})"
+    fi
+}
+check_gate "python3 activemq/activemq-cve-2023-46604.py --target 127.0.0.1:61616 --cmd id"  "activemq-cve-2023-46604.py (--exploit)"
+check_gate "bash activemq/activemq-jolokia-rce.sh --target 127.0.0.1:8161"                  "activemq-jolokia-rce.sh   (--exploit)"
+check_gate "bash redis/redis-rce-module.sh --target 127.0.0.1:6379"                         "redis-rce-module.sh       (--exploit)"
+check_gate "bash redis/redis-rce-ssh.sh --target 127.0.0.1:6379 --key-inline 'ssh-rsa AAAA x@y'" "redis-rce-ssh.sh      (--write)"
+check_gate "bash smtp/smtp-phish-send.sh --target 127.0.0.1:25 --from a@b --to c@d --subject s --body x" "smtp-phish-send.sh (--send)"
+check_gate "python3 smtp/smtp-smuggling-test.py --target 127.0.0.1:25"                      "smtp-smuggling-test.py    (--send)"
+
+# -----------------------------------------------------------------
 section "12. git working tree is clean"
 # -----------------------------------------------------------------
 if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
@@ -382,7 +435,7 @@ else
     f "git: working tree dirty: $(git status --porcelain | head -3)"
 fi
 # Tags present
-for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0; do
+for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0 v0.14.0; do
     if git tag | grep -qx "$t"; then
         p "git: tag $t present"
     else

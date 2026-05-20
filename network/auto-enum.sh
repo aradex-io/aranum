@@ -30,6 +30,8 @@ ONLY=""
 EXCLUDE=""
 DRY_RUN=0
 RESUME=0
+THROTTLE=0
+THROTTLE_EXPLICIT_PARALLEL=0
 
 usage() {
     cat <<EOF
@@ -55,6 +57,16 @@ Tuning:
   --dry-run           print plan, don't execute
   --resume            skip services that already have a .done marker
                       (set by a prior successful auto-enum.sh run)
+  --throttle          gentle-mode for sensitive environments (OT/legacy/lab).
+                      Sets ENUM_THROTTLE=1 and applies these defaults to ANY
+                      knob the operator did NOT set explicitly:
+                        ENUM_PARALLEL    1
+                        NUCLEI_RATE      20
+                        NO_FFUF          1
+                        NO_NIKTO         1
+                      Explicit CLI args win — e.g. -P 4 --throttle keeps -P 4
+                      and warns. Use --dry-run --throttle to preview the
+                      effective environment without scanning.
 
   -h, --help          show this help
 
@@ -85,11 +97,12 @@ while [ $# -gt 0 ]; do
         -H|--hash)      NTLM_HASH="$2"; shift 2 ;;
         -d|--domain)    DOMAIN="$2"; shift 2 ;;
         --dc-ip)        DC_IP="$2"; shift 2 ;;
-        -P|--parallel)  PARALLEL="$2"; shift 2 ;;
+        -P|--parallel)  PARALLEL="$2"; THROTTLE_EXPLICIT_PARALLEL=1; shift 2 ;;
         --only)         ONLY="$2"; shift 2 ;;
         --exclude)      EXCLUDE="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=1; shift ;;
         --resume)       RESUME=1; shift ;;
+        --throttle)     THROTTLE=1; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "unknown arg: $1"; usage; exit 1 ;;
     esac
@@ -101,6 +114,27 @@ done
 
 mkdir -p "$OUTDIR"
 
+# ---------- G.7 --throttle — gentle defaults for sensitive environments ----------
+# Rule (per advisor + CLAUDE.md §3 ergonomics): --throttle sets defaults ONLY
+# where the operator did NOT explicitly set the knob. Explicit CLI args win.
+# Env knobs already set in the parent shell ALSO win — we only fill blanks.
+if [ "$THROTTLE" = 1 ]; then
+    echo "[*] --throttle: gentle-mode defaults active (CLI args + env take precedence)"
+    if [ "$THROTTLE_EXPLICIT_PARALLEL" = 1 ]; then
+        echo "    parallel:    $PARALLEL  (operator-explicit; --throttle did not override)"
+    else
+        PARALLEL=1
+        echo "    parallel:    1  (--throttle default; override with -P N)"
+    fi
+    : "${NUCLEI_RATE:=20}"   ; export NUCLEI_RATE
+    : "${NO_FFUF:=1}"        ; export NO_FFUF
+    : "${NO_NIKTO:=1}"       ; export NO_NIKTO
+    export ENUM_THROTTLE=1
+    echo "    NUCLEI_RATE: $NUCLEI_RATE"
+    echo "    NO_FFUF:     $NO_FFUF"
+    echo "    NO_NIKTO:    $NO_NIKTO"
+fi
+
 # Export auth so dispatchers see them
 export ENUM_USER="$USER" ENUM_PASS="$PASS" ENUM_HASH="$NTLM_HASH"
 export ENUM_DOMAIN="$DOMAIN" ENUM_DC_IP="$DC_IP" ENUM_PARALLEL="$PARALLEL"
@@ -109,7 +143,7 @@ export ENUM_DOMAIN="$DOMAIN" ENUM_DC_IP="$DC_IP" ENUM_PARALLEL="$PARALLEL"
 RUN_LOG="$OUTDIR/run.log"
 run_log() { printf "%s  %s\n" "$(date -Iseconds)" "$*" >> "$RUN_LOG"; }
 run_log "=== auto-enum run started ==="
-run_log "input=$INPUT outdir=$OUTDIR parallel=$PARALLEL resume=$RESUME"
+run_log "input=$INPUT outdir=$OUTDIR parallel=$PARALLEL resume=$RESUME throttle=$THROTTLE"
 run_log "user=${USER:-<none>} domain=${DOMAIN:-<none>} dc_ip=${DC_IP:-<none>}"
 # Capture tool versions (best-effort; missing tools are documented in deps-check)
 for tool in nmap nxc netexec enum4linux-ng smbclient rpcclient ldapsearch \

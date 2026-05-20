@@ -143,3 +143,36 @@ curl_extra_args() {
     local proxy; proxy=$(curl_proxy_arg)
     printf -- "-A %q %s" "$ua" "$proxy"
 }
+
+# ----------------------------------------------------------
+# G.7 — throttle helpers for "gentle mode" in sensitive environments.
+# auto-enum.sh's --throttle exports ENUM_THROTTLE=1 (and lowers NUCLEI_RATE,
+# disables FFUF/NIKTO). Dispatchers that hammer the target (banner sweeps,
+# multi-port nmap fans) can opt in via these helpers without rewriting flow.
+# ----------------------------------------------------------
+
+# Returns the seconds-per-target inter-host pause for gentle mode. Default 1s;
+# override with ENUM_THROTTLE_DELAY=<n>. Returns 0 when throttle is off.
+throttle_delay() {
+    if [ "${ENUM_THROTTLE:-0}" = 1 ]; then
+        printf '%s' "${ENUM_THROTTLE_DELAY:-1}"
+    else
+        printf '0'
+    fi
+}
+
+# Sleep the throttle delay. Safe to call unconditionally — no-op when throttle is off.
+throttle_sleep() {
+    local d; d=$(throttle_delay)
+    [ "$d" = 0 ] && return 0
+    sleep "$d"
+}
+
+# Echo the nmap timing flag appropriate for the current throttle state.
+# Use as:  nmap $(throttle_nmap_args) -sV ...
+# Returns "-T2" under throttle (polite — never more than 1 probe/sec), empty otherwise.
+throttle_nmap_args() {
+    if [ "${ENUM_THROTTLE:-0}" = 1 ]; then
+        printf '%s' "-T2"
+    fi
+}

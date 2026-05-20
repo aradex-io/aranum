@@ -16,6 +16,8 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ### Enhanced
 - `deps-check.sh`: added `shellcheck` under OPTIONAL — install via `pip install shellcheck-py` or distro package.
+- **G.7 `--throttle` mode for sensitive environments:** `network/auto-enum.sh --throttle` sets gentle defaults for OT/legacy/lab targets — `ENUM_PARALLEL=1`, `NUCLEI_RATE=20`, `NO_FFUF=1`, `NO_NIKTO=1`, and exports `ENUM_THROTTLE=1` so dispatchers can opt in. **Operator CLI args win over `--throttle` defaults** — `--throttle -P 8` keeps `-P 8` and prints a "operator-explicit; --throttle did not override" line so the precedence is visible. `--throttle --dry-run` previews the effective environment without scanning (the smoke-test interface). `network/_lib.sh`: new helpers `throttle_delay()` (returns the inter-host pause in seconds, default 1, override via `ENUM_THROTTLE_DELAY`), `throttle_sleep()` (no-op when off), and `throttle_nmap_args()` (returns `-T2` under throttle, empty otherwise — use as `nmap $(throttle_nmap_args) ...`).
+- `tests/smoke.sh`: extended with throttle-precedence stanza (11b) and write-gate dry-run assertions for every helper that gained a gate in G.8 (11c).
 
 ### Security
 - **G.8 write-gate audit + fixes:** every exploitation helper now honours CLAUDE.md §9 invariant 1 (default = enumeration; mutation requires an explicit gate flag). Audit findings + remediation captured in [REVIEW-002](docs/REVIEW-002-20MAY2026-write-gate-audit.md). Six helpers were in violation at audit start and were fixed in this iteration:
