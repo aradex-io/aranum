@@ -9,7 +9,37 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.10.0)*
+*(empty — accumulating since v0.11.0)*
+
+---
+
+## [v0.11.0] — 2026-05-19
+
+**Iteration C** of ROADMAP-001 — P1 service coverage + HTTP-depth bug-class checks + SMB/SSH extras. Fifteen sub-items shipped (C.0–C.14).
+
+### Added
+- `network/enum-vnc.sh` (C.1): nmap `vnc-info`/`vnc-title`/`realvnc-auth-bypass` (CVE-2006-2369 raises CRITICAL) + raw RFB banner.
+- `network/enum-jmx.sh` (C.2): nmap `rmi-dumpregistry`/`rmi-vuln-classloader` across 1099/9999/9010/11099/7199 + JRMI handshake probe. Hints document mjet/ysoserial/msf follow-ups; never auto-run.
+- `network/enum-rabbitmq.sh` (C.3): mgmt-API probe with default `guest:guest` and optional `ENUM_USER`/`ENUM_PASS`. Pulls users/vhosts/exchanges/queues/connections/permissions on auth.
+- `network/enum-memcached.sh` (C.4): `stats` / `stats slabs` / `stats items` / `stats sizes` / `stats settings` + cachedump enumeration of first 5 slabs × 50 keys. Memcrashed amplification warning in hints.
+- `network/enum-couchdb.sh` (C.5): `_all_dbs`/`_users/_all_docs`/`_config`/`_membership`/`_node/_local/_config`. Version-range signal for CVE-2017-12635 (pre-1.7.0 / pre-2.1.1).
+- `network/enum-etcd.sh` (C.6): `/version`/`/v2/keys/?recursive=true`/`/metrics` across HTTP and HTTPS. Unauth v2 keys response = full k8s control-plane secret-store read = CRITICAL.
+- `network/nmap-parse.py` (C.0): four new categories — `rabbitmq` (5672/15672/5671/15671), `memcached` (11211), `couchdb` (5984/6984), `etcd` (2379/2380). `vnc` (5800/5900-5902) and `jmx` (1099/9999/9010/11099) were already present.
+
+### Enhanced
+- `network/enum-http.sh` (C.7–C.12): six new probes gated on at-least-one-live-URL —
+  - **C.7 JWT extraction**: greps response bodies for the three-part `eyJ...` shape, decodes header, raises err() on `alg=none`, hit() on HS* (hashcat -m 16500). `_jwts.txt` aggregates findings.
+  - **C.8 CORS misconfig**: `Origin: https://attacker.example.invalid` reflected back + `Access-Control-Allow-Credentials: true` = CRITICAL.
+  - **C.9 exposed VCS/sensitive paths**: `.git/HEAD`, `.git/config`, `.svn/entries`, `.svn/wc.db`, `.hg/store`, `.DS_Store`, `.env*`, `web.config`, `wp-config.php.bak`, `config.json`, `server-status`, `server-info`.
+  - **C.10 vhost-fuzz seed**: aggregates collected SAN domains into `_all_sans.txt`; hints document the ffuf command.
+  - **C.11 cert+SAN collection**: `openssl s_client -showcerts` per HTTPS URL; per-URL SANs feed C.10.
+  - **C.12 high-value path micro-wordlist**: `/api/swagger.json`, `/swagger.json`, `/openapi.json`, `/actuator/health`/`env`/`heapdump`, `/wp-json/wp/v2/users`, `/admin`, `/phpmyadmin/`, `/manager/html` (folded into C.9's HEAD sweep).
+- `network/enum-smb.sh` (C.13): parses existing nmap-smb-vuln output for "signing enabled but not required" / "enabled: false"; aggregates relay candidates to `_relay_candidates.txt` and raises CRITICAL with host count. PetitPotam signal via rpcclient `\pipe\lsarpc` anonymous reachability when `ENUM_DC_IP` is set. Does NOT run impacket coerce tools.
+- `network/enum-ssh.sh` (C.14): parses `auth_methods.txt` from phase 3 — `publickey` advertised AND no `password`/`keyboard-interactive` → `_key_only_<port>.txt` (refuse spray hint). Parses OpenSSH version from `banner.txt`; < 7.7 raises CVE-2018-15473 candidate signal.
+
+### Refactored
+- `tests/smoke.sh` extended to cover all 13 new dispatchers + `v0.11.0` tag check.
+- `README.md` network table extended with six new C.0-C.6 dispatcher rows.
 
 ---
 

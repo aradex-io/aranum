@@ -74,6 +74,12 @@ aratool/
 | `network/enum-docker.sh` | 2375/2376 daemon API — **CRITICAL** on unauth 2375 |
 | `network/enum-kubernetes.sh` | apiserver 6443/8080 + kubelet 10250 + readonly 10255 |
 | `network/enum-ipmi.sh` | 623/udp — cipher-0 + RAKP-3 hash dump hints |
+| `network/enum-vnc.sh` | nmap vnc-info + RealVNC CVE-2006-2369 + RFB banner |
+| `network/enum-jmx.sh` | nmap rmi-* + JRMI handshake probe + mjet/ysoserial hints |
+| `network/enum-rabbitmq.sh` | mgmt API guest:guest + auth probe |
+| `network/enum-memcached.sh` | `stats` + key inventory via cachedump |
+| `network/enum-couchdb.sh` | _all_dbs + _config + CVE-2017-12635 version signal |
+| `network/enum-etcd.sh` | /v2/keys + /metrics — CRITICAL on unauth k8s control-plane KV |
 
 ## Jabber / XMPP (iteration H)
 

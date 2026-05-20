@@ -247,7 +247,8 @@ rm -rf /tmp/jt-test
 section "10b. Iteration B dispatchers — empty-targets smoke"
 # -----------------------------------------------------------------
 echo "" > /tmp/empty.txt
-for svc in postgres mysql mongo elastic docker kubernetes ipmi; do
+for svc in postgres mysql mongo elastic docker kubernetes ipmi \
+           vnc jmx rabbitmq memcached couchdb etcd; do
     out_dir=/tmp/b-smoke-$svc
     rm -rf "$out_dir"
     if timeout 15 bash network/enum-$svc.sh --targets /tmp/empty.txt --output "$out_dir" >/dev/null 2>&1; then
@@ -304,7 +305,7 @@ else
     f "git: working tree dirty: $(git status --porcelain | head -3)"
 fi
 # Tags present
-for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0; do
+for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0; do
     if git tag | grep -qx "$t"; then
         p "git: tag $t present"
     else

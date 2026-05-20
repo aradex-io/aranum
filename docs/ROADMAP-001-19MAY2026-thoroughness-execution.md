@@ -17,7 +17,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **A** | Bug fixes (P0/P1 correctness) | ~1 day | ✅ done 2026-05-19 | `v0.2.0` |
 | **H** | **Jabber / XMPP tooling** *(added 2026-05-19; scoped via [ADR-001](ADR-001-19MAY2026-jabber-scope.md))* | ~2 days | ✅ done 2026-05-19 | `v0.9.0` |
 | **B** | P0 service-coverage expansion | ~2 days | ✅ done 2026-05-19 | `v0.10.0` |
-| **C** | P1 service coverage + HTTP depth | ~2 days | ⬜ | `v0.11.0` |
+| **C** | P1 service coverage + HTTP depth | ~2 days | ✅ done 2026-05-19 | `v0.11.0` |
 | **D** | Windows / AD depth | ~2 days | ⬜ | `v0.12.0` |
 | **E** | Reporting & ergonomics | ~1.5 days | ⬜ | `v0.13.0` |
 | **F** | GraphQL depth | ~1 day | ⬜ | `v0.14.0` |
@@ -206,20 +206,20 @@ Functional, where feasible offline:
 
 | Item | Scope | Files | Status |
 |---|---|---|---|
-| C.1 | VNC dispatcher | `network/enum-vnc.sh` | ⬜ |
-| C.2 | JMX/RMI dispatcher | `network/enum-jmx.sh` | ⬜ |
-| C.3 | RabbitMQ mgmt | `network/enum-rabbitmq.sh` | ⬜ |
-| C.4 | Memcached | `network/enum-memcached.sh` | ⬜ |
-| C.5 | CouchDB | `network/enum-couchdb.sh` | ⬜ |
-| C.6 | etcd | `network/enum-etcd.sh` | ⬜ |
-| C.7 | HTTP: JWT extract + alg-confusion probe | `network/enum-http.sh` | ⬜ |
-| C.8 | HTTP: CORS misconfig probe | `network/enum-http.sh` | ⬜ |
-| C.9 | HTTP: exposed VCS dir check | `network/enum-http.sh` | ⬜ |
-| C.10 | HTTP: virtual-host fuzz mode | `network/enum-http.sh` | ⬜ |
-| C.11 | HTTP: cert collection + SANs | `network/enum-http.sh` | ⬜ |
-| C.12 | HTTP: micro-wordlist of high-value paths | `network/enum-http.sh` | ⬜ |
-| C.13 | SMB: NTLM-relay viability + PetitPotam coerce signal | `network/enum-smb.sh` | ⬜ |
-| C.14 | SSH: CVE-2018-15473 user enum + key-only refusal | `network/enum-ssh.sh` | ⬜ |
+| C.1 | VNC dispatcher | `network/enum-vnc.sh` | ✅ done 2026-05-19 |
+| C.2 | JMX/RMI dispatcher | `network/enum-jmx.sh` | ✅ done 2026-05-19 |
+| C.3 | RabbitMQ mgmt | `network/enum-rabbitmq.sh` | ✅ done 2026-05-19 |
+| C.4 | Memcached | `network/enum-memcached.sh` | ✅ done 2026-05-19 |
+| C.5 | CouchDB | `network/enum-couchdb.sh` | ✅ done 2026-05-19 |
+| C.6 | etcd | `network/enum-etcd.sh` | ✅ done 2026-05-19 |
+| C.7 | HTTP: JWT extract + alg-confusion probe | `network/enum-http.sh` | ✅ done 2026-05-19 |
+| C.8 | HTTP: CORS misconfig probe | `network/enum-http.sh` | ✅ done 2026-05-19 |
+| C.9 | HTTP: exposed VCS dir check | `network/enum-http.sh` | ✅ done 2026-05-19 |
+| C.10 | HTTP: virtual-host fuzz mode | `network/enum-http.sh` | ✅ done 2026-05-19 |
+| C.11 | HTTP: cert collection + SANs | `network/enum-http.sh` | ✅ done 2026-05-19 |
+| C.12 | HTTP: micro-wordlist of high-value paths | `network/enum-http.sh` | ✅ done 2026-05-19 |
+| C.13 | SMB: NTLM-relay viability + PetitPotam coerce signal | `network/enum-smb.sh` | ✅ done 2026-05-19 |
+| C.14 | SSH: CVE-2018-15473 user enum + key-only refusal | `network/enum-ssh.sh` | ✅ done 2026-05-19 |
 
 **Acceptance:** each HTTP check has a fixture (captured response) and a unit-equivalent bash test that confirms detection vs negative case.
 
