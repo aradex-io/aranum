@@ -38,6 +38,7 @@ import argparse
 import json
 import os
 import re
+import ssl
 import sys
 import urllib.request
 import urllib.error
@@ -59,6 +60,23 @@ def _color(s: str, c: str) -> str:
             "B": "\033[1;34m", "C": "\033[1;36m", "M": "\033[1;35m", "0": "\033[0m"}.get(c, "") + s + "\033[0m"
 
 # =============================================================== HTTP
+# Module-level switch for TLS verification. Set via --insecure / -k or GQL_INSECURE=1.
+# Mirrors `curl -k`: when True, presented certs are accepted regardless of CA chain,
+# hostname mismatch, expiry, or self-signed status. Default is False (verify).
+_INSECURE_TLS = os.environ.get("GQL_INSECURE", "").lower() in ("1", "true", "yes")
+
+
+def _ssl_context() -> ssl.SSLContext | None:
+    """Return an unverified SSLContext when --insecure is active, else None
+    (urlopen then uses the platform default verifying context)."""
+    if not _INSECURE_TLS:
+        return None
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 def http_post(url: str, payload: dict, headers: dict, timeout: int = 30) -> tuple[int, dict, dict]:
     """POST JSON. Returns (status, response-headers, parsed-body-or-text)."""
     data = json.dumps(payload).encode()
@@ -68,8 +86,9 @@ def http_post(url: str, payload: dict, headers: dict, timeout: int = 30) -> tupl
     req.add_header("User-Agent", "gql.py/1.0")
     for k, v in headers.items():
         req.add_header(k, v)
+    ctx = _ssl_context()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
             body = r.read().decode("utf-8", errors="replace")
             try:    parsed = json.loads(body)
             except: parsed = {"_raw": body}
@@ -80,7 +99,13 @@ def http_post(url: str, payload: dict, headers: dict, timeout: int = 30) -> tupl
         except: parsed = {"_raw": body, "_status": e.code}
         return e.code, dict(e.headers), parsed
     except urllib.error.URLError as e:
-        return 0, {}, {"_error": f"connection failed: {e.reason}"}
+        reason = getattr(e, "reason", e)
+        # Surface SSL-specific errors with a hint about --insecure so operators
+        # don't have to decode the stdlib's noisy SSLCertVerificationError repr.
+        hint = ""
+        if isinstance(reason, ssl.SSLError) or "certificate" in str(reason).lower() or "ssl" in str(reason).lower():
+            hint = "  (TLS error — retry with --insecure / -k or GQL_INSECURE=1 to bypass cert verification)"
+        return 0, {}, {"_error": f"connection failed: {reason}{hint}"}
 
 
 def build_headers(args: argparse.Namespace) -> dict:
@@ -644,6 +669,9 @@ def main() -> int:
     ap.add_argument("--job-token", default="", help="CI Job-Token — sets JOB-TOKEN header")
     ap.add_argument("--header",    action="append", help="custom header K:V (repeatable)")
     ap.add_argument("--raw-response", action="store_true", help="print raw JSON response unmodified")
+    ap.add_argument("-k", "--insecure", action="store_true",
+                    default=os.environ.get("GQL_INSECURE", "").lower() in ("1", "true", "yes"),
+                    help="skip TLS certificate verification (curl -k equivalent; env: GQL_INSECURE=1). Use for self-signed / expired / hostname-mismatch lab targets.")
 
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -702,6 +730,15 @@ def main() -> int:
     args = ap.parse_args()
     if not args.url and args.cmd != "raw":
         print(_color("[!] --url required (or set GQL_URL env)", "R"), file=sys.stderr); return 2
+
+    # Apply --insecure / GQL_INSECURE to the module-level switch used by http_post.
+    global _INSECURE_TLS
+    if args.insecure:
+        _INSECURE_TLS = True
+        if args.url.startswith("https://"):
+            print(_color("[!] TLS verification DISABLED (--insecure). Use only against authorized targets.", "Y"),
+                  file=sys.stderr)
+
     try:
         return args.func(args)
     except KeyboardInterrupt:

@@ -11,6 +11,7 @@ GitLab's GraphQL surface is huge (1000+ operations) and the real bugs are in **a
 - **IDOR sweeping** — vary one argument across a list / integer range / GID range, classify responses by error signature
 - **Authz diff** — run the same operation as N identities (admin / regular user / unauth / job-token), diff the responses, flag fields where the low-priv response leaks data the reference doesn't
 - **All auth flavors** — PAT, OAuth Bearer, session cookie, CI Job-Token, custom headers
+- **TLS bypass for lab targets** — `-k` / `--insecure` (or `GQL_INSECURE=1`) skips certificate verification, matching `curl -k` semantics for self-signed / expired / hostname-mismatched endpoints
 
 ## Install
 
@@ -26,6 +27,8 @@ chmod +x gql.py
 # Set common env so you don't repeat them
 export GQL_URL='https://gitlab.example.com/api/graphql'
 export GQL_TOKEN='glpat-XXXXXXXXXXXXXXXX'
+# Lab targets often serve self-signed / expired certs — set this once to skip cert verification:
+export GQL_INSECURE=1                   # or pass -k / --insecure per-invocation
 
 # 1. Pull the schema (cached under .cache/)
 ./gql.py introspect
@@ -177,6 +180,21 @@ If `introspect` returns a 400 with `__schema disabled` errors, you can still:
 - Use the bundled catalog — `./gql.py ls --no-schema` lists 20+ standard ops
 - Use `./gql.py call <op> --no-schema` — sends the request with `String!` typed args. Server type errors will tell you the real expected type, letting you progressively refine.
 - Use the GitLab schema reference file (committed in gitlab.com source) as a local map — no live introspection needed.
+
+## TLS verification
+
+By default `gql.py` verifies the server certificate using the system trust store. To bypass verification (self-signed, expired, hostname mismatch — common on engagement targets and lab boxes):
+
+```bash
+# Per-invocation
+./gql.py -k introspect
+./gql.py --insecure call currentUser
+
+# Or set once for the shell
+export GQL_INSECURE=1
+```
+
+When enabled, you get a one-line warning on stderr (`TLS verification DISABLED`). When disabled and the server's cert fails to verify, the error includes a hint pointing at `-k`. Equivalent to `curl -k`.
 
 ## Tips
 
