@@ -119,6 +119,14 @@ SERVICE_MAP = {
     "mqtt":       ({1883, 8883},                r"^mqtt"),
     "activemq":   ({61616, 8161, 5672, 61613}, r"^(activemq|stomp|amqp)"),
     "jmx":        ({1099, 9999, 9010, 11099},   r"^(java-rmi|jmx|jmxrmi)"),
+    # Container-orchestration APIs added in iteration B. docker_api is the
+    # remote Docker daemon (2375 unauth = direct host RCE — flag as CRITICAL);
+    # 2376 is TLS-authenticated. Kubernetes splits into apiserver (6443 TLS,
+    # 8080 legacy-insecure) and kubelet (10250 — exec without auth in older
+    # configs). Both use a never-match regex because nmap fingerprints them
+    # as generic ssl/http / http; the dispatcher does product-detection.
+    "docker":      ({2375, 2376}, r"a^"),
+    "kubernetes":  ({6443, 8080, 10250, 10255, 10256}, r"a^"),
     # Two XMPP-family categories so dispatchers can route differently:
     # `xmpp` covers the standard server-side protocol ports (c2s, s2s, BOSH/WS,
     # link-local, Openfire file-transfer proxy), while `openfire-admin` flags
