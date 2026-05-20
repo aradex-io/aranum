@@ -101,3 +101,44 @@ ldap_url() {
 
 # Make xargs use the requested parallelism
 xargs_p() { xargs -n1 -P"${ENUM_PARALLEL:-4}" "$@"; }
+
+# ----------------------------------------------------------
+# E.5 + E.6 — proxy + User-Agent helpers for curl callsites
+# ----------------------------------------------------------
+# curl honors HTTPS_PROXY / HTTP_PROXY / ALL_PROXY natively, so no extra
+# argument is required there. We also honor ENUM_PROXY for parity with
+# graphql/gql.py's GQL_PROXY, and ENUM_USER_AGENT for the UA override.
+#
+# Usage from a dispatcher:
+#     curl -ks "$(curl_proxy_arg)" -A "$(curl_ua)" "$url"
+# or with arrays:
+#     extra=(); read -ra extra <<< "$(curl_extra_args)"
+#     curl -ks "${extra[@]}" "$url"
+curl_ua() {
+    # Operator override wins; otherwise fall back to a Chrome-stable string
+    # matching what graphql/gql.py uses by default (consistent fingerprint).
+    if [ -n "${ENUM_USER_AGENT:-}" ]; then
+        printf '%s' "$ENUM_USER_AGENT"
+    else
+        printf '%s' "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    fi
+}
+
+curl_proxy_arg() {
+    # Returns "-x <url>" iff ENUM_PROXY is set (env-fallback to HTTPS_PROXY).
+    # curl's native env honor means we usually don't need to pass anything,
+    # but explicit -x is useful when the operator wants the dispatcher to
+    # ignore conflicting *_PROXY env (e.g. inside a wrapper that sets them).
+    if [ -n "${ENUM_PROXY:-}" ]; then
+        printf -- "-x %s" "$ENUM_PROXY"
+    fi
+}
+
+# Convenience: emit `-A <ua> [-x proxy]` as a single string suitable for
+# `eval`-free word-splitting via `read -ra`. Callers that want full safety
+# should use a bash array directly.
+curl_extra_args() {
+    local ua; ua=$(curl_ua)
+    local proxy; proxy=$(curl_proxy_arg)
+    printf -- "-A %q %s" "$ua" "$proxy"
+}

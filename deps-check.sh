@@ -19,6 +19,27 @@ check() {
     fi
 }
 
+# E.7 — Version-floor check. Compares `printf '%s\n%s\n' "$a" "$b" | sort -V`
+# to determine if the installed version meets the minimum required.
+# Usage: version_floor <name> <binary> <min-version> [version-flag-pattern]
+version_floor() {
+    local name="$1" binary="$2" min="$3" pattern="${4:-[0-9]+\.[0-9]+(\.[0-9]+)?}"
+    command -v "$binary" >/dev/null 2>&1 || return 0  # absence already flagged by check()
+    local installed
+    installed=$("$binary" --version 2>&1 | grep -oE "$pattern" | head -1)
+    if [ -z "$installed" ]; then
+        printf "  ${Y}?${N}  %-22s installed but version not parseable; manual check\n" "$name"
+        return 0
+    fi
+    local lowest
+    lowest=$(printf '%s\n%s\n' "$installed" "$min" | sort -V | head -1)
+    if [ "$lowest" = "$min" ]; then
+        printf "  ${G}>=${N}  %-22s %s (>= %s required)\n" "$name" "$installed" "$min"
+    else
+        printf "  ${R}<${N}  %-22s %s (FLOOR %s — upgrade)\n" "$name" "$installed" "$min"
+    fi
+}
+
 echo "=== REQUIRED ==="
 check python3   req
 check nmap      req
@@ -79,6 +100,31 @@ for mod in socket ssl base64 hashlib hmac urllib.request xml.etree.ElementTree; 
         printf "${R}[!]${N} %-22s (REQUIRED stdlib module missing — broken Python install?)\n" "python3:$mod"
     fi
 done
+
+echo
+echo "=== VERSION FLOORS (iteration E.7) ==="
+echo "Older tool versions miss recent features the dispatchers rely on."
+version_floor "nxc"               nxc               1.2.0
+version_floor "netexec"           netexec           1.2.0
+version_floor "kerbrute"          kerbrute          1.0.3   "v[0-9]+\.[0-9]+\.[0-9]+"
+version_floor "nuclei"            nuclei            3.2.0
+version_floor "ffuf"              ffuf              2.0.0
+version_floor "httpx"             httpx             1.6.0
+version_floor "redis-cli"         redis-cli         7.0.0
+version_floor "mongosh"           mongosh           2.0.0
+# Impacket scripts use the Python package version, not a binary flag:
+if python3 -c "import impacket" 2>/dev/null; then
+    iv=$(python3 -c "import impacket; print(impacket.version.VER_MAJOR if False else impacket.__version__)" 2>/dev/null \
+        || python3 -c "from importlib.metadata import version as v; print(v('impacket'))" 2>/dev/null)
+    if [ -n "$iv" ]; then
+        lowest=$(printf '%s\n%s\n' "$iv" "0.11.0" | sort -V | head -1)
+        if [ "$lowest" = "0.11.0" ]; then
+            printf "  ${G}>=${N}  %-22s %s (>= 0.11.0 required)\n" "impacket" "$iv"
+        else
+            printf "  ${R}<${N}  %-22s %s (FLOOR 0.11.0 — pipx upgrade impacket)\n" "impacket" "$iv"
+        fi
+    fi
+fi
 
 echo
 echo "Install hints (Fedora/Arch/Debian vary):"

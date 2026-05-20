@@ -89,10 +89,11 @@ if [ "${NO_WHATWEB:-0}" != "1" ] && have whatweb; then
 fi
 
 # ---------- 3. curl headers ----------
-log "curl -I (headers only)"
+log "curl -I (headers only, UA=$(curl_ua | head -c 40)...)"
+UA=$(curl_ua)
 while read -r url; do
     safe=$(echo "$url" | sed 's|[:/]|_|g')
-    curl -ksLI --connect-timeout 5 --max-time 10 "$url" \
+    curl -ksLI -A "$UA" --connect-timeout 5 --max-time 10 "$url" \
         > "$OUT/headers_${safe}.txt" 2>&1 || true
 done < "$URLS"
 
