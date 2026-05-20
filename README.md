@@ -5,10 +5,17 @@ Authorized-testing-only collection of privilege escalation enumeration scripts (
 ## Layout
 
 ```
-19MAY/
+aratool/
 ├── windows/        # PowerShell + batch privesc enumeration
 ├── linux/          # Bash privesc enumeration (no-deps + extended)
 ├── network/        # nmap-output parser + service dispatchers
+├── graphql/        # GraphQL toolkit (GitLab-tuned)
+├── activemq/       # ActiveMQ enumeration + targeted CVE PoC
+├── redis/          # Redis quickwin / lateral / RCE helpers
+├── smtp/           # SMTP enumeration + relay / smuggling tests
+├── creds/          # Default-credential sweep
+├── jabber/         # XMPP/Jabber enum + OpenFire CVE-2023-32315 helper
+├── docs/           # CLAUDE.md governance, ADRs, REVIEW + ROADMAP
 └── deps-check.sh   # Verify required tools on attacker box
 ```
 
@@ -59,6 +66,18 @@ Authorized-testing-only collection of privilege escalation enumeration scripts (
 | `network/enum-nfs.sh` | `showmount -e`, no_root_squash detection |
 | `network/enum-dns.sh` | `dig axfr`, `dnsrecon`, reverse lookup |
 | `network/enum-redis.sh` | Unauthenticated `INFO`, `CONFIG GET`, key listing |
+| `network/enum-jabber.sh` | XMPP server enum — banner, cert+SANs, SASL mechs, XEP-0077 advertised?, disco, MUC, BOSH/WS, admin-API exposure |
+
+## Jabber / XMPP (iteration H)
+
+Authorized-testing-only XMPP helpers in `jabber/`. **Read [`docs/ADR-001-19MAY2026-jabber-scope.md`](docs/ADR-001-19MAY2026-jabber-scope.md) and [`jabber/README.md`](jabber/README.md) before use** — they document scope, safety invariants, and the (mandatory typed-FQDN-confirmed + cleanup-required) gating on the only state-modifying tool.
+
+| Tool | Default behavior | Notes |
+|---|---|---|
+| `jabber/jabber-user-enum.py` | SASL response-differential username enum (read-only) | NO XEP-0077 conflict-probe (that creates accounts) |
+| `jabber/jabber-validate.py` | Single-credential SASL validation (SCRAM-SHA-256 → SHA-1 → PLAIN) | NO spray — one user, one password, one attempt |
+| `jabber/jabber-admin-api-probe.sh` | Ejabberd `/api/` + Prosody `mod_admin_telnet` / `mod_admin_web` exposure detection | HEAD/banner only |
+| `jabber/openfire-cve-2023-32315.py` | `detect` default (read-only); `exploit` modifies target state, requires typed-FQDN confirm + operator-supplied JSP plugin; `cleanup` reverses | Lab-verify against vulnerable 4.7.4 container before engagement use |
 
 ## Usage — Network Auto-Enumeration
 

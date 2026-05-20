@@ -65,6 +65,21 @@ else
     printf "[ ] %-22s (optional Python pkg — pip install defusedxml)\n" "defusedxml"
 fi
 
+# Iteration H — jabber/ helpers. Stdlib-only per ADR-001 D4, so no new pip
+# deps; we just sanity-check the system tools the dispatcher leans on.
+echo
+echo "=== JABBER / XMPP (iteration H) ==="
+check nc        rec
+check openssl   rec
+# Python stdlib check — these MUST be importable for jabber-* scripts to run
+for mod in socket ssl base64 hashlib hmac urllib.request xml.etree.ElementTree; do
+    if python3 -c "import $mod" 2>/dev/null; then
+        printf "${G}[+]${N} %-22s (stdlib)\n" "python3:$mod"
+    else
+        printf "${R}[!]${N} %-22s (REQUIRED stdlib module missing — broken Python install?)\n" "python3:$mod"
+    fi
+done
+
 echo
 echo "Install hints (Fedora/Arch/Debian vary):"
 cat <<'EOF'
