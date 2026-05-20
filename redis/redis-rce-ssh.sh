@@ -24,8 +24,10 @@ PUBKEY_INLINE=""
 SSH_USERS="root redis ubuntu admin centos debian ec2-user"  # candidate users to try
 SSH_DIRS=""  # auto-detect if empty
 NO_VERIFY=0
+# shellcheck disable=SC2034  # parsed by --keep; TODO: skip the restore_config step at script end when set
 KEEPALIVE=0
 
+# shellcheck disable=SC2034  # PASS read transitively by _redis_lib.sh's rcmd/rscript; KEEPALIVE: see TODO above
 while [ $# -gt 0 ]; do
     case "$1" in
         --target)     TARGET="$2"; shift 2 ;;

@@ -22,6 +22,7 @@ PASS_LIST=""
 PASS_OVERRIDE=""
 PARALLEL=4
 
+# shellcheck disable=SC2034  # PASS_LIST: parsed but pending wire-through into the per-target cred sweep (TODO)
 while [ $# -gt 0 ]; do
     case "$1" in
         --targets)   TARGETS="$2"; shift 2 ;;
@@ -88,6 +89,7 @@ scan_one() {
                 ver_major=${REDIS_VERSION%%.*}
                 ver_major=${ver_major:-0}
                 dir=$(rcmd CONFIG GET dir | tail -1)
+                # shellcheck disable=SC2034  # collected for the per-host report log line below
                 proc_user=$(rcmd INFO server 2>/dev/null | awk -F: '/process_id|executable/{print $0}')
                 module_capable=0
                 [ "$ver_major" -ge 4 ] && module_capable=1

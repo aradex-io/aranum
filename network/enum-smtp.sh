@@ -32,8 +32,8 @@ probe_one() {
 
     # 4. STARTTLS probe — does the server offer encryption, and what cert?
     if echo "$EHLO_OUT" 2>/dev/null | grep -qi starttls || grep -qi starttls "$d/ehlo.txt"; then
-        echo | timeout 10 openssl s_client -connect "$ip:$port" -starttls smtp -servername "$ip" 2>&1 \
-            > "$d/starttls.txt"
+        echo | timeout 10 openssl s_client -connect "$ip:$port" -starttls smtp -servername "$ip" \
+            > "$d/starttls.txt" 2>&1
     fi
 
     # 5. Open-relay smoke test (single canonical form — relay if accepted)

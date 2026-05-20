@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # _redis_lib.sh — shared helpers for redis-* scripts. Source me, do not exec.
 #
 # Conventions:
@@ -26,6 +27,7 @@ rcmd() {
     local args=()
     [ -n "${PASS:-}" ] && args+=(-a "$PASS" --no-auth-warning)
     timeout 10 redis-cli -h "$HOST" -p "$PORT" "${args[@]}" "$@" 2>&1
+    # shellcheck disable=SC2034  # exported state — read by callers via $?-style check
     RCMD_RC=$?
 }
 
@@ -46,6 +48,7 @@ rscript() {
 #   AUTH_REQUIRED=1/0
 #   AUTHED=1/0     (only meaningful when AUTH_REQUIRED=1)
 #   REDIS_VERSION (e.g. "7.2.4")
+# shellcheck disable=SC2034  # REACHABLE/AUTH_REQUIRED/REDIS_VERSION: exported probe results read by every caller
 probe_redis() {
     REACHABLE=0; AUTH_REQUIRED=0; AUTHED=0; REDIS_VERSION=""
     local out
@@ -67,6 +70,7 @@ probe_redis() {
     esac
 
     if [ "$AUTHED" = 1 ]; then
+        # shellcheck disable=SC2034  # REDIS_VERSION read by every caller
         REDIS_VERSION=$(rcmd INFO server | awk -F: '/^redis_version:/{gsub(/[\r\n]/,"",$2); print $2}')
     fi
     return 0

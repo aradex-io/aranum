@@ -14,6 +14,7 @@ USER="admin"; PASS="admin"
 OUT="./activemq-queues"
 MAX_MSGS=50
 
+# shellcheck disable=SC2034  # MAX_MSGS: parsed but pending wire-through into the browse-queue loop (TODO)
 while [ $# -gt 0 ]; do
     case "$1" in
         --target)    TARGET="$2"; shift 2 ;;

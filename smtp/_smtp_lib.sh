@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # _smtp_lib.sh — shared helpers for smtp-* scripts. Source me.
 
 parse_target() {

@@ -204,13 +204,14 @@ run_dispatcher() {
         return
     fi
     mkdir -p "$svc_out"
-    local t0=$(date +%s)
+    local t0; t0=$(date +%s)
     # Run + capture rc + propagate to tee'd log
     local rc
     bash "$script" --targets "$target_file" --output "$svc_out" \
          2>&1 | tee "$svc_out/_dispatcher.log"
     rc=${PIPESTATUS[0]}
-    local t1=$(date +%s); local elapsed=$((t1 - t0))
+    local t1; t1=$(date +%s)
+    local elapsed=$((t1 - t0))
     run_log "dispatch-end:   $svc rc=$rc elapsed=${elapsed}s"
     if [ "$rc" -eq 0 ]; then
         RUN_OK+=1

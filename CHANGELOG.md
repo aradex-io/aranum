@@ -9,7 +9,13 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.13.0)*
+**Iteration G** of ROADMAP-001 — tests + hardening. Targeting `v0.14.0`.
+
+### Security
+- **G.6 shellcheck-clean baseline:** every `.sh` file now passes `shellcheck -S warning -e SC1091`. Library files (`network/_lib.sh`, `activemq/_activemq_lib.sh`, `redis/_redis_lib.sh`, `smtp/_smtp_lib.sh`) carry a `# shellcheck shell=bash` directive so the lint scope is unambiguous. Genuine bugs fixed: `SC2069` redirect-order in `network/enum-smtp.sh` and `smtp/smtp-quickwin.sh` (the `2>&1` was before the file redirect, so stderr leaked); `SC2155` declare+assign masking return values in `network/auto-enum.sh` and `smtp/smtp-user-enum.sh`; missing `|| exit` after `cd` in `tests/smoke.sh`. Two unused colour vars (`G`, `C`) dropped from `network/autoenum-diff.sh`. Intentional state vars (`REACHABLE`, `AUTH_REQUIRED`, `REDIS_VERSION`, `RCMD_RC`) in `_redis_lib.sh` and word-splitting `$(curl_auth)` callsites in `_activemq_lib.sh`/`activemq-quickwin.sh` carry targeted `# shellcheck disable=…` directives with reasons. Three parsed-but-unwired flags (`MAX_MSGS`, `PASS_LIST`, `KEEPALIVE`) annotated with TODO reasons rather than silently dropped.
+
+### Enhanced
+- `deps-check.sh`: added `shellcheck` under OPTIONAL — install via `pip install shellcheck-py` or distro package.
 
 ---
 

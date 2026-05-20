@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # _lib.sh — shared helpers for enum dispatchers. Source me, don't exec.
 # Expects: ENUM_USER ENUM_PASS ENUM_HASH ENUM_DOMAIN ENUM_DC_IP ENUM_PARALLEL
 

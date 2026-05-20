@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # _activemq_lib.sh — shared helpers for activemq-* scripts. Source me.
 
 # --------------- shared state ---------------
@@ -40,6 +41,7 @@ jolokia_url() { echo "http://$HOST:$PORT/api/jolokia"; }
 # Probe broker version. Returns "X.Y.Z" on stdout, sets BROKER_VERSION
 broker_version() {
     local out
+    # shellcheck disable=SC2046  # curl_auth() emits "-u user:pass" (two tokens); word-splitting is intentional
     out=$(curl -sk -m 5 $(curl_auth) "$(jolokia_url)/read/org.apache.activemq:type=Broker,brokerName=localhost/BrokerVersion" 2>/dev/null)
     BROKER_VERSION=$(echo "$out" | grep -oE '"value":"[0-9.]+"' | head -1 | sed 's/"value":"//; s/"$//')
     echo "$BROKER_VERSION"
@@ -68,6 +70,7 @@ classify_version() {
 # Test Jolokia auth — returns 0 if creds work
 jolokia_auth_works() {
     local code
+    # shellcheck disable=SC2046  # curl_auth() emits "-u user:pass" (two tokens); word-splitting is intentional
     code=$(curl -sk -m 5 -o /dev/null -w '%{http_code}' $(curl_auth) "$(jolokia_url)/version" 2>/dev/null)
     [ "$code" = "200" ]
 }

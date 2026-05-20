@@ -91,6 +91,7 @@ scan_one() {
 
         # Dump Jolokia capability summary if we found working creds
         if [ "$tier" = "CRITICAL" ] && grep -q "$HOST:$PORT" "$OUT/_admin_targets.txt" 2>/dev/null; then
+            # shellcheck disable=SC2046  # curl_auth() emits "-u user:pass" (two tokens); word-splitting is intentional
             curl -sk -m 8 $(curl_auth) "$(jolokia_url)/list" \
                 > "$d/jolokia_list.json" 2>&1
         fi

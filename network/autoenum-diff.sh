@@ -18,8 +18,8 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; C="\033[1;36m"; N="\033[0m"
-[ -t 1 ] || { R=""; G=""; Y=""; C=""; N=""; }
+R="\033[1;31m"; Y="\033[1;33m"; N="\033[0m"
+[ -t 1 ] || { R=""; Y=""; N=""; }
 
 if [ $# -ne 2 ]; then
     echo "usage: $0 <prev-out-dir> <curr-out-dir>"

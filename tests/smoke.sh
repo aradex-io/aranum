@@ -3,7 +3,7 @@
 # No external lab targets — purely syntax / smoke / fixture / security-regression.
 
 set -uo pipefail
-cd /home/jay/Documents/cyber/dev/aratool
+cd /home/jay/Documents/cyber/dev/aratool || exit 2
 
 R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; C="\033[1;36m"; N="\033[0m"
 pass=0; fail=0; skip=0
@@ -121,11 +121,8 @@ done
 # -----------------------------------------------------------------
 section "7. nmap-parse.py — XMPP + OpenFire categories present"
 # -----------------------------------------------------------------
-cats=$(python3 network/nmap-parse.py network/test.xml --json 2>/dev/null \
-       | python3 -c "import json,sys; print(' '.join(sorted(json.load(sys.stdin)['entries'][0]['categories'])))" 2>/dev/null)
-# test.xml has no XMPP — just confirm the category list is in --list-categories
-list_out=$(python3 network/nmap-parse.py network/test.xml --list-categories 2>&1 | head -1)
-# the --list-categories takes input but ignores entries; we just want the output
+# test.xml has no XMPP — just confirm the category list is in --list-categories (output unused —
+# the structural check happens via the importlib block below).
 python3 -c "
 import importlib.util
 spec = importlib.util.spec_from_file_location('m', 'network/nmap-parse.py')

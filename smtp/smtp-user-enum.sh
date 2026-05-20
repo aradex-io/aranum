@@ -69,7 +69,8 @@ log "Method: $METHOD   Target: $HOST:$PORT   Domain: ${DOMAIN:-(bare)}"
 
 # Calibration — first send a known-bad to get the "doesn't exist" response shape
 calibrate() {
-    local bad="nonexistent_xyzzy_$$_$(date +%s%N)"
+    local bad
+    bad="nonexistent_xyzzy_$$_$(date +%s%N)"
     local addr="$bad"
     [ -n "$DOMAIN" ] && addr="${bad}@${DOMAIN}"
     local dialog

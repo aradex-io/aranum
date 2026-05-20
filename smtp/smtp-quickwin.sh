@@ -79,8 +79,8 @@ scan_one() {
 
     # 5. STARTTLS cert
     if [ "$has_starttls" = "1" ]; then
-        echo | timeout 8 openssl s_client -connect "$HOST:$PORT" -starttls smtp -servername "$HOST" 2>&1 \
-            > "$d/starttls.txt"
+        echo | timeout 8 openssl s_client -connect "$HOST:$PORT" -starttls smtp -servername "$HOST" \
+            > "$d/starttls.txt" 2>&1
     fi
 
     # Classify
