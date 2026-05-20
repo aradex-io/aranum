@@ -17,6 +17,16 @@ See `CLAUDE.md` §6 for the entry style guide.
 ### Enhanced
 - `deps-check.sh`: added `shellcheck` under OPTIONAL — install via `pip install shellcheck-py` or distro package.
 
+### Security
+- **G.8 write-gate audit + fixes:** every exploitation helper now honours CLAUDE.md §9 invariant 1 (default = enumeration; mutation requires an explicit gate flag). Audit findings + remediation captured in [REVIEW-002](docs/REVIEW-002-20MAY2026-write-gate-audit.md). Six helpers were in violation at audit start and were fixed in this iteration:
+  - `activemq/activemq-cve-2023-46604.py`: added `--exploit` gate (previously default-fired the OpenWire RCE chain on first invocation).
+  - `activemq/activemq-jolokia-rce.sh`: added `--exploit` gate (previously default-loaded the MBean and ran the command).
+  - `redis/redis-rce-module.sh`: added `--exploit` gate (previously default-chained CONFIG SET + REPLICAOF + MODULE LOAD).
+  - `redis/redis-rce-ssh.sh`: added `--write` gate (previously default-dropped `authorized_keys` via CONFIG SET + SAVE). Gate name is `--write` rather than `--exploit` because the primitive is a file write, not an RCE.
+  - `smtp/smtp-phish-send.sh`: added `--send` gate (previously default-delivered the spoofed message).
+  - `smtp/smtp-smuggling-test.py`: added `--send` gate (previously default-transmitted DATA payloads including the smuggled second-message).
+  Every gate prints a dry-run summary and exits 0 when omitted — no env-var bypass. Per-tool READMEs updated to show the new gate flag in the quickstart examples.
+
 ---
 
 ## [v0.13.0] — 2026-05-19

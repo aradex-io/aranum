@@ -140,12 +140,28 @@ def main() -> int:
     ap.add_argument("--marker",         default=f"PROBE-{int(time.time())}")
     ap.add_argument("--variant",        choices=["bare-lf-dot","bare-cr-dot","lf-lf-dot","dot-stuff","no-final","all"],
                     default="bare-lf-dot")
+    ap.add_argument("--send",           action="store_true",
+                    help="REQUIRED to actually transmit DATA payloads. Without it the script prints "
+                         "what it would send and exits 0. Per CLAUDE.md §9 invariant 1.")
     args = ap.parse_args()
 
     if ":" not in args.target:
         print("error: --target must be host:port"); return 2
     host, port_s = args.target.rsplit(":", 1)
     port = int(port_s)
+
+    if not args.send:
+        variants_dry = ["bare-lf-dot","bare-cr-dot","lf-lf-dot","dot-stuff","no-final"] if args.variant == "all" else [args.variant]
+        print(f"[*] DRY RUN — would probe {host}:{port} for SMTP smuggling")
+        print(f"    envelope-from:    {args.mail_from}")
+        print(f"    envelope-to:      {args.rcpt_to}")
+        print(f"    smuggled-from:    {args.smuggle_from}  (spoofed inside trust boundary)")
+        print(f"    smuggled-to:      {args.smuggle_to}    (where the smuggled msg lands)")
+        print(f"    marker:           {args.marker}")
+        print(f"    variants:         {', '.join(variants_dry)}")
+        print()
+        print("    Re-run with --send to actually transmit the DATA payloads. Authorized testing only.")
+        return 0
 
     variants = ["bare-lf-dot","bare-cr-dot","lf-lf-dot","dot-stuff","no-final"] if args.variant == "all" else [args.variant]
     for v in variants:

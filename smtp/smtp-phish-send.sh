@@ -20,6 +20,7 @@ EXTRA_HEADERS=""
 USE_TLS=0
 AUTH_USER=""
 AUTH_PASS=""
+SEND=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -37,9 +38,10 @@ while [ $# -gt 0 ]; do
         --tls)       USE_TLS=1; shift ;;
         --auth-user) AUTH_USER="$2"; shift 2 ;;
         --auth-pass) AUTH_PASS="$2"; shift 2 ;;
+        --send)      SEND=1; shift ;;
         -h|--help)
             cat <<EOF
-Usage: $0 --target host:port --from x@y --to a@b --subject 'S' --body 'B' [options]
+Usage: $0 --target host:port --from x@y --to a@b --subject 'S' --body 'B' --send [options]
 
 Required:
   --target HOST:PORT
@@ -47,6 +49,8 @@ Required:
   --to     recipient
   --subject
   one of:  --body 'text'  |  --body-file path
+  --send   REQUIRED to actually transmit. Without it the script prints the
+           assembled DATA block and exits 0. Per CLAUDE.md §9 invariant 1.
 
 Optional:
   --from-name 'Display Name'
@@ -70,6 +74,18 @@ parse_target "$TARGET"
 
 if [ -n "$BODY_FILE" ]; then BODY=$(cat "$BODY_FILE"); else BODY="$BODY_TEXT"; fi
 [ -z "$BODY" ] && { err "--body or --body-file required"; exit 1; }
+
+if [ "$SEND" != 1 ]; then
+    log "DRY RUN — would send to $HOST:$PORT"
+    log "  envelope-from:  $FROM_ADDR"
+    log "  envelope-to:    $TO_ADDR"
+    log "  subject:        $SUBJECT"
+    log "  tls:            $USE_TLS    auth-user: ${AUTH_USER:-(none)}"
+    log "  body-size:      ${#BODY} bytes"
+    log ""
+    log "  Re-run with --send to actually transmit. Authorized red-team / phishing-simulation only."
+    exit 0
+fi
 
 # Use swaks if available + TLS/auth requested (handles tricky bits better)
 if [ "$USE_TLS" = "1" ] || [ -n "$AUTH_USER" ]; then

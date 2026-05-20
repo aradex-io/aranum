@@ -26,6 +26,7 @@ SSH_DIRS=""  # auto-detect if empty
 NO_VERIFY=0
 # shellcheck disable=SC2034  # parsed by --keep; TODO: skip the restore_config step at script end when set
 KEEPALIVE=0
+WRITE=0
 
 # shellcheck disable=SC2034  # PASS read transitively by _redis_lib.sh's rcmd/rscript; KEEPALIVE: see TODO above
 while [ $# -gt 0 ]; do
@@ -38,15 +39,19 @@ while [ $# -gt 0 ]; do
         --dirs)       SSH_DIRS="$2"; shift 2 ;;
         --no-verify)  NO_VERIFY=1; shift ;;
         --keep)       KEEPALIVE=1; shift ;;  # leave authorized_keys in place even after run
+        --write)      WRITE=1; shift ;;
         -h|--help)
             cat <<EOF
-Usage: $0 --target <host:port> --key <pubkey-file> [options]
+Usage: $0 --target <host:port> --key <pubkey-file> --write [options]
 
 Required:
   --target IP:PORT        Redis target (e.g. 10.0.0.20:6379)
   --key FILE              path to YOUR ssh public key
    (or)
   --key-inline 'ssh-...'  raw public key string
+  --write                 REQUIRED to actually drop authorized_keys. Without it the
+                          script prints what it would do and exits 0.
+                          Per CLAUDE.md §9 invariant 1.
 
 Options:
   --pass PASSWORD         redis AUTH password
@@ -64,6 +69,15 @@ done
 
 [ -z "$TARGET" ] && { err "--target required"; exit 1; }
 parse_target "$TARGET"
+if [ "$WRITE" != 1 ]; then
+    log "DRY RUN — would attempt to drop pubkey into authorized_keys via CONFIG SET + SAVE on $HOST:$PORT"
+    log "  pubkey-source: ${PUBKEY_FILE:-${PUBKEY_INLINE:+inline}}"
+    log "  users:         $SSH_USERS"
+    log "  dirs:          ${SSH_DIRS:-(auto-detect)}"
+    log ""
+    log "  Re-run with --write to actually mutate the target's filesystem. Authorized testing only."
+    exit 0
+fi
 
 if [ -n "$PUBKEY_FILE" ]; then
     [ ! -r "$PUBKEY_FILE" ] && { err "pubkey not readable: $PUBKEY_FILE"; exit 1; }
