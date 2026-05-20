@@ -14,33 +14,24 @@ IPS=$(ips_only "$TARGETS")
 # ---------- 1. NXC mass cred-check + share listing ----------
 if have nxc || have netexec; then
     NXC=$(command -v nxc || command -v netexec)
-    NXC_ARGS=""
-    if [ -n "${ENUM_USER:-}" ]; then
-        NXC_ARGS+=" -u $ENUM_USER"
-        if [ -n "${ENUM_HASH:-}" ]; then NXC_ARGS+=" -H $ENUM_HASH"
-        elif [ -n "${ENUM_PASS:-}" ]; then NXC_ARGS+=" -p $ENUM_PASS"; fi
-        [ -n "${ENUM_DOMAIN:-}" ] && NXC_ARGS+=" -d $ENUM_DOMAIN"
-    fi
+    NXC_ARGS=()
+    nxc_creds_array NXC_ARGS
 
     log "nxc smb (cred check + shares + pass-pol)"
-    # shellcheck disable=SC2086
-    echo "$IPS" | $NXC smb - $NXC_ARGS --shares --pass-pol --users --groups \
+    echo "$IPS" | "$NXC" smb - "${NXC_ARGS[@]}" --shares --pass-pol --users --groups \
         > "$OUT/nxc_smb_full.txt" 2>&1 || true
 
     # Spider readable shares (auth-only — much faster than unauth flailing)
     if [ -n "${ENUM_USER:-}" ]; then
         log "nxc smb --spider_plus (this can take a while)"
-        # shellcheck disable=SC2086
-        echo "$IPS" | $NXC smb - $NXC_ARGS --spider_plus \
+        echo "$IPS" | "$NXC" smb - "${NXC_ARGS[@]}" --spider_plus \
             > "$OUT/nxc_smb_spider.txt" 2>&1 || true
     fi
 
     log "nxc smb --sessions / --loggedon-users (admin-only)"
-    # shellcheck disable=SC2086
-    echo "$IPS" | $NXC smb - $NXC_ARGS --sessions \
+    echo "$IPS" | "$NXC" smb - "${NXC_ARGS[@]}" --sessions \
         > "$OUT/nxc_smb_sessions.txt" 2>&1 || true
-    # shellcheck disable=SC2086
-    echo "$IPS" | $NXC smb - $NXC_ARGS --loggedon-users \
+    echo "$IPS" | "$NXC" smb - "${NXC_ARGS[@]}" --loggedon-users \
         > "$OUT/nxc_smb_loggedon.txt" 2>&1 || true
 else
     miss "nxc/netexec not installed"
@@ -50,15 +41,14 @@ fi
 if have enum4linux-ng; then
     log "enum4linux-ng per host (parallel=${ENUM_PARALLEL:-4})"
     run_e4l() {
-        ip="$1"
-        out_dir="$OUT/$ip"
+        local ip="$1"
+        local out_dir="$OUT/$ip"
         mkdir -p "$out_dir"
-        local creds=""
+        local creds=()
         if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_PASS:-}" ]; then
-            creds="-u $ENUM_USER -p $ENUM_PASS"
+            creds=(-u "$ENUM_USER" -p "$ENUM_PASS")
         fi
-        # shellcheck disable=SC2086
-        enum4linux-ng -A $creds -oJ "$out_dir/e4l" "$ip" \
+        enum4linux-ng -A "${creds[@]}" -oJ "$out_dir/e4l" "$ip" \
             > "$out_dir/e4l.txt" 2>&1 || true
     }
     export -f run_e4l
@@ -72,12 +62,11 @@ fi
 if have smbmap && [ -n "${ENUM_USER:-}" ]; then
     log "smbmap -H per host"
     run_smbmap() {
-        ip="$1"
-        creds="-u $ENUM_USER"
-        [ -n "${ENUM_PASS:-}" ] && creds+=" -p $ENUM_PASS"
-        [ -n "${ENUM_DOMAIN:-}" ] && creds+=" -d $ENUM_DOMAIN"
-        # shellcheck disable=SC2086
-        smbmap -H "$ip" $creds -R --depth 2 \
+        local ip="$1"
+        local creds=(-u "$ENUM_USER")
+        [ -n "${ENUM_PASS:-}" ]   && creds+=(-p "$ENUM_PASS")
+        [ -n "${ENUM_DOMAIN:-}" ] && creds+=(-d "$ENUM_DOMAIN")
+        smbmap -H "$ip" "${creds[@]}" -R --depth 2 \
             > "$OUT/$ip/smbmap.txt" 2>&1 || true
     }
     export -f run_smbmap

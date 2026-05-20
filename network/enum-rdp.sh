@@ -18,19 +18,15 @@ fi
 # nxc rdp cred spray
 if (have nxc || have netexec) && [ -n "${ENUM_USER:-}" ]; then
     NXC=$(command -v nxc || command -v netexec)
-    NXC_ARGS="-u $ENUM_USER"
-    if [ -n "${ENUM_HASH:-}" ]; then NXC_ARGS+=" -H $ENUM_HASH"
-    elif [ -n "${ENUM_PASS:-}" ]; then NXC_ARGS+=" -p $ENUM_PASS"; fi
-    [ -n "${ENUM_DOMAIN:-}" ] && NXC_ARGS+=" -d $ENUM_DOMAIN"
+    NXC_ARGS=()
+    nxc_creds_array NXC_ARGS
 
     log "nxc rdp (cred check)"
-    # shellcheck disable=SC2086
-    echo "$IPS" | $NXC rdp - $NXC_ARGS > "$OUT/nxc_rdp.txt" 2>&1 || true
+    echo "$IPS" | "$NXC" rdp - "${NXC_ARGS[@]}" > "$OUT/nxc_rdp.txt" 2>&1 || true
 
     # screenshot accepting hosts (requires xfreerdp under the hood)
     log "nxc rdp --screenshot"
-    # shellcheck disable=SC2086
-    echo "$IPS" | $NXC rdp - $NXC_ARGS --screenshot \
+    echo "$IPS" | "$NXC" rdp - "${NXC_ARGS[@]}" --screenshot \
         --screentime 5 > "$OUT/nxc_rdp_screenshot.txt" 2>&1 || true
 fi
 

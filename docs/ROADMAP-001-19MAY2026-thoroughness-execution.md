@@ -14,7 +14,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 
 | Iteration | Theme | Effort | Status | Target version |
 |---|---|---|---|---|
-| **A** | Bug fixes (P0/P1 correctness) | ~1 day | 🟦 in progress | `v0.2.0` |
+| **A** | Bug fixes (P0/P1 correctness) | ~1 day | 🟦 in progress (A.1+A.5 done) | `v0.2.0` |
 | **B** | P0 service-coverage expansion | ~2 days | ⬜ | `v0.3.0` |
 | **C** | P1 service coverage + HTTP depth | ~2 days | ⬜ | `v0.4.0` |
 | **D** | Windows / AD depth | ~2 days | ⬜ | `v0.5.0` |
@@ -43,7 +43,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 
 | | |
 |---|---|
-| **Status** | ⬜ |
+| **Status** | ✅ done 2026-05-19 (commit pending) |
 | **Bug refs** | REVIEW-001 §3.1; prior observation `8321 6:05p` |
 | **Files** | `network/_lib.sh`, `network/enum-smb.sh`, `network/enum-ldap.sh`, `network/enum-mssql.sh`, `network/enum-winrm.sh`, `network/enum-rdp.sh` |
 | **Plan** | Delete broken `nxc_creds()` helper. Add `nxc_creds_array <ARRAY_NAME>` helper using bash nameref (4.3+) that populates a passed-in array. Convert every `NXC_ARGS=""; NXC_ARGS+=" -u $ENUM_USER"` → `nxc_creds_array NXC_ARGS`. Convert every callsite from `$NXC <module> $NXC_ARGS` → `"$NXC" <module> "${NXC_ARGS[@]}"`. Convert the inline `creds="-u $ENUM_USER -p $ENUM_PASS"` patterns in `enum-smb.sh` (smbmap, enum4linux-ng) and `enum-ldap.sh` (ldapsearch) to local arrays. |
@@ -87,7 +87,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 
 | | |
 |---|---|
-| **Status** | ⬜ |
+| **Status** | ✅ done 2026-05-19 — bundled with A.1 commit (same files). Audit findings: enum-ssh.sh (nc + ssh accept bare v6) OK, enum-mssql.sh (nxc + nmap accept bare v6) OK, enum-redis.sh (redis-cli >=7.0 + nc + nmap accept bare v6) OK, enum-winrm.sh (nxc accepts bare v6) OK, enum-rdp.sh (nxc accepts bare v6) OK. Only enum-ldap.sh needed bracketing in the URL form. |
 | **Bug refs** | REVIEW-001 §3.6 |
 | **Files** | `network/enum-ldap.sh`, audit pass on `enum-ssh.sh`, `enum-mssql.sh`, `enum-redis.sh`, `enum-winrm.sh`, `enum-rdp.sh` |
 | **Plan** | Add `ldap_url()` helper in `_lib.sh` that wraps IPv6 in brackets (`ldap://[::1]` vs `ldap://10.0.0.1`). Use it in every `ldap://$ip` callsite in `enum-ldap.sh`. Audit the others — `nc`/`ssh`/`redis-cli` accept bare v6 fine; `nxc` accepts bare v6 fine; `nmap -iL` accepts bare v6 fine. Document findings in commit body. |

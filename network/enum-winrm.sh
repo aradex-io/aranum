@@ -10,21 +10,15 @@ IPS=$(ips_only "$TARGETS")
 
 if have nxc || have netexec; then
     NXC=$(command -v nxc || command -v netexec)
-    NXC_ARGS=""
-    if [ -n "${ENUM_USER:-}" ]; then
-        NXC_ARGS+=" -u $ENUM_USER"
-        if [ -n "${ENUM_HASH:-}" ]; then NXC_ARGS+=" -H $ENUM_HASH"
-        elif [ -n "${ENUM_PASS:-}" ]; then NXC_ARGS+=" -p $ENUM_PASS"; fi
-        [ -n "${ENUM_DOMAIN:-}" ] && NXC_ARGS+=" -d $ENUM_DOMAIN"
-    fi
+    NXC_ARGS=()
+    nxc_creds_array NXC_ARGS
+
     log "nxc winrm (cred check)"
-    # shellcheck disable=SC2086
-    echo "$IPS" | $NXC winrm - $NXC_ARGS > "$OUT/nxc_winrm.txt" 2>&1 || true
+    echo "$IPS" | "$NXC" winrm - "${NXC_ARGS[@]}" > "$OUT/nxc_winrm.txt" 2>&1 || true
 
     if [ -n "${ENUM_USER:-}" ]; then
         log "nxc winrm -x 'whoami /priv' (priv enumeration on accepting hosts)"
-        # shellcheck disable=SC2086
-        echo "$IPS" | $NXC winrm - $NXC_ARGS -x 'whoami /priv && whoami /groups && hostname' \
+        echo "$IPS" | "$NXC" winrm - "${NXC_ARGS[@]}" -x 'whoami /priv && whoami /groups && hostname' \
             > "$OUT/nxc_winrm_whoami.txt" 2>&1 || true
     fi
 else

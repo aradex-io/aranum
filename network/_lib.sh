@@ -59,14 +59,44 @@ ip_port_pairs() {
     done < "$1"
 }
 
-# nxc credential args (echoes nothing if no creds)
-nxc_creds() {
-    local args=""
-    [ -n "${ENUM_USER:-}" ] && args+=" -u '$ENUM_USER'"
-    if [ -n "${ENUM_HASH:-}" ]; then args+=" -H '$ENUM_HASH'"
-    elif [ -n "${ENUM_PASS:-}" ]; then args+=" -p '$ENUM_PASS'"; fi
-    [ -n "${ENUM_DOMAIN:-}" ] && args+=" -d '$ENUM_DOMAIN'"
-    echo "$args"
+# Populate the named bash array with nxc/netexec credential flags built from
+# ENUM_USER/ENUM_PASS/ENUM_HASH/ENUM_DOMAIN. Use this instead of string
+# concatenation — a credential containing quotes/spaces will not break the
+# command line, and there is no eval/word-split surface for an attacker
+# (or for a fat-fingered operator) to exploit.
+#
+# Usage:
+#     local args=()
+#     nxc_creds_array args
+#     "$NXC" smb - "${args[@]}" --shares
+#
+# Requires bash >= 4.3 for namerefs (declare -n).
+nxc_creds_array() {
+    local -n _arr="$1"
+    _arr=()
+    if [ -n "${ENUM_USER:-}" ]; then
+        _arr+=(-u "$ENUM_USER")
+        if   [ -n "${ENUM_HASH:-}" ]; then _arr+=(-H "$ENUM_HASH")
+        elif [ -n "${ENUM_PASS:-}" ]; then _arr+=(-p "$ENUM_PASS")
+        fi
+        [ -n "${ENUM_DOMAIN:-}" ] && _arr+=(-d "$ENUM_DOMAIN")
+    fi
+}
+
+# Build the LDAP URL for a given IP. IPv6 addresses must be bracketed —
+# 'ldap://2001:db8::1' is ambiguous to URL parsers; 'ldap://[2001:db8::1]' is not.
+# Usage:
+#     url=$(ldap_url "$ip")           # ldap://10.0.0.1
+#     url=$(ldap_url "$ip" 636 ldaps) # ldaps://[2001:db8::1]:636
+ldap_url() {
+    local ip="$1"
+    local port="${2:-}"
+    local scheme="${3:-ldap}"
+    local host
+    if [[ "$ip" == *:* ]]; then host="[$ip]"; else host="$ip"; fi
+    if [ -n "$port" ]; then echo "${scheme}://${host}:${port}"
+    else                    echo "${scheme}://${host}"
+    fi
 }
 
 # Make xargs use the requested parallelism
