@@ -15,6 +15,10 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ### Fixed
 - `network/enum-ldap.sh`: IPv6 LDAP server addresses are now bracketed in the `ldap://` URL via new `ldap_url()` helper. Previously `ldap://2001:db8::1` would be parsed ambiguously by `ldapsearch`'s URL handler. v4 callsites unchanged. (REVIEW-001 §3.6)
+- `graphql/gql.py`: `cache_key()` now includes `Cookie` and `JOB-TOKEN` headers (in addition to `PRIVATE-TOKEN` and `Authorization`) in the per-identity cache hash. Two cookie-based or job-token-based sessions against the same URL no longer collide on a single cache file. Anonymous calls still share a single cache entry. (REVIEW-001 §3.3)
+
+### Enhanced
+- `graphql/gql.py loop`: `--range` and `--gid-range` now materialize values lazily via generators. A new `LOOP_HARD_CAP = 1_000_000` ceiling refuses unbounded sweeps (the prior code would build a 10-billion-element Python list and OOM before the first request fired). Pass `--allow-huge` to override. Inverted ranges (hi < lo) now produce a clean error instead of a silent zero-iteration loop. Verified: 2M-element generator stays under 25 MB RSS for partial consumption. (REVIEW-001 §3.4)
 
 ### Added
 - `network/_lib.sh`: `nxc_creds_array <ARRAY_NAME>` helper using bash namerefs (4.3+) to populate credential argv safely.

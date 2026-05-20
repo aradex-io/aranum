@@ -66,7 +66,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 
 | | |
 |---|---|
-| **Status** | ⬜ |
+| **Status** | ✅ done 2026-05-19 |
 | **Bug refs** | REVIEW-001 §3.3 |
 | **Files** | `graphql/gql.py` |
 | **Plan** | In `cache_key()`, expand identity-source string to include `Cookie` and `JOB-TOKEN` headers as well as `PRIVATE-TOKEN` and `Authorization`. Format: `url|hdr1|hdr2|...` with stable ordering. |
@@ -77,7 +77,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 
 | | |
 |---|---|
-| **Status** | ⬜ |
+| **Status** | ✅ done 2026-05-19 |
 | **Bug refs** | REVIEW-001 §3.4 |
 | **Files** | `graphql/gql.py` |
 | **Plan** | Convert `--range` / `--gid-range` materialization from `[str(i) for i in range(lo, hi+1)]` to a generator. Pre-check `hi - lo + 1 > 1_000_000` and exit 2 with hint unless `--allow-huge` was passed. Add `--allow-huge` to the `loop` subparser. The signature-summary at the end already handles streaming because it only tracks counts; verify nothing else collects values. |

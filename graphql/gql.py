@@ -46,7 +46,7 @@ import hashlib
 import time
 import difflib
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 # ---------------------------------------------------------------- paths
 SCRIPT_DIR  = Path(__file__).resolve().parent
@@ -123,9 +123,27 @@ def build_headers(args: argparse.Namespace) -> dict:
 
 
 # =============================================================== Schema cache
+# Every header that materially identifies the calling principal must be folded
+# into the cache key — otherwise two sessions that differ only in cookie or
+# JOB-TOKEN value collide on the same cached schema (older versions did exactly
+# this, defaulting both to the literal string "anon"). Order is fixed so the
+# same identity always hashes to the same key.
+_CACHE_KEY_HEADERS = ("PRIVATE-TOKEN", "Authorization", "Cookie", "JOB-TOKEN")
+
+
 def cache_key(url: str, headers: dict) -> Path:
-    # cache per URL + auth-identity (so different tokens don't collide)
-    ident_src = url + "|" + (headers.get("PRIVATE-TOKEN") or headers.get("Authorization") or "anon")
+    """Cache per URL + auth-identity. Includes every header that distinguishes
+    a principal so cookie / job-token / PAT sessions don't share a cache file."""
+    parts = [url]
+    found_any = False
+    for h in _CACHE_KEY_HEADERS:
+        v = headers.get(h)
+        if v:
+            parts.append(f"{h}={v}")
+            found_any = True
+    if not found_any:
+        parts.append("anon")
+    ident_src = "|".join(parts)
     h = hashlib.sha256(ident_src.encode()).hexdigest()[:16]
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return CACHE_DIR / f"schema_{h}.json"
@@ -510,6 +528,24 @@ def cmd_call(args: argparse.Namespace) -> int:
 
 
 # =============================================================== Subcommand: loop
+# Hard cap on values an unguarded --range / --gid-range will materialize.
+# A typo'd 1-9999999999 used to OOM the process before the first request fired.
+LOOP_HARD_CAP = 1_000_000
+
+
+def _check_range_size(lo: int, hi: int, flag_name: str, allow_huge: bool) -> int:
+    """Validate bounds + size. Returns count. Exits 2 on bad input."""
+    if hi < lo:
+        print(_color(f"[!] {flag_name}: hi ({hi}) < lo ({lo})", "R"), file=sys.stderr); sys.exit(2)
+    count = hi - lo + 1
+    if count > LOOP_HARD_CAP and not allow_huge:
+        print(_color(
+            f"[!] {flag_name} would expand to {count:,} values (> {LOOP_HARD_CAP:,}). "
+            f"Pass --allow-huge if you really mean it.", "R"), file=sys.stderr)
+        sys.exit(2)
+    return count
+
+
 def cmd_loop(args: argparse.Namespace) -> int:
     headers = build_headers(args)
     schema  = load_schema(args.url, headers) if not args.no_schema else None
@@ -519,27 +555,36 @@ def cmd_loop(args: argparse.Namespace) -> int:
         print(_color(f"[!] not found: {args.operation}", "R")); return 1
     kind, op = found
 
-    # Read the values for the varying arg
-    values: list[str] = []
+    # Read the values for the varying arg. --range / --gid-range produce
+    # generators (not lists) so a 100k+ sweep doesn't materialize all values
+    # in memory before the first request fires; the bounds check happens
+    # before the generator is consumed.
+    values: Iterable[str]            # type: ignore[name-defined]
+    total: int | None
     if args.values_file:
-        values = [l.strip() for l in Path(args.values_file).read_text().splitlines() if l.strip() and not l.strip().startswith("#")]
+        vs = [l.strip() for l in Path(args.values_file).read_text().splitlines() if l.strip() and not l.strip().startswith("#")]
+        values, total = vs, len(vs)
     elif args.values:
-        values = args.values
+        values, total = args.values, len(args.values)
     elif args.range:
-        lo, hi = (int(x) for x in args.range.split("-"))
-        values = [str(i) for i in range(lo, hi + 1)]
+        try:    lo, hi = (int(x) for x in args.range.split("-"))
+        except Exception:
+            print(_color("[!] --range form is <lo>-<hi> (integers)", "R")); return 2
+        total = _check_range_size(lo, hi, "--range", args.allow_huge)
+        values = (str(i) for i in range(lo, hi + 1))
     elif args.gid_range:
         # e.g.  --gid-range 'gid://gitlab/Project/100-200'
         m = re.match(r"^(.*)/(\d+)-(\d+)$", args.gid_range)
         if not m: print(_color("[!] --gid-range form is <prefix>/<lo>-<hi>", "R")); return 1
         prefix, lo, hi = m.group(1), int(m.group(2)), int(m.group(3))
-        values = [f"{prefix}/{i}" for i in range(lo, hi + 1)]
+        total = _check_range_size(lo, hi, "--gid-range", args.allow_huge)
+        values = (f"{prefix}/{i}" for i in range(lo, hi + 1))
     else:
         print(_color("[!] one of --values, --values-file, --range, --gid-range required", "R")); return 1
 
     base = parse_kv_args(args.arg)
 
-    print(_color(f"[*] sweeping {args.operation} with {args.vary}=<value> over {len(values)} values", "C"))
+    print(_color(f"[*] sweeping {args.operation} with {args.vary}=<value> over {total} values", "C"))
     print(_color(f"    response classifier: status, error message, data size", "C"))
     print()
     seen_signatures: dict[tuple, int] = {}
@@ -709,6 +754,8 @@ def main() -> int:
     p.add_argument("--depth", type=int, default=2)
     p.add_argument("--delay", type=float, default=0, help="seconds between requests")
     p.add_argument("--no-schema", action="store_true")
+    p.add_argument("--allow-huge", action="store_true",
+                   help=f"override the {LOOP_HARD_CAP:,}-value cap on --range / --gid-range")
     p.set_defaults(func=cmd_loop)
 
     p = sub.add_parser("diff", help="run as multiple identities, diff responses")
