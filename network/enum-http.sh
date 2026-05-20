@@ -160,5 +160,137 @@ if have nikto; then
     fi
 fi
 
+# ---------- 7. Bug-class checks (iteration C — read-only) ----------
+# Six small per-URL probes that don't fit any of the prior tools. Each is
+# best-effort; failure is silent. Operator inspects the per-URL files.
+LIVE_URLS="$OUT/_alive_urls.txt"
+if [ ! -s "$LIVE_URLS" ] && [ -s "$OUT/httpx.txt" ]; then
+    awk '{print $1}' "$OUT/httpx.txt" | sort -u > "$LIVE_URLS"
+fi
+# Fall back to the candidate-URL list if httpx didn't run / found nothing
+[ ! -s "$LIVE_URLS" ] && cp "$URLS" "$LIVE_URLS" 2>/dev/null || true
+
+if [ -s "$LIVE_URLS" ]; then
+    log "iteration-C bug-class probes against $(wc -l < "$LIVE_URLS") URL(s)"
+
+    # ----- C.11 cert + SAN collection (HTTPS only) -----
+    while read -r url; do
+        [ -z "$url" ] && continue
+        [[ "$url" != https://* ]] && continue
+        # Parse host:port from the URL
+        hp=$(echo "$url" | sed -E 's|^https://([^/]+).*|\1|')
+        safe=$(echo "$url" | sed 's|[:/]|_|g')
+        if have openssl; then
+            timeout 8 openssl s_client -connect "$hp" -servername "${hp%%:*}" \
+                -showcerts </dev/null > "$OUT/cert_${safe}.txt" 2>/dev/null || true
+            # Extract SANs into a flat per-URL list
+            awk '/-----BEGIN CERT/{f=1} f{print} /-----END CERT/{f=0; exit}' \
+                "$OUT/cert_${safe}.txt" 2>/dev/null \
+                | openssl x509 -noout -ext subjectAltName 2>/dev/null \
+                | grep -oE 'DNS:[^,[:space:]]+' | sed 's/^DNS://' \
+                > "$OUT/sans_${safe}.txt" 2>/dev/null || true
+        fi
+    done < "$LIVE_URLS"
+    # Aggregate every discovered SAN — feeds vhost-fuzz seeds and DNS pivot
+    cat "$OUT"/sans_*.txt 2>/dev/null | sort -u > "$OUT/_all_sans.txt" || true
+
+    # ----- C.9 exposed VCS / sensitive paths -----
+    declare -a VCS_PATHS=(
+        "/.git/HEAD" "/.git/config" "/.svn/entries" "/.svn/wc.db"
+        "/.hg/store" "/.DS_Store" "/.env" "/.env.local" "/.env.production"
+        "/web.config" "/wp-config.php.bak" "/config.json"
+        "/server-status" "/server-info"
+    )
+    declare -a API_PATHS=(
+        "/api/swagger.json" "/swagger.json" "/openapi.json"
+        "/actuator/health" "/actuator/env" "/actuator/heapdump"
+        "/wp-json/wp/v2/users" "/admin" "/phpmyadmin/" "/manager/html"
+    )
+    while read -r url; do
+        [ -z "$url" ] && continue
+        safe=$(echo "$url" | sed 's|[:/]|_|g')
+        : > "$OUT/exposed_${safe}.txt"
+        for p in "${VCS_PATHS[@]}" "${API_PATHS[@]}"; do
+            code=$(curl -ksI --connect-timeout 4 --max-time 8 \
+                        -o /dev/null -w '%{http_code}' "${url}${p}" 2>/dev/null)
+            [ "$code" = "000" ] && continue
+            # Anything 200/401/403 is interesting; 404 is not.
+            case "$code" in
+                200) hit "EXPOSED: ${url}${p} (HTTP 200)" ; echo "$code  ${url}${p}" >> "$OUT/exposed_${safe}.txt" ;;
+                401|403) echo "$code  ${url}${p}" >> "$OUT/exposed_${safe}.txt" ;;
+            esac
+        done
+    done < "$LIVE_URLS"
+
+    # ----- C.8 CORS misconfig probe -----
+    while read -r url; do
+        [ -z "$url" ] && continue
+        safe=$(echo "$url" | sed 's|[:/]|_|g')
+        evil="https://attacker.example.invalid"
+        hdrs=$(curl -ksI -H "Origin: $evil" --connect-timeout 4 --max-time 8 \
+                    "$url/" 2>/dev/null)
+        echo "$hdrs" > "$OUT/cors_${safe}.txt"
+        # Flag any reflection of the attacker origin
+        if echo "$hdrs" | grep -qi "Access-Control-Allow-Origin: ${evil}"; then
+            if echo "$hdrs" | grep -qi "Access-Control-Allow-Credentials: true"; then
+                err "CRITICAL CORS: $url reflects attacker Origin + ACAC=true"
+            else
+                hit "CORS: $url reflects attacker Origin (no credentials flag)"
+            fi
+        fi
+    done < "$LIVE_URLS"
+
+    # ----- C.7 JWT extraction + weak-alg flag -----
+    # Find anything looking like a JWT in response bodies (header.payload.sig
+    # with base64url-ish segments). Decode the header; flag alg=none / HS256.
+    : > "$OUT/_jwts.txt"
+    while read -r url; do
+        [ -z "$url" ] && continue
+        body=$(curl -ks --connect-timeout 5 --max-time 10 "$url/" 2>/dev/null | head -c 200000)
+        # Greedy match for JWT shape (header.payload.signature)
+        echo "$body" | grep -oE 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}' \
+            | sort -u | while read -r jwt; do
+            hdr=$(echo "$jwt" | cut -d. -f1)
+            # base64url -> base64 (pad)
+            pad=$((4 - ${#hdr} % 4)); [ "$pad" -eq 4 ] && pad=0
+            hdr_b64="${hdr}$(printf '=%.0s' $(seq 1 $pad))"
+            hdr_b64=$(echo "$hdr_b64" | tr '_-' '/+')
+            decoded=$(echo "$hdr_b64" | base64 -d 2>/dev/null)
+            alg=$(echo "$decoded" | grep -oE '"alg":"[^"]+' | head -1 | cut -d'"' -f4)
+            case "$alg" in
+                none|None|NONE)
+                    err "JWT alg=none in $url (forge any token)" ;;
+                HS256|HS384|HS512)
+                    hit "JWT $alg in $url — HMAC; brute the secret with hashcat -m 16500" ;;
+            esac
+            echo "$url  $alg  $jwt" >> "$OUT/_jwts.txt"
+        done
+    done < "$LIVE_URLS"
+
+    # ----- C.10 virtual-host fuzz seed -----
+    # We don't ship a wordlist; we surface the seed (target IP + collected
+    # SANs) so the operator can fire ffuf manually. Sample command goes in
+    # _hints.txt.
+    if [ -s "$OUT/_all_sans.txt" ]; then
+        log "vhost seed: $(wc -l < "$OUT/_all_sans.txt") SAN domain(s) collected — see _hints.txt for ffuf command"
+    fi
+
+    # ----- C.12 micro-wordlist of high-value paths -----
+    # Already covered by the VCS+API list in C.9 above. Skip duplicate work.
+fi
+
+# ---------- 8. iteration-C hints ----------
+cat >> "$OUT/_hints.txt" 2>/dev/null <<'EOF'
+
+iteration-C HTTP follow-ups:
+  * VCS/exposed/admin paths — see exposed_*.txt for HTTP 200/401/403 results.
+  * CORS reflection — see cors_*.txt; ACAC=true + reflected Origin is critical.
+  * JWTs found — see _jwts.txt. alg=none = forge any token; HS* = brute-secret.
+  * Cert SANs aggregated into _all_sans.txt. To virtual-host fuzz:
+      ffuf -u http://<target-ip>/ -H "Host: FUZZ" -w _all_sans.txt -fs <baseline-size>
+EOF
+# If _hints.txt didn't exist, create it minimal so the appender above isn't lost
+[ ! -f "$OUT/_hints.txt" ] && echo "see iteration-C blocks in dispatcher output" > "$OUT/_hints.txt"
+
 rm -f "$URLS"
 log "http dispatcher done."
