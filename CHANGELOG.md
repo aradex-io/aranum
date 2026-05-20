@@ -9,7 +9,31 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.11.0)*
+*(empty — accumulating since v0.12.0)*
+
+---
+
+## [v0.12.0] — 2026-05-19
+
+**Iteration F** of ROADMAP-001 — GraphQL depth probes + transport-layer extras.
+
+### Added
+- `graphql/gql.py suggest` (F.1): field-name harvest from "Did you mean X?" error messages. Walks a 32-guess built-in corpus or `--corpus FILE`. Useful when introspection is disabled — many resolvers still leak schema structure via suggestion errors.
+- `graphql/gql.py apq-probe` (F.3): two-step Apollo Persisted Queries enforcement check. Confirms APQ is implemented, then sends body + forged `sha256Hash` — if server returns data, persisted-query whitelist is bypassable (CRITICAL).
+- `graphql/gql.py csrf-probe` (F.5): `GET /graphql?query={__typename}`. Spec-compliant servers reject (400/405). Servers that accept GET combined with cookie auth = one img/iframe away from arbitrary-query CSRF.
+
+### Enhanced
+- `graphql/gql.py call --batch N` (F.2): send the same body in a JSON array of length N. Tests batched-body gateways for per-request authz / shared-resolver state leakage.
+- `graphql/gql.py call --alias-dos-check --confirm` (F.6): DETECT-ONLY latency growth measurement with N=1,2,4,…,16 aliases of `__typename`. Super-linear growth = missing alias normalization = DoS-amplification surface. Refuses to run without `--confirm`.
+- `graphql/gql.py diff --directive-bypass` (F.4): wraps every field in `@skip(if:$gqlSkip)`; reference profile sets it `false`, others `true`. Detects authz checks that key on AST-presence rather than resolver-execution.
+- `graphql/gql.py raw --batch N` (F.2): same batched-POST semantics for the literal-query subcommand.
+- `graphql/gql.py --proxy URL` (F.7): HTTP/HTTPS/SOCKS proxy via urllib's `ProxyHandler`. Env fallback `GQL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`. SOCKS via `socks5h://` requires PySocks (not a hard dependency).
+- `graphql/gql.py --user-agent / --ua-rotate / GQL_UA` (F.8): default User-Agent changed from `gql.py/1.0` to a Chrome-stable string. `--user-agent gql` re-enables legacy UA; `--user-agent <literal>` overrides; `--ua-rotate FILE` picks a random UA per request.
+
+### Refactored
+- `graphql/gql.py`: `http_post()` now uses `_opener()` (builds urllib opener with proxy + TLS context); `http_get()` added for the CSRF probe. All existing subcommands inherit the new transport behavior unchanged.
+- `tests/smoke.sh`: extended with `v0.12.0` tag check + suggest/apq-probe/csrf-probe smoke against unreachable target.
+- `docs/ROADMAP-001-...`: iteration F marked complete (tag v0.12.0). Overall iteration table reordered to match real ship order (A→H→B→C→F, with E/G/D/I still ⬜). Iteration I added as placeholder for the new user milestone (engineering/science facility internal-pentest protocols — industrial/OT, remote-support, license servers, BMC, hypervisor mgmt, HPC schedulers, lab data services, backup, source/CI, VPN concentrators, print). 40+ candidate protocols listed; ADR-002 required before any code lands.
 
 ---
 

@@ -287,6 +287,30 @@ fi
 rm /tmp/test_route_b.xml
 
 # -----------------------------------------------------------------
+section "10c. Iteration F gql.py subcommands"
+# -----------------------------------------------------------------
+# suggest against unreachable — should print empty harvest, rc=0
+out=$(timeout 8 python3 graphql/gql.py --url http://127.0.0.1:1/graphql suggest --corpus /dev/null 2>&1)
+echo "$out" | grep -q "harvested 0" && p "gql.py suggest: empty corpus, clean exit" \
+                                     || f "gql.py suggest broken"
+# apq-probe against unreachable — rc=0 with the "not implemented" path
+out=$(timeout 5 python3 graphql/gql.py --url http://127.0.0.1:1/graphql apq-probe 2>&1)
+echo "$out" | grep -q "APQ probe" && p "gql.py apq-probe: runs to completion" \
+                                   || f "gql.py apq-probe broken"
+# csrf-probe against unreachable
+out=$(timeout 5 python3 graphql/gql.py --url http://127.0.0.1:1/graphql csrf-probe 2>&1)
+echo "$out" | grep -q "CSRF-via-GET probe" && p "gql.py csrf-probe: runs to completion" \
+                                            || f "gql.py csrf-probe broken"
+# alias-DoS without --confirm refuses
+out=$(timeout 5 python3 graphql/gql.py --url http://127.0.0.1:1/graphql call currentUser --no-schema --alias-dos-check 2>&1)
+echo "$out" | grep -q "requires --confirm" && p "gql.py --alias-dos-check: refuses without --confirm" \
+                                            || f "gql.py --alias-dos-check confirm-gate broken"
+# --proxy flag prints the active-proxy line
+out=$(timeout 3 python3 graphql/gql.py --url http://127.0.0.1:1/graphql --proxy http://127.0.0.1:65535 csrf-probe 2>&1)
+echo "$out" | grep -q "proxy active" && p "gql.py --proxy: stderr warning emitted" \
+                                      || f "gql.py --proxy flag not wired"
+
+# -----------------------------------------------------------------
 section "11. deps-check.sh runs to completion"
 # -----------------------------------------------------------------
 if timeout 30 bash deps-check.sh >/dev/null 2>&1; then
@@ -305,7 +329,7 @@ else
     f "git: working tree dirty: $(git status --porcelain | head -3)"
 fi
 # Tags present
-for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0; do
+for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0; do
     if git tag | grep -qx "$t"; then
         p "git: tag $t present"
     else

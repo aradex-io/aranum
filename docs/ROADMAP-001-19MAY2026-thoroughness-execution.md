@@ -18,10 +18,11 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **H** | **Jabber / XMPP tooling** *(added 2026-05-19; scoped via [ADR-001](ADR-001-19MAY2026-jabber-scope.md))* | ~2 days | ✅ done 2026-05-19 | `v0.9.0` |
 | **B** | P0 service-coverage expansion | ~2 days | ✅ done 2026-05-19 | `v0.10.0` |
 | **C** | P1 service coverage + HTTP depth | ~2 days | ✅ done 2026-05-19 | `v0.11.0` |
-| **D** | Windows / AD depth | ~2 days | ⬜ | `v0.12.0` |
+| **F** | GraphQL depth | ~1 day | ✅ done 2026-05-19 | `v0.12.0` |
 | **E** | Reporting & ergonomics | ~1.5 days | ⬜ | `v0.13.0` |
-| **F** | GraphQL depth | ~1 day | ⬜ | `v0.14.0` |
-| **G** | Tests + hardening | ~1 day | ⬜ | `v0.15.0` |
+| **G** | Tests + hardening | ~1 day | ⬜ | `v0.14.0` |
+| **D** | Windows / AD depth | ~2 days | ⬜ (deferred — operator preference) | `v0.15.0` |
+| **I** | **Internal-pentest protocol expansion** *(added 2026-05-19; engineering/science facility focus)* | ~3 days | ⬜ (placeholder — needs scope ADR) | `v0.16.0` |
 
 **Note on version mapping** (corrected 2026-05-19): the original roadmap aspired to map iteration A→v0.2.0, B→v0.3.0, etc. Reality: iteration H was prioritized ahead of B–G and shipped as v0.9.0, after which semver's monotonic-increase requirement means subsequent iterations occupy `v0.10.0+`. The iteration identity is preserved in commit messages and CHANGELOG sections; the version-to-iteration mapping is no longer 1:1 with the alphabetical letter.
 
@@ -276,20 +277,22 @@ Tag `v0.6.0`.
 
 ## Iteration F — GraphQL depth
 
+**Completed:** 2026-05-19 — tag `v0.12.0`
+
 **Prerequisites:** A (A.3 + A.4 already touch gql.py).
 
 **Deliverables:**
 
 | Item | Scope | Files | Status |
 |---|---|---|---|
-| F.1 | Field-suggestion harvest when introspection disabled | `graphql/gql.py` (new subcommand `suggest`) | ⬜ |
-| F.2 | Batched-query support (`[{query:...}, ...]`) | `graphql/gql.py` (`--batch` on `call`/`raw`) | ⬜ |
-| F.3 | Persisted-query bypass probe (APQ) | `graphql/gql.py` (new subcommand `apq-probe`) | ⬜ |
-| F.4 | `@skip` / `@include` directive abuse helper | `graphql/gql.py` (`--directive-bypass` on `diff`) | ⬜ |
-| F.5 | CSRF-via-GET probe | `graphql/gql.py` (new subcommand `csrf-probe`) | ⬜ |
-| F.6 | Alias-DoS detection (latency growth measurement; detect-only) | `graphql/gql.py` (`--alias-dos-check` on `call`) | ⬜ |
-| F.7 | SOCKS proxy support | shared with E.5 | ⬜ |
-| F.8 | User-Agent flag + rotation | shared with E.6 | ⬜ |
+| F.1 | Field-suggestion harvest when introspection disabled | `graphql/gql.py` (new subcommand `suggest`) | ✅ done 2026-05-19 |
+| F.2 | Batched-query support (`[{query:...}, ...]`) | `graphql/gql.py` (`--batch` on `call`/`raw`) | ✅ done 2026-05-19 |
+| F.3 | Persisted-query bypass probe (APQ) | `graphql/gql.py` (new subcommand `apq-probe`) | ✅ done 2026-05-19 |
+| F.4 | `@skip` / `@include` directive abuse helper | `graphql/gql.py` (`--directive-bypass` on `diff`) | ✅ done 2026-05-19 |
+| F.5 | CSRF-via-GET probe | `graphql/gql.py` (new subcommand `csrf-probe`) | ✅ done 2026-05-19 |
+| F.6 | Alias-DoS detection (latency growth measurement; detect-only) | `graphql/gql.py` (`--alias-dos-check` on `call`) | ✅ done 2026-05-19 |
+| F.7 | SOCKS proxy support | `graphql/gql.py --proxy` + env | ✅ done 2026-05-19 |
+| F.8 | User-Agent flag + rotation | `graphql/gql.py --user-agent / --ua-rotate / GQL_UA` | ✅ done 2026-05-19 |
 
 Tag `v0.7.0`.
 
@@ -371,6 +374,149 @@ Tag `v0.9.0`.
 ### Out of scope for H (recorded by ADR-001)
 
 Cisco UC stack, SIP/voice telephony, modern team chat, password spray, CVE-2023-32315 persistence variant, server-to-server SSRF reconnaissance. Any of these would need a fresh ADR before being added.
+
+---
+
+## Iteration I — Internal-pentest protocol expansion *(added 2026-05-19)*
+
+**Origin:** user milestone — "RemoteAnywhere — add any protocols that may be faced on an internal network pentest of a large engineering and science facility."
+
+**Why:** the dispatchers shipped through v0.12.0 cover the modern cloud-native + Windows-AD surface well, but engineering and science facilities have a distinct protocol stack: industrial/OT control systems, scientific-instrument license servers, remote-support tools, HPC schedulers, lab-bench RDP-alternatives, and out-of-band hardware management. None of these are covered yet.
+
+**Status:** placeholder — needs ADR-002 before sequencing. The candidate list below is for scope conversation, not commitment.
+
+**Candidate protocol surface (clustered by category):**
+
+### I-A. Industrial / OT (read-only probing — these systems often have NO auth at all)
+| Service | Default ports | Notes |
+|---|---|---|
+| Modbus TCP | 502 | Function 17 (Report Slave ID) discloses device family; many PLCs have no native auth |
+| Siemens S7comm | 102 | TPKT + COTP wrapper; CPU model + firmware version via job-request |
+| EtherNet/IP | 44818 (TCP/UDP), 2222 (UDP I/O) | Rockwell / Allen-Bradley CIP — `List Identity` UDP broadcast |
+| BACnet/IP | 47808/udp | Building automation; `Who-Is` broadcast lists every device |
+| OPC UA | 4840 | Modern industrial; supports nmap `opcua-info` |
+| DNP3 | 20000 | SCADA telecontrol; unauth `link-status` reveals master/outstation |
+| IEC 61850 MMS | 102 (shared with S7) | Electrical substations |
+| IEC 60870-5-104 | 2404 | European SCADA — energy grids |
+| Modbus RTU-over-TCP | 8502 | Less common variant |
+
+### I-B. Remote support / screen sharing
+| Service | Default ports | Notes |
+|---|---|---|
+| TeamViewer | 5938 (tcp) | Cloud-relay; rarely server-side, mostly outbound — banner check |
+| AnyDesk | 7070 (mgmt), 6568 (legacy) | Same — mostly outbound |
+| ScreenConnect / ConnectWise Control | 8040, 8041 | Server is on-prem — admin panel + relay |
+| NoMachine | 4000 (tcp) | NX protocol — handshake banner |
+| ICA / Citrix | 1494, 2598 (Session Reliability), 80/443 (StoreFront) | ICA-browser UDP enum |
+| Microsoft RDWeb | 443/RDWeb/Pages | RD Web Access portal — pre-auth user enum on poor configs |
+| RustDesk | 21115-21119 | Open-source remote desktop |
+| pcAnywhere | 5631 (data), 5632 (status) | Legacy but still found |
+| GoToMyPC / RemoteAnywhere | cloud-relay | Mostly outbound — domain-name + cert inspection only |
+
+### I-C. License servers (characteristic of engineering/science labs)
+| Service | Default ports | Notes |
+|---|---|---|
+| FlexNet Publisher (FLEXlm) | 27000-27009 (lmgrd), 27010-27999 (vendor daemons) | `lmstat -a` discloses every licensed product + user; common on MATLAB, Cadence, Synopsys, Ansys, COMSOL hosts |
+| Sentinel HASP/LM | 1947 | `hasplm -ms` — discloses vendor licenses, sometimes pre-auth admin UI |
+| IBM LUM | 4660 | Lotus / IBM legacy |
+| Reprise RLM | 5053 | Newer FLEXlm-alternative |
+| LabVIEW VI Server | 3363 | Stack overflow CVEs + VI execution if exposed |
+
+### I-D. Out-of-band BMC (paired with the IPMI dispatcher from B.7)
+| Service | Default ports | Notes |
+|---|---|---|
+| HPE iLO | 17988 (legacy), 443 (modern web) | Default creds (Administrator/random — but printed on the chassis sticker) |
+| Dell iDRAC | 443 (web), 5900 (vKVM via VNC), 5901, 5902, 5903, 5904 | Default root/calvin |
+| Supermicro IPMI / BMC | 443, 5900 | Default ADMIN/ADMIN |
+| Lenovo XCC / IMM | 443, 5900 | Default USERID/PASSW0RD |
+| Cisco CIMC | 443 | Default admin/password |
+
+### I-E. Hypervisor / virtualization management
+| Service | Default ports | Notes |
+|---|---|---|
+| VMware ESXi | 902, 443, 8000 (vSphere) | Pre-auth CVEs (Log4Shell-adjacent, ESXiArgs ransomware vector via OpenSLP 427) |
+| vCenter | 443, 5480 (VAMI), 7444 (legacy STS) | vCenter SSO bypasses + Log4Shell era |
+| Proxmox VE | 8006 | Pre-auth /api2/json/version |
+| oVirt / RHV | 443 (web), 8443 | Default admin |
+| XenServer / XCP-ng | 443 | XenAPI |
+| Nutanix Prism | 9440 | Default admin/nutanix/4u |
+| OpenStack Horizon | 80/443/5000 (Keystone) | Default admin / well-known passwords in lab installs |
+
+### I-F. HPC scheduler / cluster management
+| Service | Default ports | Notes |
+|---|---|---|
+| Slurm slurmctld | 6817 (mgr), 6818 (compute slurmd) | `sacctmgr show` discloses every user + account |
+| PBS / Torque | 15001-15005 | `qmgr -c 'list server'` |
+| Univa / Sun Grid Engine | 6444 (qmaster), 6445 (execd) | `qconf -spl` lists projects |
+| HTCondor | 9618 | `condor_status` lists every machine |
+| Spark master UI | 8080, 7077 | Often unauth |
+| HDFS NameNode | 8020, 50070 (legacy), 9870 (modern) | Unauth /jmx + /webhdfs |
+| YARN ResourceManager | 8088 | Pre-auth RCE in Hadoop versions |
+
+### I-G. Scientific / lab data services
+| Service | Default ports | Notes |
+|---|---|---|
+| DICOM | 104, 11112 | C-FIND / C-STORE unauth on many imaging modalities |
+| HL7 MLLP | 2575, 6661 | Healthcare data exchange |
+| LDAP for instrument inventory | 389/636 — already covered |
+| Splunk | 8000 (web), 8089 (mgmt API) | Default admin/changeme on lab Splunk installs |
+| Grafana | 3000 | admin/admin default; CVE-2021-43798 path traversal |
+| InfluxDB | 8086 | Pre-1.x had no auth by default |
+| Zabbix | 10050 (agent), 10051 (server), 80/443 (web) | Admin/zabbix default; SQLi CVEs |
+| Nagios NRPE | 5666 | Pre-auth RCE in 3.x via $ARG1 |
+
+### I-H. Backup infrastructure (high-value lateral)
+| Service | Default ports | Notes |
+|---|---|---|
+| Veeam B&R | 9392 (REST), 10001-10006 | Multiple high CVEs 2023-2024 — pre-auth RCE chains |
+| CommVault | 8400, 81 | Pre-auth RCE in commserve API |
+| Veritas NetBackup | 1556, 13724 | bpcd CVE-2017-15743 era |
+
+### I-I. Source / CI infrastructure (often misconfigured in lab DevOps)
+| Service | Default ports | Notes |
+|---|---|---|
+| Jenkins | 8080, 50000 (JNLP), 8443 | Anon "Overall/Read" frequently left enabled; classic Java RCE |
+| Gerrit | 29418 (SSH), 8080 | Anon `gerrit ls-projects` |
+| Bamboo / Confluence / Jira | 8085, 8090, 8080 | Atlassian's perennial RCE parade |
+
+### I-J. VPN concentrators (the way in / the way around)
+| Service | Default ports | Notes |
+|---|---|---|
+| Cisco AnyConnect / ASA | 443 (WebVPN) | CVE-2020-3187, CVE-2023-20198 cascade |
+| Pulse Secure / Ivanti | 443 | CVE-2024-21887 + CVE-2023-46805 |
+| Fortinet SSL VPN | 443, 10443 | CVE-2022-42475 |
+| Palo Alto GlobalProtect | 443 | CVE-2024-3400 |
+| OpenVPN | 1194/udp, 443/tcp | Mostly mTLS — banner only |
+| WireGuard | 51820/udp | Stealthy by design — no banner |
+| PPTP/L2TP/IPsec | 1723, 500/4500/udp | Legacy enum |
+
+### I-K. Print servers (forgotten but rich in creds)
+| Service | Default ports | Notes |
+|---|---|---|
+| IPP / IPPS | 631, 443 | `ipp-detect-server-version` |
+| JetDirect | 9100 | Direct-print, PJL info commands disclose firmware |
+| LPD | 515 | Banner |
+| Print server admins | 80/443 | Lexmark / Xerox / HP web consoles — default creds common |
+
+### Open scope questions for ADR-002:
+
+1. **OT scope safety**: probing Modbus/S7/DNP3/IEC 60870-5 on a LIVE control system can crash production PLCs even with "read-only" function codes. Acceptable mitigations: dispatcher requires `--ot-confirm` flag + a documented engagement-window restriction. Or: split OT dispatchers into a separate top-level dir (`ot/` not `network/`) so they're not auto-routed by `auto-enum.sh`.
+
+2. **License-server cred-disclosure**: FLEXlm `lmstat -a` is unauth and discloses every user with a checked-out license. Useful intel but technically "engaging" the service. We probably treat as enum (same as `nxc smb -u guest`).
+
+3. **VPN concentrator probing**: most of the high-value VPN findings are vendor-specific CVE check (Pulse/Ivanti, Fortinet, Palo Alto). Do we bundle Nuclei templates for these (already partly covered by enum-http.sh nuclei phase) or build dedicated probes?
+
+4. **Cisco UC stack** (mentioned in ADR-001 D1 as deferred) — does it belong in I-B (remote support adjacent: Jabber-over-CUCM) or stay deferred to its own iteration? Recommendation: keep deferred; it's a deep separate domain.
+
+5. **Stop-list**: Iteration I should be scoped enough to ship in ~3 days. Categories I-A through I-K total ~40 candidate protocols. Realistic v0.16.0 ship: probably the top 12-15 by engagement-frequency. ADR-002 should pick them.
+
+### Out-of-scope for I (decline up front)
+
+- Active exploitation of OT systems (write-side Modbus function codes, PLC code download, etc.) — never. Even with operator confirmation. The blast radius is too large.
+- Default-cred brute-force against BMC at scale — single-cred validation only, same policy as Jabber (ADR-001 D2). `creds/default-creds-sweep.py` already exists for vendor-default sweeps and is the right place for that work.
+- Anything that modifies HPC scheduler state (submit jobs, cancel jobs).
+
+**Pre-execution requirement:** `docs/ADR-002-<DATE>-internal-pentest-scope.md` resolving questions 1–5 and committing to a top-12-15 protocol list for v0.16.0. Operator approves before code lands.
 
 ---
 
