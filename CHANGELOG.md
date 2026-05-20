@@ -9,15 +9,13 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-**Iteration G** of ROADMAP-001 — tests + hardening. Targeting `v0.14.0`.
+*(empty — accumulating since v0.14.0)*
 
-### Security
-- **G.6 shellcheck-clean baseline:** every `.sh` file now passes `shellcheck -S warning -e SC1091`. Library files (`network/_lib.sh`, `activemq/_activemq_lib.sh`, `redis/_redis_lib.sh`, `smtp/_smtp_lib.sh`) carry a `# shellcheck shell=bash` directive so the lint scope is unambiguous. Genuine bugs fixed: `SC2069` redirect-order in `network/enum-smtp.sh` and `smtp/smtp-quickwin.sh` (the `2>&1` was before the file redirect, so stderr leaked); `SC2155` declare+assign masking return values in `network/auto-enum.sh` and `smtp/smtp-user-enum.sh`; missing `|| exit` after `cd` in `tests/smoke.sh`. Two unused colour vars (`G`, `C`) dropped from `network/autoenum-diff.sh`. Intentional state vars (`REACHABLE`, `AUTH_REQUIRED`, `REDIS_VERSION`, `RCMD_RC`) in `_redis_lib.sh` and word-splitting `$(curl_auth)` callsites in `_activemq_lib.sh`/`activemq-quickwin.sh` carry targeted `# shellcheck disable=…` directives with reasons. Three parsed-but-unwired flags (`MAX_MSGS`, `PASS_LIST`, `KEEPALIVE`) annotated with TODO reasons rather than silently dropped.
+---
 
-### Enhanced
-- `deps-check.sh`: added `shellcheck` under OPTIONAL — install via `pip install shellcheck-py` or distro package.
-- **G.7 `--throttle` mode for sensitive environments:** `network/auto-enum.sh --throttle` sets gentle defaults for OT/legacy/lab targets — `ENUM_PARALLEL=1`, `NUCLEI_RATE=20`, `NO_FFUF=1`, `NO_NIKTO=1`, and exports `ENUM_THROTTLE=1` so dispatchers can opt in. **Operator CLI args win over `--throttle` defaults** — `--throttle -P 8` keeps `-P 8` and prints a "operator-explicit; --throttle did not override" line so the precedence is visible. `--throttle --dry-run` previews the effective environment without scanning (the smoke-test interface). `network/_lib.sh`: new helpers `throttle_delay()` (returns the inter-host pause in seconds, default 1, override via `ENUM_THROTTLE_DELAY`), `throttle_sleep()` (no-op when off), and `throttle_nmap_args()` (returns `-T2` under throttle, empty otherwise — use as `nmap $(throttle_nmap_args) ...`).
-- `tests/smoke.sh`: extended with throttle-precedence stanza (11b) and write-gate dry-run assertions for every helper that gained a gate in G.8 (11c).
+## [v0.14.0] — 2026-05-20
+
+**Iteration G** of ROADMAP-001 — tests + hardening.
 
 ### Added
 - **G.1 service banner fixtures:** `tests/fixtures/services/` — five synthetic nmap-XML fixtures exercising routing for every category in `SERVICE_MAP` (`all-services.xml`), IPv6 bracketing semantics (`ipv6-host.xml`), the documented dual-routing of openfire-admin on 9090 vs the generic http category (`openfire-vs-http-collision.xml`), closed/filtered port filtering (`closed-and-filtered.xml`), and the unknown-bucket fallthrough (`unknown-service.xml`). All synthetic — no real-target captures.
@@ -26,7 +24,13 @@ See `CLAUDE.md` §6 for the entry style guide.
 - **G.4 `Makefile`:** convenience targets `test` (lint + unittest + smoke), `lint` (shellcheck), `unittest` (`unittest discover`), `smoke` (`tests/smoke.sh`), `deps-check`, `clean`, `help`. `make help` is the default target.
 - **G.5 GitHub Actions CI:** `.github/workflows/ci.yml` — on push + PR to `main`. Installs Python 3.11 + shellcheck (apt) + defusedxml, then runs `make lint && make unittest && make smoke`. `fetch-tags: true` so the smoke test's `git tag` presence check works on CI.
 
+### Enhanced
+- **G.7 `--throttle` mode for sensitive environments:** `network/auto-enum.sh --throttle` sets gentle defaults for OT/legacy/lab targets — `ENUM_PARALLEL=1`, `NUCLEI_RATE=20`, `NO_FFUF=1`, `NO_NIKTO=1`, and exports `ENUM_THROTTLE=1` so dispatchers can opt in. **Operator CLI args win over `--throttle` defaults** — `--throttle -P 8` keeps `-P 8` and prints a "operator-explicit; --throttle did not override" line so the precedence is visible. `--throttle --dry-run` previews the effective environment without scanning (the smoke-test interface). `network/_lib.sh`: new helpers `throttle_delay()` (returns the inter-host pause in seconds, default 1, override via `ENUM_THROTTLE_DELAY`), `throttle_sleep()` (no-op when off), and `throttle_nmap_args()` (returns `-T2` under throttle, empty otherwise — use as `nmap $(throttle_nmap_args) ...`).
+- `tests/smoke.sh`: extended with throttle-precedence stanza (11b) and write-gate dry-run assertions for every helper that gained a gate in G.8 (11c).
+- `deps-check.sh`: added `shellcheck` under OPTIONAL — install via `pip install shellcheck-py` or distro package.
+
 ### Security
+- **G.6 shellcheck-clean baseline:** every `.sh` file now passes `shellcheck -S warning -e SC1091`. Library files (`network/_lib.sh`, `activemq/_activemq_lib.sh`, `redis/_redis_lib.sh`, `smtp/_smtp_lib.sh`) carry a `# shellcheck shell=bash` directive so the lint scope is unambiguous. Genuine bugs fixed: `SC2069` redirect-order in `network/enum-smtp.sh` and `smtp/smtp-quickwin.sh` (the `2>&1` was before the file redirect, so stderr leaked); `SC2155` declare+assign masking return values in `network/auto-enum.sh` and `smtp/smtp-user-enum.sh`; missing `|| exit` after `cd` in `tests/smoke.sh`. Two unused colour vars (`G`, `C`) dropped from `network/autoenum-diff.sh`. Intentional state vars (`REACHABLE`, `AUTH_REQUIRED`, `REDIS_VERSION`, `RCMD_RC`) in `_redis_lib.sh` and word-splitting `$(curl_auth)` callsites in `_activemq_lib.sh`/`activemq-quickwin.sh` carry targeted `# shellcheck disable=…` directives with reasons. Three parsed-but-unwired flags (`MAX_MSGS`, `PASS_LIST`, `KEEPALIVE`) annotated with TODO reasons rather than silently dropped.
 - **G.8 write-gate audit + fixes:** every exploitation helper now honours CLAUDE.md §9 invariant 1 (default = enumeration; mutation requires an explicit gate flag). Audit findings + remediation captured in [REVIEW-002](docs/REVIEW-002-20MAY2026-write-gate-audit.md). Six helpers were in violation at audit start and were fixed in this iteration:
   - `activemq/activemq-cve-2023-46604.py`: added `--exploit` gate (previously default-fired the OpenWire RCE chain on first invocation).
   - `activemq/activemq-jolokia-rce.sh`: added `--exploit` gate (previously default-loaded the MBean and ran the command).

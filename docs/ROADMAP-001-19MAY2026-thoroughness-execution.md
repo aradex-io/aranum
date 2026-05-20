@@ -20,7 +20,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **C** | P1 service coverage + HTTP depth | ~2 days | ✅ done 2026-05-19 | `v0.11.0` |
 | **F** | GraphQL depth | ~1 day | ✅ done 2026-05-19 | `v0.12.0` |
 | **E** | Reporting & ergonomics | ~1.5 days | ✅ done 2026-05-19 | `v0.13.0` |
-| **G** | Tests + hardening | ~1 day | ⬜ | `v0.14.0` |
+| **G** | Tests + hardening | ~1 day | ✅ done 2026-05-20 | `v0.14.0` |
 | **D** | Windows / AD depth | ~2 days | ⬜ (deferred — operator preference) | `v0.15.0` |
 | **I** | **Internal-pentest protocol expansion** *(added 2026-05-19; engineering/science facility focus)* | ~3 days | ⬜ (placeholder — needs ADR-002) | `v0.16.0` |
 
@@ -308,16 +308,16 @@ Tag `v0.7.0`.
 
 | Item | Scope | Files | Status |
 |---|---|---|---|
-| G.1 | `tests/fixtures/services/` captured banners per service | new | ⬜ |
-| G.2 | `tests/test_nmap_parse.py` unit tests | new | ⬜ |
-| G.3 | `tests/test_gql_query_builder.py` over a tiny schema | new | ⬜ |
-| G.4 | `Makefile` with `test`, `lint`, `deps-check` targets | new | ⬜ |
-| G.5 | CI config (GitHub Actions YAML or equivalent) | `.github/workflows/ci.yml` (or note for portability) | ⬜ |
-| G.6 | `shellcheck` lint pass — fix anything not silenced with a justification | all `.sh` files | ⬜ |
-| G.7 | `--throttle` mode for sensitive environments | `network/auto-enum.sh`, `_lib.sh` | ⬜ |
-| G.8 | Engagement-scoped-write audit (CLAUDE.md §9 invariant 1) — confirm `--write` gates | `redis/`, `activemq/`, `smtp/` | ⬜ |
+| G.1 | `tests/fixtures/services/` synthetic nmap-XML banners per service | new | ✅ done 2026-05-20 |
+| G.2 | `tests/test_nmap_parse.py` unit tests (19 tests) | new | ✅ done 2026-05-20 |
+| G.3 | `tests/test_gql_internals.py` — pure-function tests for gql.py (28 tests; renamed from `test_gql_query_builder.py` because the testable seams are `cache_key`, `_check_range_size`, `type_str`, `unwrap`, `type_by_name`, `parse_kv_args`, `build_selection` — not an abstraction we'd invent) | new | ✅ done 2026-05-20 |
+| G.4 | `Makefile` with `test`, `lint`, `unittest`, `smoke`, `deps-check`, `clean`, `help` targets | `Makefile` | ✅ done 2026-05-20 |
+| G.5 | CI config — GitHub Actions YAML, lint + unittest + smoke on push/PR to main | `.github/workflows/ci.yml` | ✅ done 2026-05-20 |
+| G.6 | `shellcheck -S warning -e SC1091` clean across every `.sh`; SC2069/SC2155/SC2164 real-bug fixes; SC2034/SC2046 disables annotated with reasons | all `.sh` files | ✅ done 2026-05-20 |
+| G.7 | `--throttle` mode for sensitive environments; operator-explicit CLI wins over throttle defaults; `throttle_delay()` / `throttle_sleep()` / `throttle_nmap_args()` helpers in `_lib.sh` | `network/auto-enum.sh`, `network/_lib.sh` | ✅ done 2026-05-20 |
+| G.8 | Engagement-scoped-write audit (CLAUDE.md §9 invariant 1); 6 helpers gained explicit `--exploit` / `--write` / `--send` gates; findings + methodology in [REVIEW-002](REVIEW-002-20MAY2026-write-gate-audit.md) | `activemq/`, `redis/`, `smtp/`, `docs/` | ✅ done 2026-05-20 |
 
-Tag `v0.8.0`. After this iteration, consider whether interfaces are stable enough for `v1.0.0`.
+Tagged `v0.14.0` (corrected from the stale `v0.8.0` text — see [Overall status](#overall-status) version-mapping note). After this iteration, interfaces are reasonably stable but still pre-1.0 because of pending D (Windows/AD depth) and I (engineering-facility protocols).
 
 ---
 
