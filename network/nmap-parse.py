@@ -119,6 +119,15 @@ SERVICE_MAP = {
     "mqtt":       ({1883, 8883},                r"^mqtt"),
     "activemq":   ({61616, 8161, 5672, 61613}, r"^(activemq|stomp|amqp)"),
     "jmx":        ({1099, 9999, 9010, 11099},   r"^(java-rmi|jmx|jmxrmi)"),
+    # P1 services added in iteration C. Memcached (11211) is unauth by default
+    # and frequently world-reachable. RabbitMQ mgmt (15672) ships with the
+    # famous guest/guest default. CouchDB (5984/6984) has CVE-2017-12635 +
+    # CVE-2022-24706 chains. etcd (2379) holds the entire k8s control-plane
+    # secret store on misconfigured clusters.
+    "rabbitmq":    ({5672, 15672, 15671, 5671}, r"^(amqp|rabbitmq)"),
+    "memcached":   ({11211},                    r"^memcached"),
+    "couchdb":     ({5984, 6984},               r"a^"),  # nmap fingerprints as http
+    "etcd":        ({2379, 2380},               r"a^"),  # nmap fingerprints as ssl/http or http
     # Container-orchestration APIs added in iteration B. docker_api is the
     # remote Docker daemon (2375 unauth = direct host RCE — flag as CRITICAL);
     # 2376 is TLS-authenticated. Kubernetes splits into apiserver (6443 TLS,
