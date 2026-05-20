@@ -10,6 +10,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 ## [Unreleased]
 
 ### Added
+- `network/nmap-parse.py`: two new service categories — `xmpp` (ports 5222/5223/5269/5280/5281/5298/7777; service-name regex matching `xmpp`/`jabber`/`xmpp-client`/`xmpp-server`) and `openfire-admin` (ports 9090/9091, port-only — uses the canonical never-match regex `a^` so HTTP service names on other ports don't accidentally tag as openfire-admin). Verified: 9090 routes to both `http` (intentional overlap) and `openfire-admin`; port 80 does NOT route to `openfire-admin`. (ROADMAP-001 H.1)
 - `docs/ADR-001-19MAY2026-jabber-scope.md`: Architecture Decision Record locking in scope for iteration H (Jabber/XMPP tooling). Records four decisions: XMPP-only surface (Cisco UC, SIP/voice, modern team chat deferred), no spray (enum + single-cred validation only), OpenFire CVE-2023-32315 ships as detect-default / `--exploit` full-chain / `--cleanup` reverse with typed-FQDN confirm, stdlib-only Python.
 - `docs/ROADMAP-001-...`: iteration H placeholder replaced with full per-item plan (H.1–H.9), commit cadence, and acceptance criteria all bound to ADR-001.
 

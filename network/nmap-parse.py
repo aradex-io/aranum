@@ -119,6 +119,19 @@ SERVICE_MAP = {
     "mqtt":       ({1883, 8883},                r"^mqtt"),
     "activemq":   ({61616, 8161, 5672, 61613}, r"^(activemq|stomp|amqp)"),
     "jmx":        ({1099, 9999, 9010, 11099},   r"^(java-rmi|jmx|jmxrmi)"),
+    # Two XMPP-family categories so dispatchers can route differently:
+    # `xmpp` covers the standard server-side protocol ports (c2s, s2s, BOSH/WS,
+    # link-local, Openfire file-transfer proxy), while `openfire-admin` flags
+    # the Openfire admin console (separate dispatcher path — CVE-2023-32315
+    # detection / exploitation lives there, not in the generic xmpp probe).
+    "xmpp":            ({5222, 5223, 5269, 5280, 5281, 5298, 7777},
+                        r"^(xmpp|jabber|xmpp-client|xmpp-server)"),
+    # Openfire's admin console listens on 9090/9091 and nmap fingerprints it
+    # as plain "http"/"https" — so we deliberately use a no-match regex here
+    # to ensure this category is port-set-only (otherwise every http port would
+    # collide on openfire-admin). The dedicated dispatcher handles version
+    # detection from the served HTML.
+    "openfire-admin":  ({9090, 9091}, r"a^"),  # `a^` is the canonical never-match regex
 }
 
 
