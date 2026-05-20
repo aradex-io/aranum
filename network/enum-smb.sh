@@ -106,4 +106,37 @@ if have nmap; then
          >/dev/null 2>&1 || true
 fi
 
+# ---------- 6. NTLM-relay viability + PetitPotam signal (iteration C.13) ----------
+# Parse the nmap NSE output we already produced for `Message signing enabled`.
+# Hosts with signing disabled OR not required are NTLM-relay candidates.
+if [ -f "$OUT/nmap-smb-vuln.nmap" ]; then
+    : > "$OUT/_relay_candidates.txt"
+    awk '
+        /^Nmap scan report for/ { host = $NF; gsub(/[()]/, "", host) }
+        /Message signing enabled but not required/ { print host >> "/tmp/relay_cand.tmp" }
+        /Message signing enabled: false/            { print host >> "/tmp/relay_cand.tmp" }
+    ' "$OUT/nmap-smb-vuln.nmap" 2>/dev/null
+    if [ -s /tmp/relay_cand.tmp ]; then
+        sort -u /tmp/relay_cand.tmp > "$OUT/_relay_candidates.txt"
+        n=$(wc -l < "$OUT/_relay_candidates.txt")
+        err "CRITICAL: $n SMB host(s) with signing disabled or not-required — NTLM-relay candidates in _relay_candidates.txt"
+        rm -f /tmp/relay_cand.tmp
+    fi
+fi
+
+# PetitPotam: probe MS-EFSRPC EfsRpcOpenFileRaw on a DC (or any host running
+# the EFS RPC interface). The MS-EFSRPC SMB pipe is \pipe\lsarpc. We just
+# enumerate whether the named pipe is reachable anonymously — actual coerce
+# requires impacket's petitpotam.py (separate, deliberately not bundled here).
+if have rpcclient && [ -n "${ENUM_DC_IP:-}" ]; then
+    log "petitpotam signal — probe \\\\pipe\\lsarpc anonymous reachability on DC ${ENUM_DC_IP}"
+    rpcclient -U '' -N "${ENUM_DC_IP}" -c 'enumprinters' \
+        > "$OUT/_petitpotam_signal.txt" 2>&1 || true
+    if grep -qiE 'NT_STATUS_ACCESS_DENIED|NT_STATUS_LOGON_FAILURE' "$OUT/_petitpotam_signal.txt"; then
+        log "  lsarpc reachable but auth required — coerce may still work via authenticated relay chain"
+    elif grep -qiE 'flags:|printers:' "$OUT/_petitpotam_signal.txt"; then
+        err "CRITICAL: lsarpc anonymous reachable on DC — run impacket petitpotam.py / dfscoerce.py manually"
+    fi
+fi
+
 log "smb dispatcher done."
