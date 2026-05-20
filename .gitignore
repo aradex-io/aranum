@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+
+# Schema/tool caches
+.cache/
+**/.cache/
+
+# Test/enum output (operator-generated)
+enum-results/
+network/enum-results/
+*.gnmap.tmp
+
+# Build artifacts (redis module)
+redis/module/system.so
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local secrets / engagement notes — never commit
+*.pat
+*.glpat
+creds.local
+*.local
+notes/
+.env
+.env.*
+!.env.example

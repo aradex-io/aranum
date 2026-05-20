@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# enum-rdp.sh — RDP security & cred check.
+set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/_lib.sh"
+parse_common_args "$@" || exit 1
+log "rdp: $(wc -l < "$TARGETS") targets -> $OUT"
+
+IPS=$(ips_only "$TARGETS")
+
+# nmap rdp scripts (security level, NLA, encryption)
+if have nmap; then
+    log "nmap rdp-enum-encryption + rdp-ntlm-info"
+    nmap -Pn -p3389 --script 'rdp-enum-encryption,rdp-ntlm-info,rdp-vuln-ms12-020' \
+         -iL <(echo "$IPS") -oA "$OUT/nmap-rdp" >/dev/null 2>&1 || true
+fi
+
+# nxc rdp cred spray
+if (have nxc || have netexec) && [ -n "${ENUM_USER:-}" ]; then
+    NXC=$(command -v nxc || command -v netexec)
+    NXC_ARGS="-u $ENUM_USER"
+    if [ -n "${ENUM_HASH:-}" ]; then NXC_ARGS+=" -H $ENUM_HASH"
+    elif [ -n "${ENUM_PASS:-}" ]; then NXC_ARGS+=" -p $ENUM_PASS"; fi
+    [ -n "${ENUM_DOMAIN:-}" ] && NXC_ARGS+=" -d $ENUM_DOMAIN"
+
+    log "nxc rdp (cred check)"
+    # shellcheck disable=SC2086
+    echo "$IPS" | $NXC rdp - $NXC_ARGS > "$OUT/nxc_rdp.txt" 2>&1 || true
+
+    # screenshot accepting hosts (requires xfreerdp under the hood)
+    log "nxc rdp --screenshot"
+    # shellcheck disable=SC2086
+    echo "$IPS" | $NXC rdp - $NXC_ARGS --screenshot \
+        --screentime 5 > "$OUT/nxc_rdp_screenshot.txt" 2>&1 || true
+fi
+
+# rdp-sec-check (perl tool) — independent NLA/SSL check
+if have rdp-sec-check.pl; then
+    for ip in $IPS; do
+        rdp-sec-check.pl "$ip" > "$OUT/rdpseccheck_${ip}.txt" 2>&1 || true
+    done
+fi
+
+log "rdp dispatcher done."

@@ -1,0 +1,331 @@
+{
+  "_meta": {
+    "format": "Per-product test: how to identify the product, then which creds to try, then what 'success' looks like.",
+    "fields": {
+      "name":      "human-readable product",
+      "ports":     "common ports",
+      "fingerprint_path": "URL path that confirms product identity (for HTTP)",
+      "fingerprint_regex": "regex pattern in response body or headers",
+      "test_path": "endpoint to authenticate against",
+      "creds":     "list of 'user:pass' to try",
+      "success_re": "regex pattern in response that indicates auth success",
+      "success_code": "HTTP code that indicates success (used if success_re absent)",
+      "post":       "optional — POST data instead of basic auth",
+      "next_step":  "what to do after finding default creds"
+    }
+  },
+  "products": [
+    {
+      "name": "Tomcat Manager",
+      "ports": [8080, 8443, 80, 443],
+      "fingerprint_path": "/manager/html",
+      "fingerprint_regex": "Tomcat|Manager App|401 Unauthorized",
+      "test_path": "/manager/html",
+      "creds": ["tomcat:tomcat","admin:admin","tomcat:s3cret","admin:password","tomcat:password","root:root","admin:tomcat","tomcat:","admin:"],
+      "success_code": 200,
+      "next_step": "Deploy a malicious WAR via /manager/text/deploy?path=/x — RCE as the Tomcat user"
+    },
+    {
+      "name": "JBoss / WildFly Admin Console",
+      "ports": [9990, 9991],
+      "fingerprint_path": "/management",
+      "fingerprint_regex": "WildFly|JBoss",
+      "test_path": "/management",
+      "creds": ["admin:admin","admin:password","admin:jboss","jboss:jboss"],
+      "success_code": 200,
+      "next_step": "Deploy WAR via /management/add-content + /deployment/X — RCE"
+    },
+    {
+      "name": "WebLogic Console",
+      "ports": [7001, 7002, 9001],
+      "fingerprint_path": "/console/login/LoginForm.jsp",
+      "fingerprint_regex": "WebLogic|Oracle WebLogic",
+      "test_path": "/console/j_security_check",
+      "creds": ["weblogic:weblogic","weblogic:weblogic1","system:weblogic","admin:admin","weblogic:Welcome1","weblogic:Oracle@123"],
+      "success_re": "Set-Cookie:.*ADMINCONSOLESESSION",
+      "post": "j_username={USER}&j_password={PASS}&j_character_encoding=UTF-8",
+      "next_step": "WebLogic deserialization CVEs are legion (CVE-2017-3506, 2019-2725, 2020-14882) — even unauth often"
+    },
+    {
+      "name": "GlassFish Admin",
+      "ports": [4848],
+      "fingerprint_path": "/",
+      "fingerprint_regex": "GlassFish",
+      "test_path": "/management/domain",
+      "creds": ["admin:admin","admin:adminadmin","admin:password","admin:"],
+      "success_code": 200,
+      "next_step": "Asadmin deploy a WAR; GlassFish supports auth bypass on older versions (path traversal /theme/META-INF/..)"
+    },
+    {
+      "name": "Jenkins",
+      "ports": [8080, 50000, 8081],
+      "fingerprint_path": "/login",
+      "fingerprint_regex": "Jenkins|jenkins-ci",
+      "test_path": "/j_acegi_security_check",
+      "creds": ["admin:admin","admin:password","jenkins:jenkins","root:root","admin:jenkins"],
+      "success_re": "Set-Cookie:.*JSESSIONID",
+      "post": "j_username={USER}&j_password={PASS}&from=%2F&Submit=Sign+in",
+      "next_step": "Script console → Groovy RCE. /script endpoint."
+    },
+    {
+      "name": "ActiveMQ Web Console",
+      "ports": [8161],
+      "fingerprint_path": "/admin/",
+      "fingerprint_regex": "ActiveMQ",
+      "test_path": "/admin/",
+      "creds": ["admin:admin","admin:password","admin:activemq","system:manager"],
+      "success_code": 200,
+      "next_step": "See activemq/ toolkit — Jolokia MLet RCE"
+    },
+    {
+      "name": "RabbitMQ Management",
+      "ports": [15672, 15671],
+      "fingerprint_path": "/api/whoami",
+      "fingerprint_regex": "RabbitMQ|rabbit",
+      "test_path": "/api/whoami",
+      "creds": ["guest:guest","admin:admin","rabbit:rabbit","admin:password"],
+      "success_re": "\"name\":",
+      "next_step": "Browse vhosts, queues; if 'administrator' role granted -> shovel plugin can RCE"
+    },
+    {
+      "name": "Grafana",
+      "ports": [3000],
+      "fingerprint_path": "/login",
+      "fingerprint_regex": "Grafana",
+      "test_path": "/api/login",
+      "creds": ["admin:admin","admin:grafana","admin:password","admin:prom-operator"],
+      "post": "{\"user\":\"{USER}\",\"password\":\"{PASS}\"}",
+      "success_re": "\"message\":\"Logged in\"|grafana_session",
+      "next_step": "Admin Grafana → datasource access, CVE-2021-43798 path traversal, plugin install"
+    },
+    {
+      "name": "Kibana",
+      "ports": [5601],
+      "fingerprint_path": "/api/status",
+      "fingerprint_regex": "Kibana|elasticsearch",
+      "test_path": "/internal/security/login",
+      "creds": ["elastic:changeme","kibana:kibana","elastic:elastic","admin:admin","kibana:changeme"],
+      "post": "{\"providerType\":\"basic\",\"providerName\":\"basic\",\"currentURL\":\"/\",\"params\":{\"username\":\"{USER}\",\"password\":\"{PASS}\"}}",
+      "success_re": "Set-Cookie:.*sid",
+      "next_step": "Kibana → Elasticsearch full read; older versions have RCE via Timelion JS"
+    },
+    {
+      "name": "Elasticsearch",
+      "ports": [9200, 9300],
+      "fingerprint_path": "/",
+      "fingerprint_regex": "elasticsearch|cluster_name|tagline",
+      "test_path": "/_cluster/health",
+      "creds": ["elastic:changeme","elastic:elastic","admin:admin"],
+      "success_re": "cluster_name|status\":",
+      "next_step": "Read every index; older versions have CVE-2014-3120 dynamic-scripting RCE"
+    },
+    {
+      "name": "Splunk",
+      "ports": [8000, 8089],
+      "fingerprint_path": "/en-US/account/login",
+      "fingerprint_regex": "Splunk|splunkd",
+      "test_path": "/en-US/account/login",
+      "creds": ["admin:changeme","admin:admin","admin:password","admin:splunk"],
+      "post": "username={USER}&password={PASS}",
+      "success_re": "Set-Cookie:.*splunkd_",
+      "next_step": "Splunk admin -> abuse search commands for RCE (eval), or upload app .tgz containing scripts"
+    },
+    {
+      "name": "Keycloak Admin",
+      "ports": [8080, 8443],
+      "fingerprint_path": "/admin/master/console/",
+      "fingerprint_regex": "Keycloak|kc-page-language",
+      "test_path": "/realms/master/protocol/openid-connect/token",
+      "creds": ["admin:admin","admin:keycloak","admin:password"],
+      "post": "grant_type=password&client_id=admin-cli&username={USER}&password={PASS}",
+      "success_re": "access_token",
+      "next_step": "Admin -> create new admin user, manage all realms, dump user database"
+    },
+    {
+      "name": "Sonarqube",
+      "ports": [9000, 9001],
+      "fingerprint_path": "/api/server/version",
+      "fingerprint_regex": "[0-9]+\\.[0-9]+\\.[0-9]+",
+      "test_path": "/api/authentication/login",
+      "creds": ["admin:admin","admin:sonarqube","admin:password"],
+      "post": "login={USER}&password={PASS}",
+      "success_code": 200,
+      "next_step": "Source code of every analyzed project — secrets, hardcoded creds, vulnerability patterns"
+    },
+    {
+      "name": "Nexus Repository",
+      "ports": [8081],
+      "fingerprint_path": "/service/rest/v1/status",
+      "fingerprint_regex": "Nexus|sonatype",
+      "test_path": "/service/rest/v1/security/users",
+      "creds": ["admin:admin123","admin:admin","admin:nexus"],
+      "success_code": 200,
+      "next_step": "Modify deployed artifacts, plant malicious dependencies, exfil source jars"
+    },
+    {
+      "name": "Artifactory",
+      "ports": [8081, 8082],
+      "fingerprint_path": "/artifactory/api/system/ping",
+      "fingerprint_regex": "OK|JFrog",
+      "test_path": "/artifactory/api/system/configuration",
+      "creds": ["admin:password","admin:admin","admin:Artifactory"],
+      "success_code": 200,
+      "next_step": "Modify artifacts; CVE-2021-3041 path traversal on older versions"
+    },
+    {
+      "name": "F5 Big-IP",
+      "ports": [443, 8443],
+      "fingerprint_path": "/tmui/login.jsp",
+      "fingerprint_regex": "F5 Networks|BIG-IP",
+      "test_path": "/mgmt/tm/sys",
+      "creds": ["admin:admin","admin:default","admin:f5","admin:password"],
+      "success_re": "kind\":\"tm:sys",
+      "next_step": "CVE-2020-5902 / 2022-1388 unauth RCE — try those regardless of cred outcome"
+    },
+    {
+      "name": "vCenter / ESXi",
+      "ports": [443, 9443],
+      "fingerprint_path": "/ui/",
+      "fingerprint_regex": "vSphere|vCenter|ESXi|VMware",
+      "test_path": "/rest/com/vmware/cis/session",
+      "creds": ["root:root","root:vmware","administrator@vsphere.local:VMware1!","administrator@vsphere.local:Password123","root:Password123"],
+      "success_re": "value\":\"",
+      "next_step": "vCenter admin = total infrastructure control. CVE-2021-21972 unauth RCE is a separate check."
+    },
+    {
+      "name": "pgAdmin",
+      "ports": [5050, 80, 443],
+      "fingerprint_path": "/login",
+      "fingerprint_regex": "pgAdmin|postgresql",
+      "test_path": "/authenticate/login",
+      "creds": ["admin@pgadmin.org:admin","admin@admin.com:admin","postgres:postgres"],
+      "post": "email={USER}&password={PASS}",
+      "success_re": "Set-Cookie:.*pga4_session",
+      "next_step": "Browse all PostgreSQL servers configured; sometimes stores connection strings"
+    },
+    {
+      "name": "Spring Boot Actuator (unauth)",
+      "ports": [80, 443, 8080, 8443, 8088, 9090, 9000],
+      "fingerprint_path": "/actuator",
+      "fingerprint_regex": "_links|env|health",
+      "test_path": "/actuator/env",
+      "creds": [":"],
+      "success_re": "java\\.runtime|systemProperties",
+      "next_step": "Use /actuator/env to dump env vars (DB creds!), /actuator/heapdump for heap dump with strings, /actuator/jolokia for RCE if Jolokia bundled"
+    },
+    {
+      "name": "Hadoop YARN ResourceManager",
+      "ports": [8088, 8090],
+      "fingerprint_path": "/ws/v1/cluster",
+      "fingerprint_regex": "ResourceManager|clusterInfo",
+      "test_path": "/ws/v1/cluster/info",
+      "creds": [":"],
+      "success_re": "clusterInfo",
+      "next_step": "Unauthenticated YARN job submission = RCE on every node (CVE-2017-15718 lineage)"
+    },
+    {
+      "name": "Docker Registry (unauth)",
+      "ports": [5000, 5001],
+      "fingerprint_path": "/v2/",
+      "fingerprint_regex": "Docker-Distribution|registry",
+      "test_path": "/v2/_catalog",
+      "creds": [":"],
+      "success_re": "repositories",
+      "next_step": "Pull every image, inspect for secrets in env vars / config files"
+    },
+    {
+      "name": "Adminer (PHP DB admin)",
+      "ports": [80, 443, 8080],
+      "fingerprint_path": "/adminer.php",
+      "fingerprint_regex": "Adminer",
+      "test_path": "/adminer.php",
+      "creds": [":"],
+      "success_re": "Adminer",
+      "next_step": "Often left in production by developers. Connect to any DB you have creds for. CVE-2020-35572 SSRF via fake-server."
+    },
+    {
+      "name": "phpMyAdmin",
+      "ports": [80, 443, 8080],
+      "fingerprint_path": "/phpmyadmin/index.php",
+      "fingerprint_regex": "phpMyAdmin",
+      "test_path": "/phpmyadmin/index.php",
+      "creds": ["root:","root:root","root:toor","root:password","admin:admin"],
+      "post": "pma_username={USER}&pma_password={PASS}",
+      "success_re": "Set-Cookie:.*phpMyAdmin",
+      "next_step": "SELECT INTO OUTFILE for webshell drop; UDF for OS command exec"
+    },
+    {
+      "name": "MinIO Console",
+      "ports": [9000, 9001, 9090, 9099],
+      "fingerprint_path": "/api/v1/session",
+      "fingerprint_regex": "MinIO",
+      "test_path": "/api/v1/login",
+      "creds": ["minioadmin:minioadmin","admin:password","admin:minio123","admin:admin"],
+      "post": "{\"accessKey\":\"{USER}\",\"secretKey\":\"{PASS}\"}",
+      "success_re": "Set-Cookie:.*token",
+      "next_step": "All buckets readable+writable. CVE-2023-28432 leaks env to unauth users (root creds!)"
+    },
+    {
+      "name": "Jupyter Notebook",
+      "ports": [8888, 8000, 8001],
+      "fingerprint_path": "/api",
+      "fingerprint_regex": "jupyter|Jupyter",
+      "test_path": "/api/contents",
+      "creds": [":"],
+      "success_re": "content|notebook",
+      "next_step": "No-auth Jupyter = direct Python RCE via /api/terminals; even with a token, exposure is a finding"
+    },
+    {
+      "name": "Cisco IOS / IOS-XE Web",
+      "ports": [80, 443, 8443],
+      "fingerprint_path": "/",
+      "fingerprint_regex": "Cisco IOS|level_15|Cisco-IOS",
+      "test_path": "/level/15/exec/show/run/CR",
+      "creds": ["cisco:cisco","admin:admin","admin:cisco"],
+      "success_re": "running-config|version",
+      "next_step": "Full router config disclosure; CVE-2023-20198 unauth web RCE for IOS-XE"
+    },
+    {
+      "name": "Mikrotik RouterOS",
+      "ports": [80, 8080, 8728, 8729],
+      "fingerprint_path": "/login",
+      "fingerprint_regex": "RouterOS|Mikrotik",
+      "test_path": "/login",
+      "creds": ["admin:","admin:admin"],
+      "success_code": 200,
+      "next_step": "RouterOS API at 8728; CVE-2018-14847 (Winbox) info disclosure"
+    },
+    {
+      "name": "GitLab",
+      "ports": [80, 443, 8080],
+      "fingerprint_path": "/users/sign_in",
+      "fingerprint_regex": "GitLab",
+      "test_path": "/oauth/token",
+      "creds": ["root:5iveL!fe","root:password","root:gitlab","admin@example.com:5iveL!fe"],
+      "post": "grant_type=password&username={USER}&password={PASS}",
+      "success_re": "access_token",
+      "next_step": "Root account on GitLab = full source code + CI access + impersonation"
+    },
+    {
+      "name": "ZenML / MLflow",
+      "ports": [5000, 5050],
+      "fingerprint_path": "/",
+      "fingerprint_regex": "MLflow|ZenML",
+      "test_path": "/api/2.0/mlflow/experiments/list",
+      "creds": [":"],
+      "success_re": "experiments|experiment_id",
+      "next_step": "No-auth MLflow = arbitrary artifact upload, SSRF via tracking URI; CVE-2023-1177 path traversal"
+    },
+    {
+      "name": "Airflow Web UI",
+      "ports": [8080, 8081],
+      "fingerprint_path": "/login",
+      "fingerprint_regex": "Airflow|airflow",
+      "test_path": "/login/",
+      "creds": ["admin:admin","airflow:airflow","admin:airflow"],
+      "post": "username={USER}&password={PASS}&csrf_token=",
+      "success_re": "Set-Cookie:.*session",
+      "next_step": "Trigger DAGs that run shell — direct RCE on the scheduler/worker host"
+    }
+  ]
+}

@@ -1,0 +1,300 @@
+{
+  "_meta": {
+    "source": "Hand-curated from GitLab GraphQL reference (CE+EE). Used by gql.py as a fallback when introspection is unavailable or skipped.",
+    "format": "Mirrors __Schema fields-of-Query/Mutation shape: each operation has {args:[{name,type}], type:{...}}",
+    "type_shape_note": "type is encoded the same way as introspection: nested kind/name/ofType. Bare names use kind=SCALAR for primitives, kind=OBJECT for composites."
+  },
+  "queries": {
+    "currentUser": {
+      "args": [],
+      "type": {"kind": "OBJECT", "name": "CurrentUser"}
+    },
+    "metadata": {
+      "args": [],
+      "type": {"kind": "OBJECT", "name": "Metadata"}
+    },
+    "echo": {
+      "args": [
+        {"name": "text", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "String"}}}
+      ],
+      "type": {"kind": "SCALAR", "name": "String"}
+    },
+    "user": {
+      "args": [
+        {"name": "id",       "type": {"kind": "SCALAR", "name": "UserID"}},
+        {"name": "username", "type": {"kind": "SCALAR", "name": "String"}}
+      ],
+      "type": {"kind": "OBJECT", "name": "UserCore"}
+    },
+    "users": {
+      "args": [
+        {"name": "ids",       "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}},
+        {"name": "usernames", "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "String"}}}},
+        {"name": "search",    "type": {"kind": "SCALAR", "name": "String"}},
+        {"name": "first",     "type": {"kind": "SCALAR", "name": "Int"}},
+        {"name": "after",     "type": {"kind": "SCALAR", "name": "String"}}
+      ],
+      "type": {"kind": "OBJECT", "name": "UserCoreConnection"}
+    },
+    "project": {
+      "args": [
+        {"name": "fullPath", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "Project"}
+    },
+    "projects": {
+      "args": [
+        {"name": "membership",    "type": {"kind": "SCALAR", "name": "Boolean"}},
+        {"name": "search",        "type": {"kind": "SCALAR", "name": "String"}},
+        {"name": "searchNamespaces","type": {"kind": "SCALAR", "name": "Boolean"}},
+        {"name": "ids",           "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}},
+        {"name": "fullPaths",     "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "String"}}}},
+        {"name": "topics",        "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "String"}}}},
+        {"name": "visibility",    "type": {"kind": "SCALAR", "name": "VisibilityScopesEnum"}},
+        {"name": "first",         "type": {"kind": "SCALAR", "name": "Int"}}
+      ],
+      "type": {"kind": "OBJECT", "name": "ProjectConnection"}
+    },
+    "group": {
+      "args": [
+        {"name": "fullPath", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "Group"}
+    },
+    "groups": {
+      "args": [
+        {"name": "search",         "type": {"kind": "SCALAR", "name": "String"}},
+        {"name": "topLevelOnly",   "type": {"kind": "SCALAR", "name": "Boolean"}},
+        {"name": "ownedOnly",      "type": {"kind": "SCALAR", "name": "Boolean"}},
+        {"name": "first",          "type": {"kind": "SCALAR", "name": "Int"}}
+      ],
+      "type": {"kind": "OBJECT", "name": "GroupConnection"}
+    },
+    "namespace": {
+      "args": [
+        {"name": "fullPath", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "Namespace"}
+    },
+    "mergeRequest": {
+      "args": [
+        {"name": "id", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "MergeRequestID"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "MergeRequest"}
+    },
+    "issue": {
+      "args": [
+        {"name": "id", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "IssueID"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "Issue"}
+    },
+    "note": {
+      "args": [
+        {"name": "id", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "NoteID"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "Note"}
+    },
+    "epic": {
+      "args": [
+        {"name": "id", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "EpicID"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "Epic"}
+    },
+    "snippets": {
+      "args": [
+        {"name": "ids",            "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}},
+        {"name": "visibility",     "type": {"kind": "SCALAR", "name": "VisibilityScopesEnum"}},
+        {"name": "explore",        "type": {"kind": "SCALAR", "name": "Boolean"}}
+      ],
+      "type": {"kind": "OBJECT", "name": "SnippetConnection"}
+    },
+    "runner": {
+      "args": [
+        {"name": "id", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "CiRunnerID"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "CiRunner"}
+    },
+    "runners": {
+      "args": [
+        {"name": "type",      "type": {"kind": "SCALAR", "name": "CiRunnerType"}},
+        {"name": "status",    "type": {"kind": "SCALAR", "name": "CiRunnerStatus"}},
+        {"name": "active",    "type": {"kind": "SCALAR", "name": "Boolean"}},
+        {"name": "search",    "type": {"kind": "SCALAR", "name": "String"}},
+        {"name": "first",     "type": {"kind": "SCALAR", "name": "Int"}}
+      ],
+      "type": {"kind": "OBJECT", "name": "CiRunnerConnection"}
+    },
+    "ciConfig": {
+      "args": [
+        {"name": "projectPath", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}},
+        {"name": "content",     "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "String"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "CiConfig"}
+    },
+    "topics": {
+      "args": [
+        {"name": "search", "type": {"kind": "SCALAR", "name": "String"}},
+        {"name": "first",  "type": {"kind": "SCALAR", "name": "Int"}}
+      ],
+      "type": {"kind": "OBJECT", "name": "TopicConnection"}
+    },
+    "vulnerabilities": {
+      "args": [
+        {"name": "projectId",  "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "ID"}}}},
+        {"name": "severity",   "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "VulnerabilitySeverity"}}}},
+        {"name": "state",      "type": {"kind": "LIST", "ofType": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "VulnerabilityState"}}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "VulnerabilityConnection"}
+    },
+    "auditEvents": {
+      "args": [
+        {"name": "fullPath", "type": {"kind": "SCALAR", "name": "ID"}}
+      ],
+      "type": {"kind": "OBJECT", "name": "AuditEventConnection"}
+    },
+    "instanceSecurityDashboard": {
+      "args": [],
+      "type": {"kind": "OBJECT", "name": "InstanceSecurityDashboard"}
+    },
+    "instanceStatisticsMeasurements": {
+      "args": [
+        {"name": "identifier", "type": {"kind": "NON_NULL", "ofType": {"kind": "SCALAR", "name": "MeasurementIdentifier"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "InstanceStatisticsMeasurementConnection"}
+    }
+  },
+  "mutations": {
+    "userPreferencesUpdate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "UserPreferencesUpdateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "UserPreferencesUpdatePayload"}
+    },
+    "projectUpdate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "ProjectUpdateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "ProjectUpdatePayload"}
+    },
+    "projectSetTransferLocked": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "ProjectSetTransferLockedInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "ProjectSetTransferLockedPayload"}
+    },
+    "projectMemberAdd": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "ProjectMemberAddInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "ProjectMemberAddPayload"}
+    },
+    "groupMemberAdd": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "GroupMemberAddInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "GroupMemberAddPayload"}
+    },
+    "memberRoleCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "MemberRoleCreateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "MemberRoleCreatePayload"}
+    },
+    "runnerCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "RunnerCreateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "RunnerCreatePayload"}
+    },
+    "runnerUpdate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "RunnerUpdateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "RunnerUpdatePayload"}
+    },
+    "deployTokenCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "DeployTokenCreateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "DeployTokenCreatePayload"}
+    },
+    "accessTokenCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "AccessTokenCreateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "AccessTokenCreatePayload"}
+    },
+    "webhookCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "WebhookCreateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "WebhookCreatePayload"}
+    },
+    "snippetCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "CreateSnippetInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "CreateSnippetPayload"}
+    },
+    "snippetUpdate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "UpdateSnippetInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "UpdateSnippetPayload"}
+    },
+    "createNote": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "CreateNoteInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "CreateNotePayload"}
+    },
+    "updateNote": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "UpdateNoteInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "UpdateNotePayload"}
+    },
+    "mergeRequestUpdate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "MergeRequestUpdateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "MergeRequestUpdatePayload"}
+    },
+    "issueUpdate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "UpdateIssueInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "UpdateIssuePayload"}
+    },
+    "epicCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "EpicCreateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "EpicCreatePayload"}
+    },
+    "namespaceIncreaseStorageTemporarily": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "NamespaceIncreaseStorageTemporarilyInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "NamespaceIncreaseStorageTemporarilyPayload"}
+    },
+    "complianceFrameworkCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "CreateComplianceFrameworkInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "CreateComplianceFrameworkPayload"}
+    },
+    "vulnerabilityDismiss": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "VulnerabilityDismissInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "VulnerabilityDismissPayload"}
+    },
+    "userCalloutCreate": {
+      "args": [
+        {"name": "input", "type": {"kind": "NON_NULL", "ofType": {"kind": "INPUT_OBJECT", "name": "UserCalloutCreateInput"}}}
+      ],
+      "type": {"kind": "OBJECT", "name": "UserCalloutCreatePayload"}
+    }
+  }
+}
