@@ -14,7 +14,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 
 | Iteration | Theme | Effort | Status | Target version |
 |---|---|---|---|---|
-| **A** | Bug fixes (P0/P1 correctness) | ~1 day | 🟦 in progress (A.1, A.2, A.5 done) | `v0.2.0` |
+| **A** | Bug fixes (P0/P1 correctness) | ~1 day | ✅ done 2026-05-19 — tag `v0.2.0` | `v0.2.0` |
 | **B** | P0 service-coverage expansion | ~2 days | ⬜ | `v0.3.0` |
 | **C** | P1 service coverage + HTTP depth | ~2 days | ⬜ | `v0.4.0` |
 | **D** | Windows / AD depth | ~2 days | ⬜ | `v0.5.0` |
@@ -30,6 +30,8 @@ Filename per CLAUDE.md §7 dated-naming convention.
 ---
 
 ## Iteration A — Bug fixes (the only prerequisite)
+
+**Completed:** 2026-05-19 — tag `v0.2.0`
 
 **Why first:** §3 of REVIEW-001 lists 10 correctness/safety bugs. The P0/P1 subset (5 items) must be fixed before any new coverage lands, because:
 - A.1 (shell-quoting) means any new dispatcher copying the existing `NXC_ARGS+=` pattern would inherit the same vulnerability.
