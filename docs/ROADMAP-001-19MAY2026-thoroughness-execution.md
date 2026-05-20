@@ -12,16 +12,18 @@ Filename per CLAUDE.md §7 dated-naming convention.
 
 ## Overall status
 
-| Iteration | Theme | Effort | Status | Target version |
+| Iteration | Theme | Effort | Status | Tag |
 |---|---|---|---|---|
-| **A** | Bug fixes (P0/P1 correctness) | ~1 day | ✅ done 2026-05-19 — tag `v0.2.0` | `v0.2.0` |
-| **B** | P0 service-coverage expansion | ~2 days | ⬜ | `v0.3.0` |
-| **C** | P1 service coverage + HTTP depth | ~2 days | ⬜ | `v0.4.0` |
-| **D** | Windows / AD depth | ~2 days | ⬜ | `v0.5.0` |
-| **E** | Reporting & ergonomics | ~1.5 days | ⬜ | `v0.6.0` |
-| **F** | GraphQL depth | ~1 day | ⬜ | `v0.7.0` |
-| **G** | Tests + hardening | ~1 day | ⬜ | `v0.8.0` |
-| **H** | **Jabber / XMPP tooling** *(added 2026-05-19; scoped via [ADR-001](ADR-001-19MAY2026-jabber-scope.md))* | ~2 days | ✅ done 2026-05-19 — tag `v0.9.0` | `v0.9.0` |
+| **A** | Bug fixes (P0/P1 correctness) | ~1 day | ✅ done 2026-05-19 | `v0.2.0` |
+| **H** | **Jabber / XMPP tooling** *(added 2026-05-19; scoped via [ADR-001](ADR-001-19MAY2026-jabber-scope.md))* | ~2 days | ✅ done 2026-05-19 | `v0.9.0` |
+| **B** | P0 service-coverage expansion | ~2 days | ✅ done 2026-05-19 | `v0.10.0` |
+| **C** | P1 service coverage + HTTP depth | ~2 days | ⬜ | `v0.11.0` |
+| **D** | Windows / AD depth | ~2 days | ⬜ | `v0.12.0` |
+| **E** | Reporting & ergonomics | ~1.5 days | ⬜ | `v0.13.0` |
+| **F** | GraphQL depth | ~1 day | ⬜ | `v0.14.0` |
+| **G** | Tests + hardening | ~1 day | ⬜ | `v0.15.0` |
+
+**Note on version mapping** (corrected 2026-05-19): the original roadmap aspired to map iteration A→v0.2.0, B→v0.3.0, etc. Reality: iteration H was prioritized ahead of B–G and shipped as v0.9.0, after which semver's monotonic-increase requirement means subsequent iterations occupy `v0.10.0+`. The iteration identity is preserved in commit messages and CHANGELOG sections; the version-to-iteration mapping is no longer 1:1 with the alphabetical letter.
 
 **Total estimate:** ~12 working days. Iterations B–H are independent and can be reordered or parallelized once A is shipped.
 
@@ -120,6 +122,8 @@ Functional, where feasible offline:
 
 ## Iteration B — P0 service coverage
 
+**Completed:** 2026-05-19 — tag `v0.10.0`
+
 **Goal:** double the assessable service surface from one `auto-enum.sh` invocation by covering the data-store and orchestration services attackers most often find unauthenticated or with default creds.
 
 **Prerequisites:** Iteration A complete (so new dispatchers inherit the array-quoting pattern).
@@ -128,13 +132,15 @@ Functional, where feasible offline:
 
 | Item | Service | Default ports | New dispatcher | Status |
 |---|---|---|---|---|
-| B.1 | PostgreSQL | 5432 | `network/enum-postgres.sh` | ⬜ |
-| B.2 | MySQL/MariaDB | 3306 | `network/enum-mysql.sh` | ⬜ |
-| B.3 | MongoDB | 27017–27019 | `network/enum-mongo.sh` | ⬜ |
-| B.4 | Elasticsearch/Kibana | 9200, 5601 | `network/enum-elastic.sh` | ⬜ |
-| B.5 | Docker API | 2375, 2376 | `network/enum-docker.sh` | ⬜ |
-| B.6 | Kubernetes API/kubelet | 6443, 8080, 10250 | `network/enum-kubernetes.sh` | ⬜ |
-| B.7 | IPMI/BMC | 623/udp | `network/enum-ipmi.sh` | ⬜ |
+| B.1 | PostgreSQL | 5432 | `network/enum-postgres.sh` | ✅ done 2026-05-19 |
+| B.2 | MySQL/MariaDB | 3306 | `network/enum-mysql.sh` | ✅ done 2026-05-19 |
+| B.3 | MongoDB | 27017–27019 | `network/enum-mongo.sh` | ✅ done 2026-05-19 |
+| B.4 | Elasticsearch/Kibana | 9200, 5601 | `network/enum-elastic.sh` | ✅ done 2026-05-19 |
+| B.5 | Docker API | 2375, 2376 | `network/enum-docker.sh` | ✅ done 2026-05-19 |
+| B.6 | Kubernetes API/kubelet | 6443, 8080, 10250 | `network/enum-kubernetes.sh` | ✅ done 2026-05-19 |
+| B.7 | IPMI/BMC | 623/udp | `network/enum-ipmi.sh` | ✅ done 2026-05-19 |
+| B.8 | nmap-parse categories (docker + kubernetes; others already present) | — | `network/nmap-parse.py` | ✅ done 2026-05-19 |
+| B.9 | Release + docs | — | README + CHANGELOG + tag | ✅ done 2026-05-19 |
 
 **Each dispatcher must:**
 - Source `network/_lib.sh` and use `parse_common_args`.

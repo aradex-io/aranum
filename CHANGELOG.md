@@ -9,7 +9,26 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.9.0)*
+*(empty — accumulating since v0.10.0)*
+
+---
+
+## [v0.10.0] — 2026-05-19
+
+**Iteration B** of ROADMAP-001 — P0 service-coverage expansion. Adds 7 new network dispatchers + 2 new nmap-parse categories. Auto-routed by `auto-enum.sh` based on the new categories. Version is `v0.10.0` (not the originally-reserved `v0.3.0`) because semver requires monotonic increase and iteration H already shipped at `v0.9.0`; the roadmap's iteration→tag mapping is corrected to reflect actual chronology.
+
+### Added
+- `network/enum-postgres.sh` (B.1): trust-auth probe (no-pwd attempts as `postgres`/`admin`/`app`) + `nxc postgres` cred check + `psql` authenticated recon dumping `pg_roles` + database list + version. Hints cover post-auth escalation: `COPY ... TO PROGRAM`, untrusted PL languages, `lo_import`/`lo_export`, `dblink`.
+- `network/enum-mysql.sh` (B.2): anonymous + root-no-pwd probes (`root`/`admin`/`mysql`) + `nxc mysql` + auth recon dumping `mysql.user`, `secure_file_priv`, `local_infile`, `SHOW GRANTS`. Hints cover `INTO OUTFILE`, UDF RCE, `LOAD DATA LOCAL INFILE`.
+- `network/enum-mongo.sh` (B.3): `mongosh`-preferred-or-`mongo`-legacy unauthenticated `listDatabases` probe + per-database collection enumeration (capped at 10 dbs × 50 collections each). IPv6-aware connection-URI construction (per MongoDB URI spec). Auth recon via `usersInfo` + `rolesInfo`. nmap mongodb-info/mongodb-databases NSE.
+- `network/enum-elastic.sh` (B.4): `curl`-based probes of `_cluster/health`, `_cluster/state`, `_cat/indices?v`, `_cat/nodes?v`, `_security/user`. Cred-leak sweep via `_search?q=password*|passwd*|secret*|api_key*|token*` with hit-count parsing. Kibana 5601 `/api/status` detection. TLS-insecure by default (engagement targets).
+- `network/enum-docker.sh` (B.5): **CRITICAL when triggered.** Remote Docker daemon API probe — `/version`, `/info`, `/containers/json`, `/images/json`, `/networks`, `/volumes` against 2375 (plaintext — dangerous) and 2376 (TLS). Unauth 2375 success raises an `err()`-tagged alert with the explicit "host-equivalent RCE via `docker run -v /:/mnt --privileged`" warning text. **Never invokes `docker run`** — the operator decides.
+- `network/enum-kubernetes.sh` (B.6): TLS apiserver 6443 + insecure apiserver 8080 (raises CRITICAL when present — deprecated, full cluster control) + kubelet 10250 (`/pods`, `/stats/summary`, `/metrics`, `/healthz`) + readonly kubelet 10255 + kube-proxy 10256. Optional `K8S_TOKEN` env for operator-supplied Bearer token. Captures apiserver `gitVersion`.
+- `network/enum-ipmi.sh` (B.7): `nmap -sU -p623` with `ipmi-version`, `ipmi-cipher-zero`, `ipmi-brute` NSE scripts. Cipher-0 hits raise CRITICAL alert via parsed nmap output. Hints document the manual `msfconsole auxiliary/scanner/ipmi/ipmi_dumphashes` and `ipmitool sol activate` follow-ups — never auto-executes msf.
+- `network/nmap-parse.py` (B.8): two new categories — `docker` (ports 2375, 2376) and `kubernetes` (6443, 8080, 10250, 10255, 10256). Both use the canonical never-match regex `a^` because nmap fingerprints them as generic `http`/`ssl/http`; the dispatchers handle product detection. Synthetic-XML routing verified: `docker → {2375}`, `kubernetes → {6443, 10250}`, no false positives on port 80.
+
+### Refactored
+- ROADMAP-001: iteration B marked complete; tag-mapping note added clarifying that iteration ordering (H before B) determined actual tag order (`v0.9.0` then `v0.10.0`), not the original aspirational mapping.
 
 ---
 

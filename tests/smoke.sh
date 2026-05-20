@@ -244,6 +244,48 @@ bash network/enum-jabber.sh --targets /tmp/e.txt --output /tmp/jt-test >/dev/nul
 rm -rf /tmp/jt-test
 
 # -----------------------------------------------------------------
+section "10b. Iteration B dispatchers — empty-targets smoke"
+# -----------------------------------------------------------------
+echo "" > /tmp/empty.txt
+for svc in postgres mysql mongo elastic docker kubernetes ipmi; do
+    out_dir=/tmp/b-smoke-$svc
+    rm -rf "$out_dir"
+    if timeout 15 bash network/enum-$svc.sh --targets /tmp/empty.txt --output "$out_dir" >/dev/null 2>&1; then
+        if [ -f "$out_dir/_hints.txt" ]; then
+            p "enum-$svc.sh: empty-targets smoke + _hints.txt produced"
+        else
+            f "enum-$svc.sh: no _hints.txt produced"
+        fi
+    else
+        f "enum-$svc.sh: smoke exit non-zero"
+    fi
+    rm -rf "$out_dir"
+done
+
+# Routing test for new iteration-B categories
+cat > /tmp/test_route_b.xml <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE nmaprun>
+<nmaprun><host><status state="up"/><address addr="10.1.0.1" addrtype="ipv4"/>
+<ports>
+<port protocol="tcp" portid="2375"><state state="open"/><service name="http"/></port>
+<port protocol="tcp" portid="6443"><state state="open"/><service name="ssl/http"/></port>
+<port protocol="tcp" portid="80"><state state="open"/><service name="http"/></port>
+</ports></host></nmaprun>
+EOF
+docker_route=$(python3 network/nmap-parse.py /tmp/test_route_b.xml --service docker 2>/dev/null)
+k8s_route=$(python3 network/nmap-parse.py /tmp/test_route_b.xml --service kubernetes 2>/dev/null)
+[ "$docker_route" = "10.1.0.1:2375" ] && p "docker routing: 2375 only" || f "docker routing wrong: $docker_route"
+[ "$k8s_route" = "10.1.0.1:6443" ] && p "kubernetes routing: 6443 only" || f "k8s routing wrong: $k8s_route"
+# Regression: docker must NOT pick up port 80
+if echo "$docker_route" | grep -q ":80$"; then
+    f "docker REGRESSION: port 80 mis-tagged"
+else
+    p "docker: port 80 NOT mis-tagged"
+fi
+rm /tmp/test_route_b.xml
+
+# -----------------------------------------------------------------
 section "11. deps-check.sh runs to completion"
 # -----------------------------------------------------------------
 if timeout 30 bash deps-check.sh >/dev/null 2>&1; then
@@ -262,7 +304,7 @@ else
     f "git: working tree dirty: $(git status --porcelain | head -3)"
 fi
 # Tags present
-for t in v0.1.0 v0.2.0 v0.9.0; do
+for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0; do
     if git tag | grep -qx "$t"; then
         p "git: tag $t present"
     else

@@ -67,6 +67,13 @@ aratool/
 | `network/enum-dns.sh` | `dig axfr`, `dnsrecon`, reverse lookup |
 | `network/enum-redis.sh` | Unauthenticated `INFO`, `CONFIG GET`, key listing |
 | `network/enum-jabber.sh` | XMPP server enum — banner, cert+SANs, SASL mechs, XEP-0077 advertised?, disco, MUC, BOSH/WS, admin-API exposure |
+| `network/enum-postgres.sh` | trust-auth probe + nxc + `pg_roles` recon |
+| `network/enum-mysql.sh` | anon root + nxc + `mysql.user` + `secure_file_priv` |
+| `network/enum-mongo.sh` | unauth `listDatabases` + per-collection counts |
+| `network/enum-elastic.sh` | `_cluster/state`, `_cat/indices`, `_search` cred-grep, Kibana |
+| `network/enum-docker.sh` | 2375/2376 daemon API — **CRITICAL** on unauth 2375 |
+| `network/enum-kubernetes.sh` | apiserver 6443/8080 + kubelet 10250 + readonly 10255 |
+| `network/enum-ipmi.sh` | 623/udp — cipher-0 + RAKP-3 hash dump hints |
 
 ## Jabber / XMPP (iteration H)
 
