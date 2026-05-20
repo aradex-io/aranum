@@ -311,6 +311,62 @@ echo "$out" | grep -q "proxy active" && p "gql.py --proxy: stderr warning emitte
                                       || f "gql.py --proxy flag not wired"
 
 # -----------------------------------------------------------------
+section "10d. Iteration E — report.py + autoenum-diff.sh"
+# -----------------------------------------------------------------
+# Build a tiny synthetic outdir
+fake=/tmp/e-test
+rm -rf "$fake"
+mkdir -p "$fake/docker" "$fake/http/10.0.0.7_80"
+echo "[!] CRITICAL: UNAUTH Docker daemon at http://10.0.0.5:2375" > "$fake/docker/_dispatcher.log"
+echo "EXPOSED: http://10.0.0.7/.git/HEAD (HTTP 200)" > "$fake/http/10.0.0.7_80/exposed.txt"
+
+# report.py
+if python3 network/report.py "$fake" --label smoke >/dev/null 2>&1; then
+    if [ -f "$fake/findings.json" ] && [ -f "$fake/report.md" ] && [ -f "$fake/report.html" ]; then
+        p "report.py: findings.json + report.md + report.html written"
+    else
+        f "report.py: not all 3 outputs produced"
+    fi
+    # Check severity classification — should have 1 critical + 1 high
+    crit=$(python3 -c "import json; print(json.load(open('$fake/findings.json'))['summary']['counts'].get('critical',0))")
+    high=$(python3 -c "import json; print(json.load(open('$fake/findings.json'))['summary']['counts'].get('high',0))")
+    [ "$crit" -ge 1 ] && [ "$high" -ge 1 ] && p "report.py: severity classification (≥1 critical, ≥1 high)" \
+                                            || f "report.py: severity wrong (crit=$crit high=$high)"
+    # Redact mode
+    python3 network/report.py "$fake" --redact --findings-only >/dev/null 2>&1
+    if python3 -c "import json; d=json.load(open('$fake/findings.json')); import sys; sys.exit(0 if any('<TARGET-' in f['line'] for f in d['findings']) else 1)"; then
+        p "report.py --redact: IPs replaced with <TARGET-N>"
+    else
+        f "report.py --redact: redaction did not apply"
+    fi
+else
+    f "report.py: exit non-zero"
+fi
+
+# autoenum-diff.sh
+A=/tmp/e-diff-A; B=/tmp/e-diff-B
+rm -rf "$A" "$B"; mkdir -p "$A/docker" "$B/docker" "$B/etcd"
+echo "[!] CRITICAL: shared finding" > "$A/docker/_dispatcher.log"
+echo "[!] CRITICAL: shared finding" > "$B/docker/_dispatcher.log"
+echo "[!] CRITICAL: etcd v2/keys unauth" > "$B/etcd/_dispatcher.log"
+bash network/autoenum-diff.sh "$A" "$B" >/dev/null 2>&1
+[ "$?" -eq 1 ] && p "autoenum-diff.sh: exit 1 when new findings detected" \
+                || f "autoenum-diff.sh: did not exit 1 on new findings"
+rm -rf "$fake" "$A" "$B"
+
+# version_floor helper present
+grep -q "VERSION FLOORS" deps-check.sh && p "deps-check.sh: version_floor section present" \
+                                        || f "deps-check.sh: version_floor section missing"
+
+# auto-enum.sh new flags
+grep -q -- "--resume" network/auto-enum.sh && p "auto-enum.sh: --resume present" \
+                                            || f "auto-enum.sh: --resume missing"
+grep -q "run_log" network/auto-enum.sh && p "auto-enum.sh: run_log writer present" \
+                                       || f "auto-enum.sh: run_log writer missing"
+grep -q "Dispatcher results:" network/auto-enum.sh && p "auto-enum.sh: failure tally present" \
+                                                   || f "auto-enum.sh: failure tally missing"
+
+# -----------------------------------------------------------------
 section "11. deps-check.sh runs to completion"
 # -----------------------------------------------------------------
 if timeout 30 bash deps-check.sh >/dev/null 2>&1; then
@@ -329,7 +385,7 @@ else
     f "git: working tree dirty: $(git status --porcelain | head -3)"
 fi
 # Tags present
-for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0; do
+for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0; do
     if git tag | grep -qx "$t"; then
         p "git: tag $t present"
     else

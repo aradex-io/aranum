@@ -9,7 +9,23 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.12.0)*
+*(empty — accumulating since v0.13.0)*
+
+---
+
+## [v0.13.0] — 2026-05-19
+
+**Iteration E** of ROADMAP-001 — reporting + ergonomics.
+
+### Added
+- `network/report.py` (E.1+E.8+E.9): walks an auto-enum output tree and emits `findings.json` (machine-readable, severity-tagged), `report.md` (Markdown summary + per-host CRITICAL/HIGH detail), and `report.html` (single-file HTML, embedded CSS, no external deps). Severity heuristics anchored on the literal markers dispatchers emit. `--redact` produces a stable `<TARGET-N>` mapping for shareable output. `--severity-rules FILE` lets operators add custom JSON-line rules. Stdlib-only.
+- `network/autoenum-diff.sh` (E.2): compares two output trees via their `findings.json`. Surfaces NEW hosts, NEW (host, service) pairs, NEW findings (grouped by severity), and DROPPED findings. Auto-runs `report.py --findings-only` when `findings.json` is missing in either tree. Exit 1 iff any new findings — CI-loop friendly.
+
+### Enhanced
+- `network/auto-enum.sh` (E.3+E.4+E.10): central `run.log` under `$OUTDIR` capturing timestamp + auth-presence flags + per-tool versions + per-dispatch begin/end with elapsed seconds and rc. New `--resume` flag honors per-service `.done` markers from prior runs (skip-and-log). Final summary now reports `OK=N FAIL=N SKIP=N` and lists the failed dispatchers; closing hint points at `report.py`.
+- `network/_lib.sh` (E.5+E.6): new `curl_ua()`, `curl_proxy_arg()`, `curl_extra_args()` helpers. `ENUM_USER_AGENT` env honored (defaults to the same Chrome-stable string `gql.py` adopted in F.8 — consistent suite fingerprint). `ENUM_PROXY` parallels `GQL_PROXY` for explicit `-x` override; curl's native `*_PROXY` env honor remains the no-config default.
+- `network/enum-http.sh`: per-URL header probe now sets `-A "$(curl_ua)"`. Other curl callsites can adopt incrementally.
+- `deps-check.sh` (E.7): new `version_floor()` helper using `sort -V`. Floors applied to `nxc`, `netexec`, `kerbrute`, `nuclei`, `ffuf`, `httpx`, `redis-cli`, `mongosh`, `impacket`. Output uses `>=` (green) / `<` (red — upgrade) / `?` (unparseable, manual check).
 
 ---
 

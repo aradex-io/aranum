@@ -114,6 +114,23 @@ Authorized-testing-only XMPP helpers in `jabber/`. **Read [`docs/ADR-001-19MAY20
 
 Each service dispatcher writes results into `<output>/<service>/<ip>_<port>/` so re-runs are idempotent and findings are easy to grep.
 
+## Unified report (iteration E)
+
+After `auto-enum.sh` finishes, generate the consolidated report:
+
+```bash
+python3 ./network/report.py ./enum-results --label "engagement-name"
+# writes findings.json + report.md + report.html into ./enum-results/
+
+# For shareable output (replaces every IP with <TARGET-N>):
+python3 ./network/report.py ./enum-results --redact
+
+# Compare two runs (CI-loop friendly: exit 1 iff new findings):
+./network/autoenum-diff.sh ./prev-results ./curr-results
+```
+
+`auto-enum.sh` also writes a central `run.log` capturing tool versions, per-dispatcher exit codes, and elapsed times; `--resume` skips services with a `.done` marker from a prior run.
+
 ## Dependencies
 
 Run `./deps-check.sh` to see what's installed/missing. Recommended:

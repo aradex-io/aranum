@@ -19,10 +19,10 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **B** | P0 service-coverage expansion | ~2 days | ✅ done 2026-05-19 | `v0.10.0` |
 | **C** | P1 service coverage + HTTP depth | ~2 days | ✅ done 2026-05-19 | `v0.11.0` |
 | **F** | GraphQL depth | ~1 day | ✅ done 2026-05-19 | `v0.12.0` |
-| **E** | Reporting & ergonomics | ~1.5 days | ⬜ | `v0.13.0` |
+| **E** | Reporting & ergonomics | ~1.5 days | ✅ done 2026-05-19 | `v0.13.0` |
 | **G** | Tests + hardening | ~1 day | ⬜ | `v0.14.0` |
 | **D** | Windows / AD depth | ~2 days | ⬜ (deferred — operator preference) | `v0.15.0` |
-| **I** | **Internal-pentest protocol expansion** *(added 2026-05-19; engineering/science facility focus)* | ~3 days | ⬜ (placeholder — needs scope ADR) | `v0.16.0` |
+| **I** | **Internal-pentest protocol expansion** *(added 2026-05-19; engineering/science facility focus)* | ~3 days | ⬜ (placeholder — needs ADR-002) | `v0.16.0` |
 
 **Note on version mapping** (corrected 2026-05-19): the original roadmap aspired to map iteration A→v0.2.0, B→v0.3.0, etc. Reality: iteration H was prioritized ahead of B–G and shipped as v0.9.0, after which semver's monotonic-increase requirement means subsequent iterations occupy `v0.10.0+`. The iteration identity is preserved in commit messages and CHANGELOG sections; the version-to-iteration mapping is no longer 1:1 with the alphabetical letter.
 
@@ -254,22 +254,24 @@ Tag `v0.5.0`.
 
 ## Iteration E — Reporting & ergonomics
 
+**Completed:** 2026-05-19 — tag `v0.13.0`
+
 **Prerequisites:** ideally B (so the report has more services to cover), but technically only A.
 
 **Deliverables:**
 
 | Item | Scope | Files | Status |
 |---|---|---|---|
-| E.1 | `report.py` — unified Markdown / JSON / HTML report | `network/report.py` (new) | ⬜ |
-| E.2 | `autoenum-diff.sh` — diff two run outputs | `network/autoenum-diff.sh` (new) | ⬜ |
-| E.3 | Central `run.log` with tool versions + invocations + exit codes | `network/auto-enum.sh` + dispatchers | ⬜ |
-| E.4 | `--resume` flag — per-service `.done` markers | `network/auto-enum.sh` | ⬜ |
-| E.5 | SOCKS / HTTP proxy support across the suite | `network/_lib.sh`, `graphql/gql.py` | ⬜ |
-| E.6 | User-Agent customization + `--ua-rotate` | `graphql/gql.py`, curl callsites | ⬜ |
-| E.7 | `deps-check.sh` version-floor assertions | `deps-check.sh` | ⬜ |
-| E.8 | Findings severity tagging (critical/high/medium/low) | E.1 implementation detail | ⬜ |
-| E.9 | `--redact` mode for shareable output | E.1 implementation detail | ⬜ |
-| E.10 | `auto-enum.sh` dispatcher-failure tally at end | `network/auto-enum.sh` | ⬜ |
+| E.1 | `report.py` — unified Markdown / JSON / HTML report | `network/report.py` (new) | ✅ done 2026-05-19 |
+| E.2 | `autoenum-diff.sh` — diff two run outputs | `network/autoenum-diff.sh` (new) | ✅ done 2026-05-19 |
+| E.3 | Central `run.log` with tool versions + invocations + exit codes | `network/auto-enum.sh` + dispatchers | ✅ done 2026-05-19 |
+| E.4 | `--resume` flag — per-service `.done` markers | `network/auto-enum.sh` | ✅ done 2026-05-19 |
+| E.5 | SOCKS / HTTP proxy support across the suite | `network/_lib.sh`, `graphql/gql.py` | ✅ done 2026-05-19 (gql.py in F.7; network/_lib.sh helpers added) |
+| E.6 | User-Agent customization + `--ua-rotate` | `graphql/gql.py`, curl callsites | ✅ done 2026-05-19 (gql.py in F.8; `curl_ua()` helper for dispatchers) |
+| E.7 | `deps-check.sh` version-floor assertions | `deps-check.sh` | ✅ done 2026-05-19 |
+| E.8 | Findings severity tagging (critical/high/medium/low) | E.1 implementation detail | ✅ done 2026-05-19 |
+| E.9 | `--redact` mode for shareable output | E.1 implementation detail | ✅ done 2026-05-19 |
+| E.10 | `auto-enum.sh` dispatcher-failure tally at end | `network/auto-enum.sh` | ✅ done 2026-05-19 |
 
 Tag `v0.6.0`.
 
