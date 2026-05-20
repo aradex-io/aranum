@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!DOCTYPE nmaprun>
+<!--
+  Unknown / unfingerprinted service routes to the `unknown` bucket — this is
+  the surface that enum-unknown.sh exists to handle. Validates that a port not
+  in any SERVICE_MAP entry and with a generic / blank service name lands there
+  rather than being silently dropped.
+-->
+<nmaprun scanner="nmap" args="" version="7.94">
+  <host>
+    <status state="up"/><address addr="10.0.0.40" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="48312"><state state="open"/><service name="unknown"/></port>
+      <port protocol="tcp" portid="51234"><state state="open"/></port>
+    </ports>
+  </host>
+</nmaprun>

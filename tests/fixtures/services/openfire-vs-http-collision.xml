@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!DOCTYPE nmaprun>
+<!--
+  Regression fixture: openfire-admin uses port-set-only routing (regex `a^`
+  intentionally never matches the nmap service name `http`). Without that, the
+  generic http regex would steal every Openfire host. This fixture asserts that
+  a host on 9090 routes to openfire-admin (NOT just http), and a host on plain
+  8080 routes to http only.
+-->
+<nmaprun scanner="nmap" args="" version="7.94">
+  <host>
+    <status state="up"/><address addr="10.0.0.20" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="9090"><state state="open"/><service name="http" product="Openfire"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.21" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="8080"><state state="open"/><service name="http"/></port>
+    </ports>
+  </host>
+</nmaprun>

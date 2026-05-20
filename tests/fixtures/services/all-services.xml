@@ -1,0 +1,118 @@
+<?xml version="1.0"?>
+<!DOCTYPE nmaprun>
+<!--
+  tests/fixtures/services/all-services.xml — synthetic nmap XML covering every
+  service category that nmap-parse.py knows about. Used by test_nmap_parse.py
+  G.2 to assert category routing.
+
+  Each <host> is purpose-built: the IPv4 address encodes the category index
+  (10.0.0.<idx>) and the open <port> matches a port from SERVICE_MAP. Service
+  names match the regex when SERVICE_MAP requires a name component.
+
+  Not derived from any real target. Synthetic only.
+-->
+<nmaprun scanner="nmap" args="" version="7.94">
+  <host>
+    <status state="up"/><address addr="10.0.0.1" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="445"><state state="open"/><service name="microsoft-ds"/></port>
+      <port protocol="tcp" portid="139"><state state="open"/><service name="netbios-ssn"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.2" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="389"><state state="open"/><service name="ldap"/></port>
+      <port protocol="tcp" portid="636"><state state="open"/><service name="ldapssl"/></port>
+      <port protocol="tcp" portid="88"><state state="open"/><service name="kerberos"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.3" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="5985"><state state="open"/><service name="wsman"/></port>
+      <port protocol="tcp" portid="3389"><state state="open"/><service name="ms-wbt-server"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.4" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="1433"><state state="open"/><service name="ms-sql-s"/></port>
+      <port protocol="tcp" portid="3306"><state state="open"/><service name="mysql"/></port>
+      <port protocol="tcp" portid="5432"><state state="open"/><service name="postgresql"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.5" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="80"><state state="open"/><service name="http"/></port>
+      <port protocol="tcp" portid="443"><state state="open"/><service name="https"/></port>
+      <port protocol="tcp" portid="8080"><state state="open"/><service name="http-proxy"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.6" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port>
+      <port protocol="tcp" portid="21"><state state="open"/><service name="ftp"/></port>
+      <port protocol="tcp" portid="25"><state state="open"/><service name="smtp"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.7" addrtype="ipv4"/>
+    <ports>
+      <port protocol="udp" portid="161"><state state="open"/><service name="snmp"/></port>
+      <port protocol="udp" portid="53"><state state="open"/><service name="domain"/></port>
+      <port protocol="tcp" portid="2049"><state state="open"/><service name="nfs"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.8" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="6379"><state state="open"/><service name="redis"/></port>
+      <port protocol="tcp" portid="27017"><state state="open"/><service name="mongodb"/></port>
+      <port protocol="tcp" portid="9200"><state state="open"/><service name="elasticsearch"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.9" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="5900"><state state="open"/><service name="vnc"/></port>
+      <port protocol="tcp" portid="1099"><state state="open"/><service name="java-rmi"/></port>
+      <port protocol="tcp" portid="61616"><state state="open"/><service name="activemq"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.10" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="15672"><state state="open"/><service name="rabbitmq"/></port>
+      <port protocol="tcp" portid="11211"><state state="open"/><service name="memcached"/></port>
+      <port protocol="tcp" portid="5984"><state state="open"/><service name="http" product="CouchDB"/></port>
+      <port protocol="tcp" portid="2379"><state state="open"/><service name="ssl/http"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.11" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="2375"><state state="open"/><service name="http"/></port>
+      <port protocol="tcp" portid="6443"><state state="open"/><service name="ssl/http"/></port>
+      <port protocol="tcp" portid="10250"><state state="open"/><service name="ssl/http"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.12" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="5222"><state state="open"/><service name="xmpp-client"/></port>
+      <port protocol="tcp" portid="5269"><state state="open"/><service name="xmpp-server"/></port>
+      <port protocol="tcp" portid="9090"><state state="open"/><service name="http"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.13" addrtype="ipv4"/>
+    <ports>
+      <port protocol="udp" portid="623"><state state="open"/><service name="asf-rmcp"/></port>
+      <port protocol="tcp" portid="1521"><state state="open"/><service name="oracle-tns"/></port>
+      <port protocol="tcp" portid="23"><state state="open"/><service name="telnet"/></port>
+    </ports>
+  </host>
+</nmaprun>

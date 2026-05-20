@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!DOCTYPE nmaprun>
+<!--
+  Closed/filtered ports must NOT make it into the inventory. Validates that
+  nmap-parse.py filters on <state state="open"/> only.
+-->
+<nmaprun scanner="nmap" args="" version="7.94">
+  <host>
+    <status state="up"/><address addr="10.0.0.30" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port>
+      <port protocol="tcp" portid="80"><state state="filtered"/><service name="http"/></port>
+      <port protocol="tcp" portid="443"><state state="closed"/><service name="https"/></port>
+    </ports>
+  </host>
+</nmaprun>
