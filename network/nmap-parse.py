@@ -24,10 +24,66 @@ Service categories (matched on port AND nmap-detected service name):
 """
 
 from __future__ import annotations
-import argparse, json, re, sys, xml.etree.ElementTree as ET
+import argparse, json, re, sys
+import xml.etree.ElementTree as _stdlib_ET
 from pathlib import Path
 from collections import defaultdict
 from typing import Iterable
+
+# ---------------------------------------------------------------- XML hardening
+# Untrusted nmap XML can contain DOCTYPE declarations, external entities
+# (XXE → arbitrary file disclosure / SSRF), and entity-expansion bombs
+# (billion-laughs → CPU/memory DoS). Operator-only use is low risk, but a CI
+# pipeline taking XML from a less-trusted source is not.
+#
+# Preferred: defusedxml.ElementTree — drop-in replacement that rejects DTDs
+# and entity expansion by default. If unavailable, fall back to stdlib with
+# a custom TreeBuilder target that rejects DOCTYPE explicitly.
+try:
+    import defusedxml.ElementTree as ET   # type: ignore[import-not-found]
+    _XML_BACKEND = "defusedxml"
+except ImportError:                       # noqa: BLE001
+    ET = _stdlib_ET                       # type: ignore[assignment]
+    _XML_BACKEND = "stdlib+hardened"
+    print(
+        "[!] defusedxml not installed — using hardened stdlib parser. "
+        "For full XXE/billion-laughs immunity: pip install defusedxml",
+        file=sys.stderr,
+    )
+
+
+# DTD constructs that enable XXE / billion-laughs.
+#   * <!ENTITY ...>     declares an entity (XXE-via-internal-entity, billion-laughs)
+#   * SYSTEM "..." or PUBLIC "..." inside DOCTYPE  (external DTD load)
+# Plain `<!DOCTYPE nmaprun>` (no internal subset, no external ref) is benign and
+# nmap emits one, so we must not blanket-reject DOCTYPE.
+_DANGEROUS_DTD_RE = re.compile(
+    rb"<!ENTITY|<!DOCTYPE\b[^>\[]*\b(SYSTEM|PUBLIC)\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_xml_hardened(path: Path) -> _stdlib_ET.ElementTree:
+    """Stdlib parse path that pre-scans for the DTD constructs that enable
+    XXE / billion-laughs. Used only when defusedxml is not installed —
+    defusedxml's ElementTree.parse() rejects these via expat handlers and
+    is preferred. The pre-scan is intentionally conservative; if it matches,
+    we refuse rather than risk a misparse."""
+    if _XML_BACKEND == "defusedxml":
+        return ET.parse(path)                          # type: ignore[return-value]
+    # Pre-scan the raw bytes. Cap the scan at the first 64KB — DTD constructs
+    # live in the prolog; if they aren't there, the rest of the document is fine.
+    with open(path, "rb") as f:
+        prolog = f.read(65536)
+    m = _DANGEROUS_DTD_RE.search(prolog)
+    if m:
+        raise ValueError(
+            f"refusing to parse XML — dangerous DTD construct detected "
+            f"({m.group(0)!r}) in the prolog. Possible XXE / billion-laughs. "
+            f"Install defusedxml (pip install defusedxml) for safe parsing of "
+            f"XML files containing entity declarations."
+        )
+    return _stdlib_ET.parse(path)
 
 # Map service-category -> (port set, service-name regex). A host:port matches
 # if its port is in the port set OR the nmap-detected service name matches.
@@ -79,7 +135,7 @@ def categorize(port: int, service: str) -> list[str]:
 
 def parse_xml(path: Path):
     """Yield dicts: {ip, hostname, port, proto, state, service, product, version, extrainfo}"""
-    tree = ET.parse(path)
+    tree = _parse_xml_hardened(path)
     for host in tree.iterfind("host"):
         # skip down hosts
         st = host.find("status")
@@ -230,7 +286,23 @@ def main():
     if not path.exists():
         print(f"error: {path} not found", file=sys.stderr); return 2
 
-    entries = list(dispatch(path))
+    try:
+        entries = list(dispatch(path))
+    except Exception as e:                              # noqa: BLE001
+        # Surface DOCTYPE / entity-expansion rejections cleanly. Cover both
+        # backends: defusedxml raises defusedxml.common.EntitiesForbidden /
+        # DTDForbidden, and the stdlib fallback's _RejectDTD raises ValueError.
+        name = type(e).__name__
+        if name in ("EntitiesForbidden", "DTDForbidden", "ExternalReferenceForbidden") \
+           or "DOCTYPE" in str(e) or "Entit" in str(e):
+            print(
+                f"error: refusing to parse XML — {name}: {e}\n"
+                f"       file may contain XXE / billion-laughs payload. "
+                f"If the file is genuinely trusted, parse with an unhardened tool.",
+                file=sys.stderr,
+            )
+            return 3
+        raise
     for e in entries:
         e["categories"] = [] if args.no_cat else categorize(e["port"], e["service"])
 

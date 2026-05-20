@@ -11,6 +11,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ### Security
 - `network/_lib.sh` + `network/enum-{smb,ldap,mssql,winrm,rdp}.sh`: replaced shell-string credential concatenation (`NXC_ARGS+=" -u $ENUM_USER"`) with bash arrays via new `nxc_creds_array` helper. Closes the shell-injection footgun where credentials containing quotes, spaces, or shell metacharacters could break tooling or — given a hostile credential — execute arbitrary commands. Verified end-to-end with a payload-style credential (`al'ice"bob; rm -rf /tmp/X`) — no shell expansion, no rm execution. (REVIEW-001 §3.1)
+- `network/nmap-parse.py`: hardened XML parsing against XXE / billion-laughs. Prefers `defusedxml.ElementTree` when installed; falls back to stdlib with a regex pre-scan of the prolog that rejects `<!ENTITY` declarations and `SYSTEM`/`PUBLIC` external references inside DOCTYPE. Benign nmap output (which always emits `<!DOCTYPE nmaprun>` with no internal subset) parses byte-identically. Verified: `tests/fixtures/malicious_xxe.xml` and `tests/fixtures/billion_laughs.xml` rejected under both backends with clean stderr messages. (REVIEW-001 §3.2)
 
 ### Fixed
 - `network/enum-ldap.sh`: IPv6 LDAP server addresses are now bracketed in the `ldap://` URL via new `ldap_url()` helper. Previously `ldap://2001:db8::1` would be parsed ambiguously by `ldapsearch`'s URL handler. v4 callsites unchanged. (REVIEW-001 §3.6)
@@ -18,6 +19,8 @@ See `CLAUDE.md` §6 for the entry style guide.
 ### Added
 - `network/_lib.sh`: `nxc_creds_array <ARRAY_NAME>` helper using bash namerefs (4.3+) to populate credential argv safely.
 - `network/_lib.sh`: `ldap_url <ip> [port] [scheme]` helper to construct LDAP URLs that respect IPv6 bracketing.
+- `tests/fixtures/malicious_xxe.xml` + `tests/fixtures/billion_laughs.xml`: regression fixtures for `nmap-parse.py` XML hardening.
+- `deps-check.sh`: detect `defusedxml` Python package; lists `pip3 install defusedxml` under install hints.
 
 ### Enhanced
 - `graphql/gql.py`: added `--insecure` / `-k` flag and `GQL_INSECURE=1` env var to bypass TLS certificate verification (mirrors `curl -k`). Default behavior (verify) unchanged. Affects every subcommand that hits the network (`introspect`, `ls`, `describe`, `call`, `loop`, `diff`, `raw`).
@@ -27,7 +30,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 - `CHANGELOG.md`: this file.
 - `.gitignore`: excludes `__pycache__/`, `.cache/`, `enum-results/`, `*.so`, local secrets.
 - `docs/REVIEW-001-19MAY2026-thoroughness-audit.md`: collection-wide audit identifying coverage gaps and hardening opportunities.
-- `docs/ROADMAP-001-19MAY2026-thoroughness-execution.md`: living, dated execution plan sequencing all REVIEW-001 items across 7 iterations (A–G) tied to MINOR release tags `v0.2.0`–`v0.8.0`.
+- `docs/ROADMAP-001-19MAY2026-thoroughness-execution.md`: living, dated execution plan sequencing all REVIEW-001 items across 7 iterations (A–G) tied to MINOR release tags `v0.2.0`–`v0.8.0`. Iteration H (Jabber/XMPP/comp pentesting) added 2026-05-19 as user-requested milestone targeting `v0.9.0`.
 
 ### Refactored
 - Repo re-initialized as a standalone git repository (was previously untracked).

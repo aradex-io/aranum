@@ -55,6 +55,16 @@ check rdp-sec-check.pl   opt
 check redis-cli          opt
 check dnsrecon           opt
 
+# Python: defusedxml hardens nmap-parse.py against XXE / billion-laughs.
+# Without it, nmap-parse.py uses a hardened stdlib fallback that pre-scans
+# the prolog for dangerous DTD constructs. defusedxml is strictly preferred.
+if python3 -c "import defusedxml" 2>/dev/null; then
+    v=$(python3 -c "import defusedxml; print(defusedxml.__version__)" 2>/dev/null || true)
+    printf "${G}[+]${N} %-22s defusedxml %s (Python)\n" "defusedxml" "$v"
+else
+    printf "[ ] %-22s (optional Python pkg — pip install defusedxml)\n" "defusedxml"
+fi
+
 echo
 echo "Install hints (Fedora/Arch/Debian vary):"
 cat <<'EOF'
@@ -66,4 +76,5 @@ cat <<'EOF'
   go install github.com/projectdiscovery/httpx/cmd/httpx@latest
   go install github.com/ffuf/ffuf/v2@latest
   go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+  pip3 install defusedxml                   # XXE-hardened XML parsing
 EOF
