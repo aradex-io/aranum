@@ -29,6 +29,7 @@ PARALLEL=4
 ONLY=""
 EXCLUDE=""
 DRY_RUN=0
+RESUME=0
 
 usage() {
     cat <<EOF
@@ -52,6 +53,8 @@ Tuning:
   --only LIST         comma-sep services to run (e.g. smb,ldap,winrm)
   --exclude LIST      comma-sep services to skip
   --dry-run           print plan, don't execute
+  --resume            skip services that already have a .done marker
+                      (set by a prior successful auto-enum.sh run)
 
   -h, --help          show this help
 
@@ -86,6 +89,7 @@ while [ $# -gt 0 ]; do
         --only)         ONLY="$2"; shift 2 ;;
         --exclude)      EXCLUDE="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=1; shift ;;
+        --resume)       RESUME=1; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "unknown arg: $1"; usage; exit 1 ;;
     esac
@@ -100,6 +104,21 @@ mkdir -p "$OUTDIR"
 # Export auth so dispatchers see them
 export ENUM_USER="$USER" ENUM_PASS="$PASS" ENUM_HASH="$NTLM_HASH"
 export ENUM_DOMAIN="$DOMAIN" ENUM_DC_IP="$DC_IP" ENUM_PARALLEL="$PARALLEL"
+
+# ---------- run.log — central timestamped run journal (E.3) ----------
+RUN_LOG="$OUTDIR/run.log"
+run_log() { printf "%s  %s\n" "$(date -Iseconds)" "$*" >> "$RUN_LOG"; }
+run_log "=== auto-enum run started ==="
+run_log "input=$INPUT outdir=$OUTDIR parallel=$PARALLEL resume=$RESUME"
+run_log "user=${USER:-<none>} domain=${DOMAIN:-<none>} dc_ip=${DC_IP:-<none>}"
+# Capture tool versions (best-effort; missing tools are documented in deps-check)
+for tool in nmap nxc netexec enum4linux-ng smbclient rpcclient ldapsearch \
+            kerbrute ssh-audit whatweb httpx ffuf nuclei nikto onesixtyone \
+            snmpwalk smbmap psql mysql mongosh mongo redis-cli curl openssl; do
+    if v=$(command -v "$tool" >/dev/null 2>&1 && "$tool" --version 2>&1 | head -1); then
+        [ -n "$v" ] && run_log "tool: $tool: $v"
+    fi
+done
 
 # ---------- 1. parse ----------
 echo "[*] Parsing $INPUT ..."
@@ -145,13 +164,30 @@ echo "[*] Will run: $SERVICES"
 echo "$SERVICES" | tr ' ' '\n' > "$OUTDIR/services.txt"
 
 # ---------- 3. dispatch ----------
+# Tracking for the post-run failure tally (E.10).
+declare -i RUN_OK=0 RUN_FAIL=0 RUN_SKIP=0
+declare -a FAILED_SERVICES=()
+
 run_dispatcher() {
     local svc="$1"
     local script="$SCRIPT_DIR/enum-${svc}.sh"
     if [ ! -f "$script" ]; then
-        echo "[-] no dispatcher for $svc (looked for $script)"; return
+        echo "[-] no dispatcher for $svc (looked for $script)"
+        run_log "skip: $svc (no dispatcher)"
+        RUN_SKIP+=1
+        return
     fi
     chmod +x "$script" 2>/dev/null
+
+    local svc_out="$OUTDIR/$svc"
+    local done_marker="$svc_out/.done"
+    # E.4 — --resume: skip if marker exists
+    if [ "$RESUME" = "1" ] && [ -e "$done_marker" ]; then
+        echo "[*] Service: $svc — SKIPPED (.done marker present; --resume)"
+        run_log "resume-skip: $svc (.done present from $(stat -c %y "$done_marker" 2>/dev/null))"
+        RUN_SKIP+=1
+        return
+    fi
 
     local target_file="$OUTDIR/_targets_${svc}.txt"
     if [ "$svc" = "unknown" ]; then
@@ -162,13 +198,28 @@ run_dispatcher() {
     local n; n=$(wc -l < "$target_file")
     [ "$n" -eq 0 ] && { rm -f "$target_file"; return; }
     echo "[*] Service: $svc ($n targets)"
+    run_log "dispatch-begin: $svc ($n targets)"
     if [ "$DRY_RUN" = "1" ]; then
-        echo "    DRY: $script --targets $target_file --output $OUTDIR/$svc"
+        echo "    DRY: $script --targets $target_file --output $svc_out"
         return
     fi
-    mkdir -p "$OUTDIR/$svc"
-    bash "$script" --targets "$target_file" --output "$OUTDIR/$svc" \
-         2>&1 | tee "$OUTDIR/$svc/_dispatcher.log"
+    mkdir -p "$svc_out"
+    local t0=$(date +%s)
+    # Run + capture rc + propagate to tee'd log
+    local rc
+    bash "$script" --targets "$target_file" --output "$svc_out" \
+         2>&1 | tee "$svc_out/_dispatcher.log"
+    rc=${PIPESTATUS[0]}
+    local t1=$(date +%s); local elapsed=$((t1 - t0))
+    run_log "dispatch-end:   $svc rc=$rc elapsed=${elapsed}s"
+    if [ "$rc" -eq 0 ]; then
+        RUN_OK+=1
+        # Stamp the .done marker for --resume on the next run
+        echo "$(date -Iseconds)  rc=0  elapsed=${elapsed}s  targets=$n" > "$done_marker"
+    else
+        RUN_FAIL+=1
+        FAILED_SERVICES+=("$svc(rc=$rc)")
+    fi
 }
 
 for svc in $SERVICES; do
@@ -180,3 +231,18 @@ echo
 echo "=== Enumeration complete ==="
 echo "Results: $OUTDIR/"
 find "$OUTDIR" -maxdepth 2 -type d | sed "s|$OUTDIR|.|"
+
+# E.10 — dispatcher failure tally
+echo
+echo "Dispatcher results: OK=$RUN_OK  FAIL=$RUN_FAIL  SKIP=$RUN_SKIP"
+if [ "$RUN_FAIL" -gt 0 ]; then
+    printf '\033[1;31m[!]\033[0m %d dispatcher(s) exited non-zero: %s\n' \
+        "$RUN_FAIL" "${FAILED_SERVICES[*]}"
+    echo "    inspect each <service>/_dispatcher.log for details"
+fi
+run_log "=== run complete OK=$RUN_OK FAIL=$RUN_FAIL SKIP=$RUN_SKIP ==="
+
+# Hint about report.py
+echo
+echo "Next: generate the unified findings report:"
+echo "  python3 $SCRIPT_DIR/report.py $OUTDIR --label '$(basename "$OUTDIR")'"
