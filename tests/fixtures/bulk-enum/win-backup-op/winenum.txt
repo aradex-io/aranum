@@ -1,0 +1,14 @@
+======================================================================
+  CURRENT USER
+======================================================================
+[+] SeBackupPrivilege (ENABLED)
+[-] SeImpersonatePrivilege (disabled — can still be enabled)
+[+] Member of Account Operators
+======================================================================
+  SCHEDULED TASKS
+======================================================================
+[+] [SYSTEM] \Microsoft\Windows\Backup\nightly -> C:\Tools\backup.exe --full
+======================================================================
+  WRITABLE PATH DIRECTORIES
+======================================================================
+[+] WRITABLE: C:\Tools\bin

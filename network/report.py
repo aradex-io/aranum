@@ -189,17 +189,75 @@ _BULK_RULES: list[tuple[re.Pattern, str]] = [
 ]
 
 
+# ---------------------------------------------------- Windows bulk-enum severity rules
+# Anchored on what windows/Invoke-PrivEscEnum.ps1 actually prints (see that
+# script's Section / Sub / Hit functions — formatting is stable across runs).
+_BULK_RULES_WIN: list[tuple[re.Pattern, str]] = [
+    # ---- CRITICAL ---- (direct privesc primitives)
+    # AlwaysInstallElevated ENABLED — msfvenom -f msi -> SYSTEM
+    (re.compile(r"AlwaysInstallElevated ENABLED", re.I),                        "critical"),
+    # SE* token privileges that are direct SYSTEM primitives when ENABLED.
+    # Anchored on `\(ENABLED\)` (literal parens, no re.I) — Invoke-PrivEscEnum.ps1
+    # always emits `(ENABLED)` upper-case for the enabled hit; the disabled
+    # miss is `(disabled — can still be enabled)`. Without these anchors the
+    # `.*ENABLED` regex with re.I matches the disabled-hint trailing "enabled".
+    (re.compile(r"\bSe(Impersonate|AssignPrimaryToken|Debug|Tcb|CreateToken|LoadDriver)Privilege\s*\(ENABLED\)"), "critical"),
+    # Service binary the current user can overwrite
+    (re.compile(r"WRITABLE BINARY:", re.I),                                     "critical"),
+    # AutoLogon password disclosed in registry
+    (re.compile(r"DefaultPassword=", re.I),                                     "critical"),
+    # Membership in fully-privileged groups (any of Domain/Enterprise/Schema
+    # Admins, local Administrators, Backup/Server Operators)
+    (re.compile(r"^\[\+\] Member of (Domain Admins|Enterprise Admins|Schema Admins|Administrators|Backup Operators|Server Operators|Hyper-V Administrators)", re.I | re.M), "critical"),
+    # GPP cpassword surface — these files commonly contain decryptable creds
+    (re.compile(r"^\[\+\] .*\\(Groups|Services|Scheduledtasks|DataSources|Printers|Drives)\.xml", re.I | re.M), "critical"),
+    # Unattend / sysprep on disk — common cred-leak path
+    (re.compile(r"^\[\+\] .*\\(Unattend(ed)?\.xml|sysprep\.(xml|inf)|unattend\.(xml|inf|txt))", re.I | re.M), "critical"),
+
+    # ---- HIGH ---- (indirect privesc / needs second step)
+    # Backup/restore/ownership-take privileges — read or write anything as SYSTEM-equivalent
+    # Same `\(ENABLED\)` literal anchor as the CRITICAL Se* rule above.
+    (re.compile(r"\bSe(Backup|Restore|TakeOwnership|ManageVolume|Security)Privilege\s*\(ENABLED\)"), "high"),
+    # Unquoted service path (CRITICAL only if combined with writable dir — we'd
+    # need cross-checking which the report layer doesn't do; flag HIGH so it
+    # surfaces but isn't false-positive CRITICAL)
+    (re.compile(r"^\[\+\] \S+ -> [A-Za-z]:\\Program Files\\.*\s.*\(StartMode=", re.I | re.M), "high"),
+    # Writable PATH dir (the operator can drop a DLL planted by a system EXE)
+    (re.compile(r"^\[\+\] WRITABLE: [A-Za-z]:\\", re.I | re.M),                 "high"),
+    # Limited-but-privileged group memberships
+    (re.compile(r"^\[\+\] Member of (Account Operators|Print Operators|DnsAdmins)", re.I | re.M), "high"),
+    # Scheduled task running as SYSTEM/NETWORK SERVICE/Administrators
+    (re.compile(r"^\[\+\] \[(SYSTEM|NETWORK SERVICE|.*Administrators)\] ", re.I | re.M), "high"),
+    # SCCM client task sequences / credentials path (common but high-value)
+    (re.compile(r"\\CCM\\Logs\\.*PasswordHash|naa[_-]?credential", re.I),       "high"),
+
+    # ---- MEDIUM ----
+    # SE* privileges that are present but disabled — operator can enable some
+    # (Invoke-PrivEscEnum.ps1 prints `(disabled — can still be enabled)`)
+    (re.compile(r"\bSe(Impersonate|AssignPrimaryToken|Debug|Backup|Restore|TakeOwnership)Privilege\s*\(disabled"), "medium"),
+    # Lateral-movement-only group memberships
+    (re.compile(r"^\[\+\] Member of (Remote Desktop Users|Remote Management Users)", re.I | re.M), "medium"),
+    # Plaintext-secret patterns in user files (the script greps for these in
+    # Documents / wwwroot / etc.)
+    (re.compile(r"(?:password|passwd|secret|api[_-]?key|token=)\s*[=:]\s*\S{4,}", re.I), "medium"),
+    # End-of-life Windows builds (Win7, Server 2008, 2008R2, 2012, 2012R2)
+    (re.compile(r"OS:\s+Microsoft Windows (7|Server 2008|Server 2012)\b", re.I),"medium"),
+]
+
+
 # ---------------------------------------------------- layout detector
 def _is_bulk_enum_dir(out_dir: Path) -> bool:
-    """Return True iff out_dir looks like a bulk-enum-linux.sh output tree.
-    Heuristic: at least one direct subdir contains a `_meta.json` AND a
-    `linenum.txt`. auto-enum.sh subdirs are service names containing host
-    subdirs — they never contain a top-level linenum.txt."""
+    """Return True iff out_dir looks like a bulk-enum output tree.
+    Heuristic: at least one direct subdir contains a `_meta.json` AND either
+    a `linenum.txt` (Linux side, J) or a `winenum.txt` (Windows side, K).
+    auto-enum.sh subdirs are service names containing host subdirs — they
+    never contain a top-level linenum.txt/winenum.txt."""
     for sub in out_dir.iterdir():
         if not sub.is_dir():
             continue
-        if (sub / "_meta.json").is_file() and (sub / "linenum.txt").is_file():
-            return True
+        if (sub / "_meta.json").is_file():
+            if (sub / "linenum.txt").is_file() or (sub / "winenum.txt").is_file():
+                return True
     return False
 
 
@@ -264,32 +322,43 @@ def walk_findings(out_dir: Path, rules) -> Iterable[dict]:
 
 # ---------------------------------------------------- bulk-enum walker
 def walk_findings_bulk(out_dir: Path, extra_rules) -> Iterable[dict]:
-    """Walk a bulk-enum-linux.sh output tree. Each top-level subdir is one host;
-    inside each: linenum.txt (raw stdout), linenum.err (stderr), _meta.json.
-    Findings carry service='linenum' so the existing renderer can group them."""
-    combined = list(_BULK_RULES) + list(extra_rules or [])
+    """Walk a bulk-enum output tree. Each top-level subdir is one host. The
+    host's output file selects the rule set + service label:
+        linenum.txt  -> _BULK_RULES     + service='linenum'  (Linux, J)
+        winenum.txt  -> _BULK_RULES_WIN + service='winenum'  (Windows, K)
+    A single $OUT can hold both — report.py rolls them up into ONE per-host
+    verdict table so a mixed-OS engagement gets one prioritized view."""
+    extras = list(extra_rules or [])
+    linux_rules = list(_BULK_RULES) + extras
+    win_rules   = list(_BULK_RULES_WIN) + extras
     for host_dir in sorted(p for p in out_dir.iterdir() if p.is_dir()):
         meta = host_dir / "_meta.json"
-        linenum = host_dir / "linenum.txt"
-        if not (meta.is_file() and linenum.is_file()):
+        if not meta.is_file():
             continue
-        host = host_dir.name
-        try:
-            text = linenum.read_text(errors="replace")
-        except Exception:
-            continue
-        for line in text.splitlines():
-            sev = _classify(line, combined)
-            if sev is None:
+        for fname, rules, svc in (
+            ("linenum.txt", linux_rules, "linenum"),
+            ("winenum.txt", win_rules,   "winenum"),
+        ):
+            evidence = host_dir / fname
+            if not evidence.is_file():
                 continue
-            yield {
-                "host":          host,
-                "port":          "",
-                "service":       "linenum",
-                "severity":      sev,
-                "line":          line.strip()[:300],
-                "evidence_path": str(linenum.relative_to(out_dir)),
-            }
+            try:
+                text = evidence.read_text(errors="replace")
+            except Exception:
+                continue
+            host = host_dir.name
+            for line in text.splitlines():
+                sev = _classify(line, rules)
+                if sev is None:
+                    continue
+                yield {
+                    "host":          host,
+                    "port":          "",
+                    "service":       svc,
+                    "severity":      sev,
+                    "line":          line.strip()[:300],
+                    "evidence_path": str(evidence.relative_to(out_dir)),
+                }
 
 
 # ---------------------------------------------------- renderers
@@ -298,18 +367,26 @@ _SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 def _per_host_verdicts(findings: list[dict]) -> dict[str, dict]:
     """Compute per-host verdict (max severity across findings) for bulk-enum
-    reports. Returns {host: {verdict: 'critical', n_critical: N, n_high: ..., ...}}."""
-    per = {}
+    reports. Each host's verdict considers both linenum AND winenum findings;
+    mixed-OS estates produce a single prioritized table. Returns
+    {host: {verdict, n_critical, n_high, n_medium, n_low, os}}."""
+    per: dict[str, dict] = {}
     for f in findings:
-        if f["service"] != "linenum":
+        if f["service"] not in ("linenum", "winenum"):
             continue
         h = f["host"]
         if h not in per:
             per[h] = {"n_critical": 0, "n_high": 0, "n_medium": 0, "n_low": 0,
-                      "verdict": "low"}
+                      "verdict": "low", "os": ""}
         per[h][f"n_{f['severity']}"] += 1
         if _SEV_ORDER[f["severity"]] < _SEV_ORDER[per[h]["verdict"]]:
             per[h]["verdict"] = f["severity"]
+        # Track OS — if both surfaces produced findings, label "mixed"
+        new_os = "linux" if f["service"] == "linenum" else "windows"
+        if not per[h]["os"]:
+            per[h]["os"] = new_os
+        elif per[h]["os"] != new_os:
+            per[h]["os"] = "mixed"
     return per
 
 
@@ -353,13 +430,13 @@ def render_markdown(findings: list[dict], summary: dict, run_label: str,
     if per_host:
         out.append("## Per-host privesc verdict (bulk-enum)")
         out.append("")
-        out.append("| Host | Verdict | Critical | High | Medium | Low |")
-        out.append("|---|---|---:|---:|---:|---:|")
+        out.append("| Host | OS | Verdict | Critical | High | Medium | Low |")
+        out.append("|---|---|---|---:|---:|---:|---:|")
         # Sort: critical hosts first, then high, etc.; alpha within tier.
         ordered = sorted(per_host.items(),
                          key=lambda kv: (_SEV_ORDER[kv[1]["verdict"]], kv[0]))
         for host, v in ordered:
-            out.append(f"| {redactor(host)} | **{v['verdict']}** | "
+            out.append(f"| {redactor(host)} | {v.get('os', '')} | **{v['verdict']}** | "
                        f"{v['n_critical']} | {v['n_high']} | {v['n_medium']} | {v['n_low']} |")
         out.append("")
 

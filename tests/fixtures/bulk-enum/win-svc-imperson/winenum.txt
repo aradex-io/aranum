@@ -1,0 +1,22 @@
+======================================================================
+  SYSTEM INFO
+======================================================================
+OS:           Microsoft Windows Server 2019 Standard [10.0.17763 build 17763]
+Hostname:     win-svc-imperson
+======================================================================
+  CURRENT USER
+======================================================================
+User:        svc-low
+[+] Member of Backup Operators
+[*] Useful token privileges (for SE* exploits)
+[+] SeImpersonatePrivilege (ENABLED)
+[+] SeAssignPrimaryTokenPrivilege (ENABLED)
+======================================================================
+  AlwaysInstallElevated
+======================================================================
+HKLM = 1 | HKCU = 1
+[+] AlwaysInstallElevated ENABLED — msfvenom -f msi gives SYSTEM
+======================================================================
+  SERVICES — UNQUOTED & WRITABLE
+======================================================================
+[+] WRITABLE BINARY: VulnSvc -> C:\Apps\vuln\service.exe (granted to BUILTIN\Users)
