@@ -78,6 +78,14 @@ check dnsrecon           opt
 check shellcheck         opt  # G.6 — lint gate for `make lint`; pip install shellcheck-py also works
 check sshpass            opt  # J.1 — only required for `bulk-enum-linux.sh --pass`; ssh-agent / --key are preferred
 
+# K.1 — pywinrm Python package (only required for bulk-enum-windows.py)
+if python3 -c "import winrm" 2>/dev/null; then
+    v=$(python3 -c "import winrm; print(getattr(winrm, '__version__', '?'))" 2>/dev/null || true)
+    printf "${G}[+]${N} %-22s pywinrm %s (Python)\n" "pywinrm" "$v"
+else
+    printf "[ ] %-22s (optional Python pkg — pip install pywinrm; required for bulk-enum-windows.py)\n" "pywinrm"
+fi
+
 # Python: defusedxml hardens nmap-parse.py against XXE / billion-laughs.
 # Without it, nmap-parse.py uses a hardened stdlib fallback that pre-scans
 # the prolog for dangerous DTD constructs. defusedxml is strictly preferred.

@@ -54,6 +54,7 @@ aratool/
 | `network/nmap-parse.py` | Parse `.xml`, `.gnmap`, and `.nmap` files → JSON inventory by service |
 | `network/auto-enum.sh` | Master orchestrator: nmap output → service buckets → dispatch enum |
 | `network/bulk-enum-linux.sh` | **Post-foothold** — pipe `linenum-fast.sh` over SSH to many hosts in parallel; per-host verdicts via `report.py` (J.1) |
+| `network/bulk-enum-windows.py` | **Post-foothold** — ship `Invoke-PrivEscEnum.ps1` over WinRM (pywinrm) to many Windows hosts in parallel; same `report.py` rolls up mixed Linux+Windows estates (K.1) |
 | `network/enum-smb.sh` | `enum4linux-ng`, `nxc smb --shares --users --pass-pol --spider`, smbclient, rpcclient |
 | `network/enum-ldap.sh` | `nxc ldap`, `ldapsearch`, `GetUserSPNs.py`, `GetNPUsers.py` |
 | `network/enum-kerberos.sh` | AS-REP roast, SPN enum, `kerbrute userenum` |
@@ -187,7 +188,45 @@ $OUT/
 
 After `report.py` runs, `findings.json` adds a `per_host` map with each host's `verdict` (worst severity across its findings) + per-tier finding counts. `report.html` surfaces a sortable per-host verdict table BEFORE the service breakdown so the operator's first view is "which hosts should I focus on?"
 
-Windows orchestration is on the roadmap for `v0.16.0` (iteration K). Today, use the standalone Windows scripts via WinRM/SMB transfer.
+### Windows side — `network/bulk-enum-windows.py` (iteration K, v0.16.0)
+
+Same shape, WinRM transport via `pywinrm`. `Invoke-Command -ScriptBlock` wraps the PowerShell so the script never lands on the victim's disk; output streams back over the same WSMan session. Per [`docs/ADR-003-20MAY2026-windows-bulk-enum-design.md`](docs/ADR-003-20MAY2026-windows-bulk-enum-design.md).
+
+```bash
+# Windows hosts file format — same as Linux side (user@host[:port]).
+cat > windows-hosts.txt <<'EOF'
+CORP\jay@WIN-DC01.corp:5985
+CORP\jay@WIN-MEMBER01.corp
+CORP\jay@WIN-MEMBER02.corp
+EOF
+
+# WinRM HTTP (5985). Auth defaults to NTLM. --pass works for NTLM/Basic/CredSSP.
+./network/bulk-enum-windows.py \
+    --targets windows-hosts.txt \
+    --pass 'P@ssw0rd' \
+    --output ./prod-win \
+    --parallel 8
+
+# WinRM HTTPS (5986). Cert validation is "ignore" by default for engagement
+# reality — flag if your env requires strict verification.
+./network/bulk-enum-windows.py --targets windows-hosts.txt --pass '...' \
+    --tls -o ./prod-win-tls
+
+# Kerberos (recommended for domain envs) — pre-existing krb5 ticket cache
+# (run `kinit` first). pywinrm picks up the cache automatically.
+./network/bulk-enum-windows.py --targets windows-hosts.txt --auth kerberos \
+    -o ./prod-win-krb5
+
+# Mixed estate — run BOTH orchestrators into the same $OUT. report.py
+# rolls them up into ONE per-host verdict table with an `os` column.
+./network/bulk-enum-linux.sh   --targets linux.txt   -u jay -k ~/.ssh/k -o ./estate
+./network/bulk-enum-windows.py --targets windows.txt --pass '...' --tls -o ./estate
+python3 ./network/report.py ./estate    # one report, mixed-OS, worst-first
+```
+
+**Authentication reach (read this before you trust the orchestrator at scale).** WinRM as a domain user requires "Remote Management Users" group membership on each target. That's uncommon in real environments — many domains gate WinRM to local Administrators only. If your engagement creds don't have that membership, bulk-enum-windows will fail clean (rc=255 per host with the pywinrm fault in `winenum.err`) and you'll need to fall back to the standalone `windows/*.ps1` scripts via WinRM/SMB transfer or remote desktop. `--use-smb-admin` documents the admin fallback path but the implementation is deferred (refuses with rc=126 + reason) — operators who already have admin should use `impacket-wmiexec` / `-psexec` directly with their engagement scoping.
+
+**Validation gap.** Per ADR-003 "WHAT THIS DOES NOT VALIDATE": this codebase ships on Fedora with no domain-joined Windows host in CI, so the WinRM transport is unverified pre-engagement. Mock-pywinrm unit tests cover everything OUTSIDE the transport (target parsing, IPv6 bracketing, output layout, arg validation, --dry-run, --throttle precedence). The operator's first real run against a known-good Windows VM is the transport validation. The ADR has a verification checklist.
 
 ## Dependencies
 
@@ -195,7 +234,7 @@ Run `./deps-check.sh` to see what's installed/missing. Recommended:
 
 - **Required**: python3, nmap, ldapsearch, smbclient, rpcclient, dig, snmpwalk
 - **Highly recommended**: netexec (nxc), enum4linux-ng, impacket-scripts, kerbrute, ssh-audit, whatweb, httpx, ffuf, onesixtyone
-- **Optional**: nuclei, nikto, evil-winrm, mssqlclient.py, rdp-sec-check, shellcheck (for `make lint`), sshpass (only for `bulk-enum-linux.sh --pass`)
+- **Optional**: nuclei, nikto, evil-winrm, mssqlclient.py, rdp-sec-check, shellcheck (for `make lint`), sshpass (only for `bulk-enum-linux.sh --pass`), pywinrm (only for `bulk-enum-windows.py`; `pip install pywinrm`)
 
 ## Safety / OPSEC
 
