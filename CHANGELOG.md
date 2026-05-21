@@ -9,9 +9,26 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.14.0)*
+*(empty — accumulating since v0.15.0)*
 
 ---
+
+## [v0.15.0] — 2026-05-20
+
+**Iteration J** of ROADMAP-001 — bulk local-enum at scale (Linux). Fills the remote→local handoff gap: with low-privilege credentials on a 50-500 host network, run `linux/linenum-fast.sh` against every target in parallel via SSH stdin-pipe (no on-disk artifact on the victim) and roll up per-host CRITICAL/HIGH/MEDIUM/LOW verdicts via `report.py`. Per [ADR-002](docs/ADR-002-20MAY2026-bulk-enum-design.md).
+
+### Added
+- **J.0 [ADR-002](docs/ADR-002-20MAY2026-bulk-enum-design.md):** records the seven design decisions for bulk-enum — stdin-pipe transport vs scp (no on-disk artifact, one round-trip per host, atomic semantics, output channel = input channel); no bundler (linenum-fast.sh is already the aggregator); per-engagement `known_hosts` silo (`$OUT/known_hosts` with `StrictHostKeyChecking=accept-new`, prevents cross-engagement trust contamination); `--throttle` parity with `auto-enum.sh`; verdict logic in `report.py` not the scanner; Windows orchestration deferred to v0.16.0 (iteration K — needs ADR-003); 50-500 host scale tuning (default parallel=4, capped at 16; `BatchMode=yes`, `ConnectTimeout=10`, `ServerAliveInterval=15`).
+- **J.1 `network/bulk-enum-linux.sh`:** orchestrator with full flag parity to `auto-enum.sh` (`--targets`, `--user`, `--key`, `--pass` via sshpass, `--port`, `--connect-timeout`, `--ssh-opt` (repeatable), `--parallel` capped at 16, `--throttle`, `--dry-run`, `--resume`). Per-engagement `known_hosts` written at `$OUT/known_hosts`. Each target gets `$OUT/<host>/{linenum.txt, linenum.err, _meta.json, .done}`. Run.log centralized journal + `_summary.tsv` post-run + failure tally listing each failed host. xargs-based parallel dispatch. Subshell-safe via persisted `.ssh_extra_opts` file (avoids env-var serialization gymnastics).
+- **J.3 fixtures + tests:**
+  - `tests/fixtures/bulk-enum/` — four synthetic per-host directories anchoring each verdict tier (web01=CRITICAL via NOPASSWD sudo; db02=CRITICAL via cap_setuid + perl SUID; app03=HIGH via writable systemd + cred-in-history; old04=MEDIUM via non-gtfobin SUID + old kernel). README documents the fixture contract.
+  - `tests/test_bulk_enum_report.py` — 9 stdlib `unittest` tests: layout detection (bulk vs auto-enum vs empty), walker output shape (every required field, evidence_path relative), per-host verdict assignment (anchored on fixture expectations), end-to-end CLI run (findings.json mode + per_host worst-first ordering, report.md + report.html written, HTML contains the per-host verdict surface).
+  - `tests/smoke.sh` sections **11d + 11e**: bulk-enum-linux.sh dry-run path (target-file parsing for bare host vs user@host:port, run.log + known_hosts + hosts.txt artifacts, throttle precedence operator-`-P`-wins, `-P 64` parallel-cap-at-16 refusal); report.py against fixtures (rc=0, all three outputs written, verdict per fixture, HTML contains the per-host surface).
+
+### Enhanced
+- **J.2 `network/report.py` bulk-enum mode:** auto-detects bulk-enum output layout (via `_is_bulk_enum_dir()` — checks for `_meta.json` + `linenum.txt` markers) and runs the appropriate walker. No new CLI flag; `python3 network/report.py $OUT` works for either layout. `findings.json` gains a `mode` field (`"auto-enum"` or `"bulk-enum"`) so downstream consumers can branch. In bulk mode: a `per_host` section is added with each host's `verdict` (max severity across findings) + per-tier finding counts, sorted worst-first. `report.md` and `report.html` add a "Per-host privesc verdict (bulk-enum)" table BEFORE the service breakdown (operator's first question is "which hosts should I focus on?"). New severity rules anchored on `linenum-fast.sh` output: CRITICAL on NOPASSWD / `(ALL:ALL) ALL` / dangerous capabilities (cap_setuid / cap_dac_read_search / cap_sys_admin / cap_sys_ptrace / cap_sys_module / cap_chown / cap_net_admin with `+ep`) / SUID matching one of 47 known GTFOBins / world-writable /etc/{passwd,shadow,sudoers} / `Privileged: true` container / `LD_PRELOAD` or `LD_LIBRARY_PATH` in sudo `env_keep`; HIGH on sudo version matching known-CVE ranges / `cap_net_raw`/`cap_kill`/`cap_sys_rawio` with `+ep` / writable systemd or cron / `no_root_squash` in NFS exports / `docker.sock` readable / password/api_key/token=value patterns in history; MEDIUM on non-gtfobin SUID / Linux kernel 2.x/3.x/4.x/5.x ≤ 5.15. HTML adds `.verdict-{critical,high,medium,low}` CSS classes for operator extension.
+- **J.4 top-level `README.md`:** new "Bulk local-enum across many hosts (iteration J)" section — quickstart for standard / `--throttle` / `--resume` / `--dry-run` flows, output-tree layout, per-engagement `known_hosts` silo explanation, `report.py` verdict reference, Windows-on-K (v0.16.0) callout. `bulk-enum-linux.sh` row added to the Network Enumeration table. Optional dependencies updated.
+- **J.4 `deps-check.sh`:** `sshpass` added under OPTIONAL (only required for `--pass` auth; ssh-agent / `--key` are preferred).
 
 ## [v0.14.0] — 2026-05-20
 
