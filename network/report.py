@@ -245,6 +245,45 @@ _BULK_RULES_WIN: list[tuple[re.Pattern, str]] = [
 ]
 
 
+# ---------------------------------------------------- AD-depth signal rules (D1.5)
+# These layer on top of the default rules and apply to auto-enum.sh output
+# tree files (enum-ldap.sh / enum-smb.sh / enum-kerberos.sh produce them).
+# Anchored on the literal strings the D1.0-D1.4 commits emit.
+_AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
+    # --- Certipy AD CS ---
+    # Certipy's "ESCN (Vulnerable)" header is the canonical hit — and our
+    # ADSI-based Get-ADCSMisconfig.ps1 mirrors that format for parity.
+    (re.compile(r"ESC([1-9]|1[0-1])\s*\(Vulnerable\)", re.I),                    "critical"),
+    # --- BloodHound collection presence — informational HIGH (signals to the
+    # operator that a graph file exists worth importing into BloodHound CE)
+    (re.compile(r"^BLOODHOUND_ZIP:", re.M),                                       "high"),
+    # --- GPP cpassword (Group Policy Preferences AES-known cleartext) ---
+    (re.compile(r"\bcpassword\s*=\s*['\"][^'\"]+['\"]"),                          "critical"),
+    (re.compile(r"GPP cpassword= in ", re.I),                                     "critical"),
+    # --- LAPS readable ---
+    (re.compile(r"READABLE \(LAPSv[12]", re.I),                                   "critical"),
+    (re.compile(r"ENCRYPTED \(LAPSv2\)", re.I),                                   "high"),
+    # --- AD delegation findings (enum-ldap.sh §6) ---
+    (re.compile(r"UNCONSTRAINED DELEGATION.*account\(s\)", re.I),                 "high"),
+    (re.compile(r"\bmsDS-AllowedToActOnBehalfOfOtherIdentity", re.I),             "high"),
+    # --- Kerberoast / AS-REP roast bulk findings (enum-kerberos.sh §3/§4) ---
+    (re.compile(r"kerberoastable hash\(es\) captured", re.I),                     "critical"),
+    (re.compile(r"AS-REP-roastable hash\(es\) captured", re.I),                   "critical"),
+    # --- PetitPotam coerce viability (enum-smb.sh §7) ---
+    (re.compile(r"PetitPotam coerce chain available", re.I),                      "high"),
+    (re.compile(r"lsarpc anonymous reachable on DC", re.I),                       "critical"),
+    # --- Pre-2000 computer-account candidates ---
+    (re.compile(r"^objectClass:\s*computer$", re.M),                              "low"),
+    # --- PrintNightmare exploitable config ---
+    (re.compile(r"PrintNightmare configuration is exploitable", re.I),            "critical"),
+    # --- Test-CoercedAuth local primitives ---
+    (re.compile(r"SeImpersonate \+ Spooler running.*PrintSpoofer", re.I),         "critical"),
+    (re.compile(r"SeImpersonate \+ DCOM reachable.*RoguePotato", re.I),           "high"),
+    # --- Named pipe writable to current user (Get-NamedPipes.ps1) ---
+    (re.compile(r"^WRITABLE PIPE:", re.M),                                        "high"),
+]
+
+
 # ---------------------------------------------------- layout detector
 def _is_bulk_enum_dir(out_dir: Path) -> bool:
     """Return True iff out_dir looks like a bulk-enum output tree.
@@ -588,6 +627,9 @@ def main() -> int:
         return 2
 
     rules = _load_rules(Path(args.severity_rules) if args.severity_rules else None)
+    # D1.5: layer the AD-depth rules on top of the default + operator rules.
+    # These are general (apply to both auto-enum and bulk-enum trees).
+    rules = list(rules) + list(_AD_DEPTH_RULES)
     redactor = Redactor(args.redact)
     label = args.label or out_dir.name
 
