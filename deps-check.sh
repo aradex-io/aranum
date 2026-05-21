@@ -86,6 +86,15 @@ else
     printf "[ ] %-22s (optional Python pkg — pip install pywinrm; required for bulk-enum-windows.py)\n" "pywinrm"
 fi
 
+echo
+echo "=== AD DEPTH (iteration D1 — optional) ==="
+check bloodhound-python  opt
+check bloodhound.py      opt
+check certipy            opt
+check certipy-ad         opt
+check petitpotam.py      opt
+check pwsh               opt   # for windows/*.ps1 AST parse / smoke 11h
+
 # Python: defusedxml hardens nmap-parse.py against XXE / billion-laughs.
 # Without it, nmap-parse.py uses a hardened stdlib fallback that pre-scans
 # the prolog for dangerous DTD constructs. defusedxml is strictly preferred.

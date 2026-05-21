@@ -32,6 +32,14 @@ aratool/
 | `windows/Get-AlwaysInstallElevated.ps1` | Registry check for AlwaysInstallElevated MSI privesc |
 | `windows/Get-WritablePathDirs.ps1` | Directories in PATH that current user can write to |
 | `windows/enum.bat` | No-PS fallback — `systeminfo`, `whoami /all`, `net localgroup`, `schtasks`, `wmic`, `reg query` |
+| `windows/Get-LAPSPassword.ps1` (D1.4) | Reads `ms-Mcs-AdmPwd` / `msLAPS-Password` for every computer object the current user can see — cleartext is CRITICAL |
+| `windows/Get-ADCSMisconfig.ps1` (D1.4) | Pure-ADSI ESC1/ESC2/ESC4 detection (no-deps fallback when Certipy unreachable from attacker box) |
+| `windows/Get-GPPCPassword.ps1` (D1.4) | SYSVOL + GP-History sweep for `cpassword=` in Groups.xml/Services.xml/etc. (AES key is public) |
+| `windows/Get-DPAPIBlobs.ps1` (D1.4) | Enumerates DPAPI master keys, vaults, Chrome/Edge/Firefox stores, RDP saved creds — **paths only** |
+| `windows/Get-NamedPipes.ps1` (D1.4) | ACL audit of named pipes; flags pipes writable to current user / Everyone / Authenticated Users |
+| `windows/Get-PrintNightmare.ps1` (D1.4) | CVE-2021-34527 / CVE-2021-1675 mitigation-state check (Spooler + registry policy combo) |
+| `windows/Get-PetitPotamSignals.ps1` (D1.4) | NTLM-relay/coercion signal audit on this host: SMB+LDAP signing, EFS RPC, coerce-vector services |
+| `windows/Test-CoercedAuth.ps1` (D1.4) | Local-only precondition check for PrintSpoofer/RoguePotato/GodPotato chains (SE* + Spooler + DCOM + WebDAV) |
 
 ## Linux Scripts
 
@@ -235,6 +243,7 @@ Run `./deps-check.sh` to see what's installed/missing. Recommended:
 - **Required**: python3, nmap, ldapsearch, smbclient, rpcclient, dig, snmpwalk
 - **Highly recommended**: netexec (nxc), enum4linux-ng, impacket-scripts, kerbrute, ssh-audit, whatweb, httpx, ffuf, onesixtyone
 - **Optional**: nuclei, nikto, evil-winrm, mssqlclient.py, rdp-sec-check, shellcheck (for `make lint`), sshpass (only for `bulk-enum-linux.sh --pass`), pywinrm (only for `bulk-enum-windows.py`; `pip install pywinrm`)
+- **AD depth (D1)**: `bloodhound-python` (`pipx install bloodhound-py`), `certipy-ad` (`pipx install certipy-ad`), impacket scripts (`pipx install impacket` provides `GetUserSPNs.py`/`GetNPUsers.py`/`petitpotam.py`/etc.). Each is OPTIONAL — the AD dispatchers detect-and-skip when a tool is missing per [ADR-004](docs/ADR-004-20MAY2026-ad-depth-tool-deps.md) D3.
 
 ## Safety / OPSEC
 
