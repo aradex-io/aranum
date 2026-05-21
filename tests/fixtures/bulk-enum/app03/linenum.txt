@@ -1,0 +1,6 @@
+===[ SYSTEM ]===
+Linux app03 5.15.0-110-generic
+===[ Writable sensitive files ]===
+writable: /etc/systemd/system/app.service
+===[ Shell histories ]===
+mysql -uadmin -p PASSWORD=Hunter2! < dump.sql

@@ -1,0 +1,4 @@
+===[ SYSTEM ]===
+Linux old04 3.10.0-1160.el7.x86_64
+===[ SUID / SGID binaries ]===
+-rwsr-xr-x 1 root root 5678 Jun 01 2024 /usr/local/bin/customtool

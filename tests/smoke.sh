@@ -427,6 +427,83 @@ check_gate "bash smtp/smtp-phish-send.sh --target 127.0.0.1:25 --from a@b --to c
 check_gate "python3 smtp/smtp-smuggling-test.py --target 127.0.0.1:25"                      "smtp-smuggling-test.py    (--send)"
 
 # -----------------------------------------------------------------
+section "11d. bulk-enum-linux.sh (J.1) — --dry-run + parsing + xargs fanout"
+# -----------------------------------------------------------------
+# Validate that the orchestrator parses its target file correctly, produces
+# a known_hosts file, writes a run.log, and emits per-host artifacts even
+# for hosts that immediately fail (SSH connect to .invalid -> rc=255).
+BULK_TGT=$(mktemp /tmp/aratool-bulk-tgt.XXXXXX)
+cat > "$BULK_TGT" <<EOF
+# comment line — should be ignored
+unreachable-1.invalid
+user2@unreachable-2.invalid:2222
+EOF
+BULK_OUT=$(mktemp -d /tmp/aratool-bulk-out.XXXXXX)
+# Dry-run path: should print [DRY] for each target + exit 0
+out=$(bash network/bulk-enum-linux.sh --targets "$BULK_TGT" -u jay -o "$BULK_OUT" --dry-run 2>&1)
+rc=$?
+[ "$rc" -eq 0 ]                                  && p "bulk-enum --dry-run rc=0"                || f "bulk-enum --dry-run rc=$rc"
+echo "$out" | grep -qE '^\[DRY\] jay@unreachable-1' && p "bulk-enum --dry-run parses bare hostname with default user" \
+                                                    || f "bulk-enum --dry-run did not parse bare host"
+echo "$out" | grep -qE '^\[DRY\] user2@unreachable-2.invalid:2222' && p "bulk-enum --dry-run parses user@host:port" \
+                                                    || f "bulk-enum --dry-run did not parse user@host:port"
+[ -f "$BULK_OUT/run.log" ]                        && p "bulk-enum writes run.log"                 || f "bulk-enum run.log missing"
+[ -f "$BULK_OUT/known_hosts" ]                    && p "bulk-enum writes per-engagement known_hosts file" || f "bulk-enum known_hosts missing"
+[ -f "$BULK_OUT/hosts.txt" ]                      && p "bulk-enum copies hosts.txt for audit"     || f "bulk-enum hosts.txt missing"
+
+# Throttle precedence (mirrors 11b's pattern for auto-enum.sh)
+BULK_OUT2=$(mktemp -d /tmp/aratool-bulk-out.XXXXXX)
+out=$(bash network/bulk-enum-linux.sh --targets "$BULK_TGT" -u jay -o "$BULK_OUT2" --throttle -P 4 --dry-run 2>&1)
+echo "$out" | grep -qE 'parallel:[[:space:]]+4[[:space:]]+\(operator-explicit' \
+    && p "bulk-enum: operator -P 4 wins over --throttle" \
+    || f "bulk-enum: operator -P 4 was overridden by --throttle"
+
+# Parallel cap (operator-protection guard)
+out=$(bash network/bulk-enum-linux.sh --targets "$BULK_TGT" -u jay -P 64 --dry-run -o "$BULK_OUT" 2>&1)
+echo "$out" | grep -qiE 'parallel capped at 16' \
+    && p "bulk-enum: -P 64 refused (cap=16 protects local resource limits)" \
+    || f "bulk-enum: -P 64 was not refused"
+
+rm -f "$BULK_TGT"
+rm -rf "$BULK_OUT" "$BULK_OUT2"
+
+# -----------------------------------------------------------------
+section "11e. report.py bulk-enum mode (J.2) — fixtures + verdict tiers"
+# -----------------------------------------------------------------
+# Anchor on the checked-in fixtures: each host should hit its expected tier.
+BULK_RPT=$(mktemp -d /tmp/aratool-bulk-report.XXXXXX)
+for d in tests/fixtures/bulk-enum/*/; do
+    [ -d "$d" ] || continue
+    dst="$BULK_RPT/$(basename "$d")"
+    mkdir -p "$dst"
+    cp "$d"/_meta.json "$d"/linenum.txt "$dst/" 2>/dev/null || true
+done
+python3 network/report.py "$BULK_RPT" --label "smoke-bulk" >/dev/null 2>&1 \
+    && p "report.py rc=0 on bulk-enum fixtures" \
+    || f "report.py FAILED on bulk-enum fixtures"
+[ -f "$BULK_RPT/findings.json" ] && [ -f "$BULK_RPT/report.md" ] && [ -f "$BULK_RPT/report.html" ] \
+    && p "report.py emits findings.json + report.md + report.html" \
+    || f "report.py missed one of findings.json/report.md/report.html"
+
+# Per-host verdict assertions — anchor on the fixtures' documented tiers
+verdicts=$(python3 -c "
+import json, sys
+d = json.load(open('$BULK_RPT/findings.json'))
+for h, v in d['per_host'].items():
+    print(h, v['verdict'])
+")
+echo "$verdicts" | grep -qx "web01 critical" && p "verdict: web01=critical (NOPASSWD sudo)"    || f "verdict: web01 not critical: $verdicts"
+echo "$verdicts" | grep -qx "db02 critical"  && p "verdict: db02=critical (cap_setuid + suid)" || f "verdict: db02 not critical: $verdicts"
+echo "$verdicts" | grep -qx "app03 high"     && p "verdict: app03=high (writable systemd)"     || f "verdict: app03 not high: $verdicts"
+echo "$verdicts" | grep -qx "old04 medium"   && p "verdict: old04=medium (old kernel + suid)"  || f "verdict: old04 not medium: $verdicts"
+
+# HTML contains the per-host verdict surface
+grep -q "Per-host privesc verdict" "$BULK_RPT/report.html" \
+    && p "report.html contains per-host verdict surface" \
+    || f "report.html missing per-host verdict surface"
+rm -rf "$BULK_RPT"
+
+# -----------------------------------------------------------------
 section "12. git working tree is clean"
 # -----------------------------------------------------------------
 if [ -z "$(git status --porcelain 2>/dev/null)" ]; then

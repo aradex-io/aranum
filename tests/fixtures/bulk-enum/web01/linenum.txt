@@ -1,0 +1,6 @@
+===[ SYSTEM ]===
+Linux web01 5.15.0-100-generic
+===[ SUDO ]===
+User jay may run the following commands on web01:
+    (ALL) NOPASSWD: /usr/bin/find
+===[ CAPABILITIES ]===

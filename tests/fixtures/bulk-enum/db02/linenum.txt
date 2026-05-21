@@ -1,0 +1,7 @@
+===[ SYSTEM ]===
+Linux db02 5.4.0-100-generic
+===[ CAPABILITIES ]===
+/usr/bin/python3 cap_setuid+ep
+===[ SUID / SGID binaries ]===
+-rwsr-xr-x 1 root root 1234 Jun 01 2024 /usr/bin/perl
+-rwsr-xr-x 1 root root 2222 Jun 01 2024 /usr/bin/somebespoke
