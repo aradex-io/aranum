@@ -518,6 +518,58 @@ grep -q "Per-host privesc verdict" "$BULK_RPT/report.html" \
 rm -rf "$BULK_RPT"
 
 # -----------------------------------------------------------------
+section "11i. Linux CVE-check scripts (D2.1) — syntax + execution on this host"
+# -----------------------------------------------------------------
+for f in linux/pwnkit-check.sh linux/looney-check.sh linux/overlayfs-check.sh \
+         linux/io-uring-check.sh linux/namespaces-check.sh linux/apt-source-check.sh; do
+    bash -n "$f" 2>/dev/null && p "syntax: $f" || f "syntax: $f"
+done
+# Run each one against this host (always exits 0; we just confirm no crash + non-empty output)
+for f in linux/pwnkit-check.sh linux/looney-check.sh linux/overlayfs-check.sh \
+         linux/io-uring-check.sh linux/namespaces-check.sh linux/apt-source-check.sh; do
+    out=$(timeout 15 bash "$f" 2>&1)
+    [ -n "$out" ] && p "real-data run: $f produced output" || f "real-data run: $f produced nothing"
+done
+
+# -----------------------------------------------------------------
+section "11j. creds helpers (D2.2) — hash-format + spray-scheduler dry-run"
+# -----------------------------------------------------------------
+# hash-format: synthesize a tiny Responder dump + verify NTLMv2 + AS-REP detection
+HASH_IN=$(mktemp /tmp/aratool-hash-in.XXXXXX)
+HASH_OUT=$(mktemp -d /tmp/aratool-hash-out.XXXXXX)
+cat > "$HASH_IN" <<'EOF'
+USER1::CORP:1122334455667788:abcdef0123456789abcdef0123456789:0102030405060708090a0b0c0d
+$krb5asrep$23$noprerauth@CORP:aabbccddeeff00112233445566778899$0011223344556677889900112233445566778899
+EOF
+python3 creds/hash-format.py "$HASH_IN" -o "$HASH_OUT" >/dev/null 2>&1 \
+    && p "hash-format: rc=0 on synthetic input" \
+    || f "hash-format: failed on synthetic input"
+[ -f "$HASH_OUT/hashcat-ntlmv2.txt" ] && [ -f "$HASH_OUT/hashcat-asrep.txt" ] \
+    && p "hash-format: emitted hashcat-{ntlmv2,asrep}.txt" \
+    || f "hash-format: missing expected output files"
+[ -f "$HASH_OUT/_index.tsv" ] \
+    && p "hash-format: emitted _index.tsv" \
+    || f "hash-format: missing _index.tsv"
+rm -rf "$HASH_IN" "$HASH_OUT"
+
+# spray-scheduler: dry-run a 3-user x 3-pass plan, verify it doesn't lock itself
+SPRAY_USERS=$(mktemp /tmp/aratool-spray-u.XXXXXX)
+SPRAY_PWS=$(mktemp /tmp/aratool-spray-p.XXXXXX)
+printf 'alice\nbob\ncharlie\n' > "$SPRAY_USERS"
+printf 'pw1\npw2\npw3\n'       > "$SPRAY_PWS"
+SPRAY_STATE=$(mktemp /tmp/aratool-spray-st.XXXXXX)
+out=$(timeout 10 python3 creds/spray-scheduler.py --users "$SPRAY_USERS" --passwords "$SPRAY_PWS" \
+        --threshold 2 --interval 30 --tool /usr/bin/echo --tool-args 'spray-test' \
+        --dry-run --state-file "$SPRAY_STATE" 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] && p "spray-scheduler --dry-run rc=0 (no spurious lockout sleep)" \
+                 || f "spray-scheduler --dry-run rc=$rc (likely lockout-state bug)"
+echo "$out" | grep -c '\[DRY\]' | grep -qx '9' \
+    && p "spray-scheduler: emitted 9 [DRY] lines (3 users × 3 passwords)" \
+    || f "spray-scheduler: dry-line count != 9"
+rm -f "$SPRAY_USERS" "$SPRAY_PWS" "$SPRAY_STATE"
+
+# -----------------------------------------------------------------
 section "11g. AD-depth signal rules (D1.5/D1.6) — fixture classifications"
 # -----------------------------------------------------------------
 # Drop each AD-signal fixture into a synthetic auto-enum tree and confirm
@@ -622,7 +674,7 @@ else
     f "git: working tree dirty: $(git status --porcelain | head -3)"
 fi
 # Tags present
-for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.16.0 v0.17.0; do
+for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.16.0 v0.17.0 v0.18.0; do
     if git tag | grep -qx "$t"; then
         p "git: tag $t present"
     else

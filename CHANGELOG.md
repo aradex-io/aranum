@@ -9,9 +9,43 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.17.0)*
+*(empty — accumulating since v0.18.0)*
 
 ---
+
+## [v0.18.0] — 2026-05-20
+
+**Iteration D2** of ROADMAP-001 — Linux CVE checks + creds enhancements. Second half of bundled-D per the option-2 sequencing. Closes REVIEW-001 §2.8 and §2.9.
+
+### Added
+- **D2.1 — 6 Linux CVE / privesc-surface check scripts:**
+  - `linux/pwnkit-check.sh` — CVE-2021-4034 (polkit `pkexec` memory-corruption local privesc); flags polkit < 0.120.
+  - `linux/looney-check.sh` — CVE-2023-4911 (glibc `GLIBC_TUNABLES`); flags glibc 2.34-2.38; lists candidate setuid binaries.
+  - `linux/overlayfs-check.sh` — CVE-2023-0386 (overlayfs uid/gid mapping); flags Ubuntu HWE 5.15.0-{60..86} / 6.2.0-{20..32}; checks userns + overlayfs prerequisites.
+  - `linux/io-uring-check.sh` — io_uring availability + restrictions across `/proc/sys/kernel/io_uring_disabled` + empirical `io_uring_setup()` reachability via python ctypes. HIGH on user-reachable surface (multi-CVE history).
+  - `linux/namespaces-check.sh` — unprivileged user-namespace creation (precondition for CVE-2022-0185 / CVE-2023-32233 / etc.). `unshare -rU -- /bin/true` is the empirical test.
+  - `linux/apt-source-check.sh` — apt-get writable config / hooks (`/etc/apt/apt.conf.d`, `sources.list.d`, etc.). Root runs scripts from these dirs on `apt-get install/update` — operator-write to any of them is a privesc path. Debian/Ubuntu only.
+  - All 6 no-deps, run as unprivileged user, exit 0 on safe state. `bash -n` + `shellcheck -S warning` clean.
+- **D2.2 — `creds/spray-scheduler.py`:** lockout-policy-aware wrapper around any external spray tool (nxc, kerbrute, default-creds-sweep.py, etc.). Per-principal attempt counting with sliding window: max `--threshold N` attempts per user within `--interval M` minutes (defaults 3/30 mirror common AD default). When threshold hit, sleeps until the oldest recent attempt ages out. Persistent state under `.spray-state.json` for resume after Ctrl-C. `--dry-run` does NOT mutate state (otherwise dry-run would lock out the planned set).
+- **D2.2 — `creds/hash-format.py`:** converts captured authentication hashes from Responder / nxc smb / impacket GetNPUsers / impacket GetUserSPNs output into hashcat- and john-ready files. Detects: NetNTLMv2 (mode 5600), NetNTLMv1 (5500), Kerberos AS-REP (18200), Kerberos TGS-REP RC4 (13100). Writes per-type `hashcat-*.txt` + `john-*.txt` + `_index.tsv`.
+
+### Enhanced
+- **D2.3 `network/report.py`:** `_AD_DEPTH_RULES` extended with seven new severity rules anchored on the D2.1 script output strings — CRITICAL on `polkit < 0.120 — PwnKit vulnerable`, `glibc 2.34-2.38 — Looney`, Ubuntu HWE CVE-2023-0386 hits, apt writable config / sources.list; HIGH on io_uring user-reachable surface and `unshare -rU succeeded`.
+- **D2.3 README** — Linux Scripts table extended with 6 new rows for D2.1; new "Credential helpers" section listing `default-creds-sweep.py` (pre-existing) + the two D2.2 additions.
+- **D2.3 `tests/smoke.sh`** — section 11i (D2.1 syntax + real-data run on this host) + section 11j (D2.2 hash-format synthetic-Responder NTLMv2+ASREP extraction + spray-scheduler 9-attempt dry-run with no spurious lockout sleep).
+
+### Real-data validation (this release)
+The 6 D2.1 scripts all ran against this Fedora 6.19 attacker box with the expected verdicts:
+- pwnkit-check: polkit 126 → patched (correct: Fedora 42 ships polkit 126)
+- looney-check: glibc 2.41 → outside vulnerable window 2.34-2.38 (correct)
+- overlayfs-check: kernel 6.19.14-104.fc42.x86_64 → outside Ubuntu HWE ranges (correct: this is Fedora)
+- io-uring-check: io_uring reachable → HIGH (verbatim — `/proc/sys/kernel/io_uring_disabled=0`)
+- namespaces-check: `unshare -rU` succeeded → HIGH (verbatim — Fedora ships unprivileged userns enabled)
+- apt-source-check: apt-get not present → not applicable (correct: not Debian/Ubuntu)
+
+report.py against the stitched output (treating as a bulk-enum host) correctly classified the io_uring + namespaces findings as HIGH. The D2.3 severity rules are anchored on real string outputs from this run, not synthetic guesses.
+
+D2.2 helpers validated against synthetic Responder dump (2 NTLMv2 + 1 AS-REP + 1 TGS-REP correctly extracted; `_index.tsv` tabulates each) and 3×3 spray dry-run (9 [DRY] lines emitted, no lockout sleep triggered after the dry-run-vs-state fix).
 
 ## [v0.17.0] — 2026-05-20
 

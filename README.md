@@ -54,6 +54,20 @@ aratool/
 | `linux/container-detect.sh` | Detect Docker/LXC/k8s and check for socket access, cgroup escapes |
 | `linux/writable-files.sh` | World-writable + writable in $PATH + writable /etc/* sensitive |
 | `linux/creds-hunt.sh` | Grep filesystem for passwords, API keys, private keys, history files |
+| `linux/pwnkit-check.sh` (D2.1) | CVE-2021-4034 (polkit `pkexec`) version + setuid check |
+| `linux/looney-check.sh` (D2.1) | CVE-2023-4911 (glibc `GLIBC_TUNABLES`) — flags glibc 2.34-2.38 |
+| `linux/overlayfs-check.sh` (D2.1) | CVE-2023-0386 — Ubuntu HWE kernel range check + overlayfs/userns prerequisites |
+| `linux/io-uring-check.sh` (D2.1) | io_uring availability + restrictions; flags reachable surface for multi-CVE history |
+| `linux/namespaces-check.sh` (D2.1) | Unprivileged user-namespace creation (precondition for many recent kernel CVEs) |
+| `linux/apt-source-check.sh` (D2.1) | apt-get writable config / hooks (`/etc/apt/apt.conf.d`, `sources.list.d`) — root runs scripts from there on `apt-get install` |
+
+## Credential helpers
+
+| Script | Purpose |
+|---|---|
+| `creds/default-creds-sweep.py` | Multi-protocol default-credential sweep (SSH/MSSQL/MySQL/Redis/Mongo/…) |
+| `creds/spray-scheduler.py` (D2.2) | Lockout-policy-aware wrapper around any spray tool — `--threshold N --interval M` (default 3 attempts / 30 minutes per principal) with persistent state for resume |
+| `creds/hash-format.py` (D2.2) | Convert captured NTLMv2 / NTLMv1 / AS-REP / TGS-REP from Responder / impacket / nxc output into `hashcat`- and `john`-ready files + `_index.tsv` |
 
 ## Network Enumeration
 

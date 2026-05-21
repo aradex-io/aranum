@@ -24,7 +24,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **J** | **Bulk local-enum at scale (Linux)** *(added 2026-05-20; scoped via [ADR-002](ADR-002-20MAY2026-bulk-enum-design.md))* | ~1.5 days | ✅ done 2026-05-20 | `v0.15.0` |
 | **K** | **Bulk local-enum (Windows)** *(added 2026-05-20; scoped via [ADR-003](ADR-003-20MAY2026-windows-bulk-enum-design.md))* | ~1 day | ✅ done 2026-05-20 | `v0.16.0` |
 | **D1** | **AD remote depth + Windows local AD scripts** *(REVIEW-001 §2.2-§2.7; scoped via [ADR-004](ADR-004-20MAY2026-ad-depth-tool-deps.md))* | ~2 days | ✅ done 2026-05-20 | `v0.17.0` |
-| **D2** | **Linux CVE checks + creds enhancements** *(REVIEW-001 §2.8/§2.9)* | ~1 day | ⬜ | `v0.18.0` |
+| **D2** | **Linux CVE checks + creds enhancements** *(REVIEW-001 §2.8/§2.9)* | ~1 day | ✅ done 2026-05-20 | `v0.18.0` |
 | **I** | **Internal-pentest protocol expansion** *(added 2026-05-19; engineering/science facility focus)* | ~3 days | ⬜ (placeholder — needs ADR for protocol selection) | `v0.19.0` |
 
 **Note on version mapping** (corrected 2026-05-19): the original roadmap aspired to map iteration A→v0.2.0, B→v0.3.0, etc. Reality: iteration H was prioritized ahead of B–G and shipped as v0.9.0, after which semver's monotonic-increase requirement means subsequent iterations occupy `v0.10.0+`. The iteration identity is preserved in commit messages and CHANGELOG sections; the version-to-iteration mapping is no longer 1:1 with the alphabetical letter.

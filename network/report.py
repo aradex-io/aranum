@@ -282,6 +282,19 @@ _AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"SeImpersonate \+ DCOM reachable.*RoguePotato", re.I),           "high"),
     # --- Named pipe writable to current user (Get-NamedPipes.ps1) ---
     (re.compile(r"^WRITABLE PIPE:", re.M),                                        "high"),
+    # --- D2.1 Linux CVE-check outputs ---
+    # pwnkit: polkit < 0.120 banner
+    (re.compile(r"polkit\s+\S+\s+<\s+0\.120\s+—\s+PwnKit vulnerable", re.I),       "critical"),
+    # looney: glibc in 2.34-2.38 banner
+    (re.compile(r"glibc\s+\S+\s+in vulnerable window\s+2\.34-2\.38\s+—\s+Looney", re.I), "critical"),
+    # overlayfs: Ubuntu HWE vulnerable range banner
+    (re.compile(r"kernel\s+\S+\s+in Ubuntu HWE.*CVE-2023-0386 vulnerable", re.I),  "critical"),
+    # io_uring + namespaces — HIGH-tier "user-can-reach-kernel-CVE-surface" signals
+    (re.compile(r"io_uring reachable to current user\s+—\s+known CVE surface", re.I), "high"),
+    (re.compile(r"unshare -rU succeeded\s+—\s+unprivileged userns creation works", re.I), "high"),
+    # apt-source writable hook surface
+    (re.compile(r"WRITABLE.*root runs scripts from here on apt operations", re.I),  "critical"),
+    (re.compile(r"/etc/apt/sources\.list WRITABLE", re.I),                          "critical"),
 ]
 
 
