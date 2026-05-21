@@ -264,7 +264,8 @@ _AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"READABLE \(LAPSv[12]", re.I),                                   "critical"),
     (re.compile(r"ENCRYPTED \(LAPSv2\)", re.I),                                   "high"),
     # --- AD delegation findings (enum-ldap.sh §6) ---
-    (re.compile(r"UNCONSTRAINED DELEGATION.*account\(s\)", re.I),                 "high"),
+    # Match either word order — dispatcher emits "N account(s) with UNCONSTRAINED DELEGATION"
+    (re.compile(r"\bUNCONSTRAINED DELEGATION\b", re.I),                            "high"),
     (re.compile(r"\bmsDS-AllowedToActOnBehalfOfOtherIdentity", re.I),             "high"),
     # --- Kerberoast / AS-REP roast bulk findings (enum-kerberos.sh §3/§4) ---
     (re.compile(r"kerberoastable hash\(es\) captured", re.I),                     "critical"),

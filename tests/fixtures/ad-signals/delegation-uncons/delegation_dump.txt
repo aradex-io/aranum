@@ -1,0 +1,6 @@
+[!] HIGH: 10.0.0.10 has 3 account(s) with UNCONSTRAINED DELEGATION — see 10.0.0.10/delegation.txt
+
+=== UNCONSTRAINED DELEGATION (UAC bit 524288) — owners can impersonate any user authing TO them ===
+sAMAccountName: LEGACYSERVER01$
+sAMAccountName: SQL2012-01$
+sAMAccountName: PRINT-OLD$

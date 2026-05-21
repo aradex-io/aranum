@@ -518,6 +518,60 @@ grep -q "Per-host privesc verdict" "$BULK_RPT/report.html" \
 rm -rf "$BULK_RPT"
 
 # -----------------------------------------------------------------
+section "11g. AD-depth signal rules (D1.5/D1.6) — fixture classifications"
+# -----------------------------------------------------------------
+# Drop each AD-signal fixture into a synthetic auto-enum tree and confirm
+# report.py classifies it at the expected severity (anchored on D1.5's rules).
+ADOUT=$(mktemp -d /tmp/aratool-ad-out.XXXXXX)
+mkdir -p "$ADOUT/ldap/10.0.0.10_389" "$ADOUT/smb/10.0.0.10_445"
+# Certipy ESC1 (CRITICAL)
+cp tests/fixtures/ad-signals/certipy-esc1/certipy_20260520.txt "$ADOUT/ldap/10.0.0.10_389/certipy.txt"
+# GPP cpassword (CRITICAL)
+cp tests/fixtures/ad-signals/gpp-cpassword/gpp_groups_dump.txt   "$ADOUT/smb/10.0.0.10_445/gpp.txt"
+# Unconstrained delegation (HIGH)
+cp tests/fixtures/ad-signals/delegation-uncons/delegation_dump.txt "$ADOUT/ldap/10.0.0.10_389/delegation_summary.txt"
+# LAPS readable (CRITICAL)
+cp tests/fixtures/ad-signals/laps-readable/laps_dump.txt "$ADOUT/ldap/10.0.0.10_389/laps.txt"
+
+python3 network/report.py "$ADOUT" --label smoke-ad >/dev/null 2>&1 \
+    && p "report.py rc=0 on AD-signal fixtures" \
+    || f "report.py FAILED on AD-signal fixtures"
+
+# Pull verdict counts out of findings.json
+crit=$(python3 -c "import json; d=json.load(open('$ADOUT/findings.json')); print(d['summary']['counts'].get('critical',0))")
+high=$(python3 -c "import json; d=json.load(open('$ADOUT/findings.json')); print(d['summary']['counts'].get('high',0))")
+[ "$crit" -ge 3 ] && p "AD signals: CRITICAL count >= 3 (Certipy ESC1 + GPP cpassword + LAPS)" \
+                   || f "AD signals: expected CRITICAL >= 3, got $crit"
+[ "$high" -ge 1 ] && p "AD signals: HIGH count >= 1 (unconstrained delegation / LAPS encrypted)" \
+                   || f "AD signals: expected HIGH >= 1, got $high"
+
+rm -rf "$ADOUT"
+
+# -----------------------------------------------------------------
+section "11h. AD Windows PS1 scripts (D1.4) — pwsh AST parse"
+# -----------------------------------------------------------------
+# pwsh is optional; skip the section gracefully if absent.
+if command -v pwsh >/dev/null 2>&1; then
+    for f in windows/Get-LAPSPassword.ps1 windows/Get-ADCSMisconfig.ps1 \
+             windows/Get-GPPCPassword.ps1 windows/Get-DPAPIBlobs.ps1 \
+             windows/Get-NamedPipes.ps1 windows/Get-PrintNightmare.ps1 \
+             windows/Get-PetitPotamSignals.ps1 windows/Test-CoercedAuth.ps1; do
+        out=$(pwsh -NoProfile -Command "
+            \$t = \$null; \$e = \$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile('$f', [ref]\$t, [ref]\$e)
+            if (\$e.Count -gt 0) { 'FAIL' } else { 'OK' }
+        " 2>/dev/null | tail -1)
+        if [ "$out" = "OK" ]; then
+            p "pwsh AST parse: $f"
+        else
+            f "pwsh AST parse: $f -> $out"
+        fi
+    done
+else
+    s "skipping: pwsh not installed (PS1 syntax check)"
+fi
+
+# -----------------------------------------------------------------
 section "11f. bulk-enum-windows.py (K.1) — --dry-run + arg-validation"
 # -----------------------------------------------------------------
 WTGT=$(mktemp /tmp/aratool-win-tgt.XXXXXX)

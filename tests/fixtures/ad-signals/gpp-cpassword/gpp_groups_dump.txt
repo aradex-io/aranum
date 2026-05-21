@@ -1,0 +1,1 @@
+[+] GPP cpassword= in \\lab.local\SYSVOL\lab.local\Policies\{GUID}\Machine\Preferences\Groups\Groups.xml — value: edBSHOwhZLTjt/QS9FeIcJ83mjWA98gw9guKOhJOdcqh+ZGMeXOsQbCpZ3xUjTLfCuNH8pG5aSVYdYw/NglVmQ==

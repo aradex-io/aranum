@@ -1,0 +1,13 @@
+======================================================================
+  LAPS PASSWORD ENUMERATION
+======================================================================
+Domain controller: lab-dc01.lab.local
+Search base:       LDAP://DC=lab,DC=local
+
+[+] READABLE (LAPSv1) WIN-DC01.lab.local -> P@ssw0rd!Hunter2!2026
+[+] READABLE (LAPSv2 JSON) WIN-MEMBER01.lab.local -> {"n":"administrator","t":"...","p":"..."}
+[!] ENCRYPTED (LAPSv2) WIN-MEMBER02.lab.local — see msLAPS-EncryptedPassword (operator decrypts)
+
+Computers enumerated: 3
+Readable cleartext:   2
+Readable encrypted:   1
