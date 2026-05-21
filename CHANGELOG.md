@@ -9,9 +9,44 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.16.0)*
+*(empty — accumulating since v0.17.0)*
 
 ---
+
+## [v0.17.0] — 2026-05-20
+
+**Iteration D1** of ROADMAP-001 — Windows/AD remote depth + Windows local AD scripts. First half of the bundled D (per the option-2 sequencing the operator chose); D2 (Linux CVE checks + creds enhancements) follows as v0.18.0. Per [ADR-004](docs/ADR-004-20MAY2026-ad-depth-tool-deps.md).
+
+### Added
+- **D1.0 [ADR-004](docs/ADR-004-20MAY2026-ad-depth-tool-deps.md):** records the seven AD-tool integration decisions — bloodhound-python is the BloodHound ingestor; Certipy for AD CS ESC1-11; graceful skip-when-tool-missing is mandatory (every optional integration checks `command -v` and emits a one-line install hint); never auto-escalate to admin; coerce probes are detection-only with operator-gated next-step hints; raw tool output preserved + report.py rules parse signals; Windows PS1 scripts ship standalone (not folded into Invoke-PrivEscEnum).
+- **D1.4 Eight Windows AD-depth PowerShell scripts** under `windows/`:
+  - `Get-LAPSPassword.ps1` — reads `ms-Mcs-AdmPwd` / `msLAPS-Password` / `msLAPS-EncryptedPassword` for every computer object the current user can see. Cleartext readable → CRITICAL; encrypted blob → HIGH (DPAPI extraction needed).
+  - `Get-ADCSMisconfig.ps1` — pure-ADSI ESC1 / ESC2 / ESC4 detection. The no-deps Linux-attacker fallback for when Certipy can't reach the target box. Output format mirrors Certipy so `report.py` rules pick up either source uniformly.
+  - `Get-GPPCPassword.ps1` — SYSVOL + GP-History sweep for `cpassword=` matches across the six canonical GPP XML files (Groups, Services, ScheduledTasks, DataSources, Printers, Drives). Includes the openssl decryption one-liner since the AES key is public.
+  - `Get-DPAPIBlobs.ps1` — enumerates DPAPI master keys, credential vaults, Chrome/Edge/Firefox stores, RDP saved creds, Outlook PST/OST. **Paths only — no decryption attempted** (per CLAUDE.md §9 invariant 1).
+  - `Get-NamedPipes.ps1` — ACL audit of every named pipe; flags pipes writable to current user / Everyone / Authenticated Users. Combined with SeImpersonate on the local user, these are impersonation primitives if the server runs as SYSTEM.
+  - `Get-PrintNightmare.ps1` — CVE-2021-34527 / CVE-2021-1675 mitigation-state check across Spooler service status + `RestrictDriverInstallationToAdministrators` + `NoWarningNoElevationOnInstall` + `DisableWebPnPDownload`.
+  - `Get-PetitPotamSignals.ps1` — NTLM-relay/coercion-signal audit for this host across SMB+LDAP signing, channel binding, and the four coerce-vector services (EFS / DfsR / Dfs / Spooler). Includes the operator-next-step commands for the attacker-box-side `impacket-ntlmrelayx` + `petitpotam.py` / `dfscoerce.py` / `printerbug.py` chains.
+  - `Test-CoercedAuth.ps1` — local-only precondition check for PrintSpoofer / RoguePotato / GodPotato chains: SE* token-privilege ENABLED state + Spooler status + DCOM reachability + WebDAV redirector status. Never fires the actual coercion (per REVIEW-001 §2.7 design note).
+  - All 8 syntax-validated via `pwsh [Parser]::ParseFile` AST check.
+- **D1.6 tests/fixtures/ad-signals/** — six synthetic AD-output fixtures (certipy-esc1, bloodhound-zip, gpp-cpassword, laps-readable, delegation-uncons, pn-exploitable) anchoring the D1.5 severity-rule classifications.
+- **D1.6 tests/test_ad_signals.py** — 7 stdlib-`unittest` tests across the per-fixture severity-count assertions plus end-to-end report.py CLI integration against a synthesised auto-enum layout containing the Certipy fixture.
+- **D1.6 tests/smoke.sh** sections 11g (AD-signal fixture classifications) and 11h (pwsh AST parse on every windows/Get-*.ps1 + Test-CoercedAuth.ps1, skipped gracefully when pwsh absent).
+
+### Enhanced
+- **D1.1 `network/enum-smb.sh`:** PetitPotam coerce next-step hint (`_petitpotam_hint.txt`) emitted when relay-candidate hosts exist AND `--dc-ip` is set; detects whether `petitpotam.py` is on PATH and adjusts the hint accordingly. Shadow Credentials viability hint (`_shadow_creds_hint.txt`) with pywhisker + certipy follow-up commands when `--user` + `--dc-ip` are present. Neither hint auto-fires; per ADR-004 D5, coerce probes are detection-only.
+- **D1.2 `network/enum-ldap.sh`:** four new sections — bloodhound-python full graph collection (Default method, no Session — opt-in via manual re-run); Certipy `find` for AD CS ESC1-11 (text+JSON output, CRITICAL on any ESC* finding); Kerberos delegation enumeration via single ldapsearch query per host (unconstrained / constrained / RBCD; HIGH on non-zero unconstrained count); pre-2000 computer-account candidate listing (workstation-trust-account UAC flag) with a "DO NOT spray without authz" hint file.
+- **D1.3 `network/enum-kerberos.sh`:** bulk Kerberoast mode — `GetUserSPNs.py -request -outputfile` pulls every kerberoastable account in one pass (`_kerberoast_hashcat.txt`, hashcat -m 13100); AS-REP roast cross-linked from upstream dispatchers' user output (harvested from nxc rid-brute results + ldap users.txt + legacy `_users.lst`); writes `_asrep_hashcat.txt` (hashcat -m 18200). Both honour `ENUM_THROTTLE` from G.7.
+- **D1.5 `network/report.py`:** new `_AD_DEPTH_RULES` layered on top of default + operator rules — CRITICAL on Certipy `ESC[1-11] (Vulnerable)`, `GPP cpassword=` matches, `READABLE (LAPSv1/v2)` hits, kerberoastable / AS-REP-roastable bulk-capture lines, `lsarpc anonymous reachable on DC`, PrintNightmare exploitable config, SeImpersonate + Spooler → PrintSpoofer chain viable. HIGH on `BLOODHOUND_ZIP:` signal, LAPS encrypted-blob, unconstrained / RBCD delegation, PetitPotam coerce chain availability, writable named pipes, SeImpersonate + DCOM → RoguePotato candidate.
+- **D1.7 `README.md`:** Windows Scripts table extended with 8 new rows for the D1.4 PS1 files; Dependencies gains an "AD depth (D1)" bullet cross-linking to ADR-004 D3.
+- **D1.7 `deps-check.sh`:** new "AD DEPTH (iteration D1 — optional)" section checks bloodhound-python, bloodhound.py, certipy, certipy-ad, petitpotam.py, and pwsh.
+
+### Real-data validation (this release)
+On a Fedora attacker box with no domain controller available, the new dispatchers all handle missing AD tooling per ADR-004 D3:
+- `enum-ldap.sh` against localhost:389 with full env (`ENUM_USER`/`ENUM_PASS`/`ENUM_DOMAIN`/`ENUM_DC_IP`) → "[skip] bloodhound-python not installed" + "[skip] certipy not installed"; ldapsearch sections silently no-op (`have ldapsearch` returns false); existing impacket GetUserSPNs/GetNPUsers paths still attempt their normal work. `ldap dispatcher done.` rc=0.
+- `enum-smb.sh` against localhost with `ENUM_DC_IP=10.0.0.1` → produces `_petitpotam_signal.txt` + `_shadow_creds_hint.txt` (D1.1) alongside the pre-existing artifacts; relay-candidates list empty so PetitPotam hint correctly not emitted.
+- `enum-kerberos.sh` against localhost:88 → "[skip] AS-REP cross-link: no users harvested from smb/ldap dispatchers yet" (D1.3 cross-link logic works when given an empty upstream user set).
+- 8 PS1 scripts: AST-parsed via `pwsh -NoProfile [Parser]::ParseFile` — all 8 OK. Functional behaviour against real AD remains engagement-time validation per ADR-004 "DOES NOT VALIDATE".
 
 ## [v0.16.0] — 2026-05-20
 
