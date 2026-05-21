@@ -476,7 +476,11 @@ for d in tests/fixtures/bulk-enum/*/; do
     [ -d "$d" ] || continue
     dst="$BULK_RPT/$(basename "$d")"
     mkdir -p "$dst"
-    cp "$d"/_meta.json "$d"/linenum.txt "$dst/" 2>/dev/null || true
+    # Copy whichever evidence file(s) the fixture has (linux=linenum.txt,
+    # windows=winenum.txt). _meta.json is always present.
+    cp "$d"/_meta.json "$dst/" 2>/dev/null || true
+    [ -f "$d/linenum.txt" ] && cp "$d/linenum.txt" "$dst/"
+    [ -f "$d/winenum.txt" ] && cp "$d/winenum.txt" "$dst/"
 done
 python3 network/report.py "$BULK_RPT" --label "smoke-bulk" >/dev/null 2>&1 \
     && p "report.py rc=0 on bulk-enum fixtures" \
@@ -496,12 +500,64 @@ echo "$verdicts" | grep -qx "web01 critical" && p "verdict: web01=critical (NOPA
 echo "$verdicts" | grep -qx "db02 critical"  && p "verdict: db02=critical (cap_setuid + suid)" || f "verdict: db02 not critical: $verdicts"
 echo "$verdicts" | grep -qx "app03 high"     && p "verdict: app03=high (writable systemd)"     || f "verdict: app03 not high: $verdicts"
 echo "$verdicts" | grep -qx "old04 medium"   && p "verdict: old04=medium (old kernel + suid)"  || f "verdict: old04 not medium: $verdicts"
+# Windows side (K.2): per-host verdicts on the win-* fixtures must match too
+echo "$verdicts" | grep -qx "win-svc-imperson critical" \
+    && p "verdict: win-svc-imperson=critical (SeImpersonate + AlwaysInstallElevated + WRITABLE BINARY)" \
+    || f "verdict: win-svc-imperson not critical: $verdicts"
+echo "$verdicts" | grep -qx "win-backup-op high" \
+    && p "verdict: win-backup-op=high (SeBackup + Account Operators + SYSTEM task + writable PATH)" \
+    || f "verdict: win-backup-op not high: $verdicts"
+echo "$verdicts" | grep -qx "win-old-rdp medium" \
+    && p "verdict: win-old-rdp=medium (RDP user + cred-in-file + EOL Win7)" \
+    || f "verdict: win-old-rdp not medium: $verdicts"
 
 # HTML contains the per-host verdict surface
 grep -q "Per-host privesc verdict" "$BULK_RPT/report.html" \
     && p "report.html contains per-host verdict surface" \
     || f "report.html missing per-host verdict surface"
 rm -rf "$BULK_RPT"
+
+# -----------------------------------------------------------------
+section "11f. bulk-enum-windows.py (K.1) — --dry-run + arg-validation"
+# -----------------------------------------------------------------
+WTGT=$(mktemp /tmp/aratool-win-tgt.XXXXXX)
+cat > "$WTGT" <<EOF
+# comment — should be ignored
+WIN01.corp
+admin@WIN02.corp:5986
+[2001:db8::100]
+EOF
+WOUT=$(mktemp -d /tmp/aratool-win-out.XXXXXX)
+out=$(python3 network/bulk-enum-windows.py --targets "$WTGT" -u jay -o "$WOUT" --dry-run 2>&1)
+rc=$?
+[ "$rc" -eq 0 ]                                                              && p "bulk-enum-windows --dry-run rc=0"                || f "rc=$rc"
+echo "$out" | grep -qE '^\[DRY\] jay@WIN01\.corp:5985'                       && p "win --dry-run: bare host -> default port 5985"   || f "win --dry-run: default-port wrong"
+echo "$out" | grep -qE '^\[DRY\] admin@WIN02\.corp:5986'                     && p "win --dry-run: user@host:port parsed"            || f "win --dry-run: user@host:port wrong"
+echo "$out" | grep -qE '^\[DRY\] jay@\[2001:db8::100\]:5985'                 && p "win --dry-run: IPv6 bracketed correctly"         || f "win --dry-run: IPv6 not bracketed"
+[ -f "$WOUT/run.log" ] && [ -f "$WOUT/hosts.txt" ]                            && p "win: writes run.log + hosts.txt"                 || f "win: missing journal artifact"
+
+# Throttle precedence
+WOUT2=$(mktemp -d /tmp/aratool-win-out.XXXXXX)
+out=$(python3 network/bulk-enum-windows.py --targets "$WTGT" -u x -o "$WOUT2" --throttle --dry-run 2>&1)
+echo "$out" | grep -qE 'parallel=1 \(default; override' \
+    && p "win --throttle: parallel=1 by default" \
+    || f "win --throttle: did not default parallel=1"
+
+WOUT3=$(mktemp -d /tmp/aratool-win-out.XXXXXX)
+out=$(python3 network/bulk-enum-windows.py --targets "$WTGT" -u x -P 6 -o "$WOUT3" --throttle --dry-run 2>&1)
+echo "$out" | grep -qE 'parallel=6  \(operator-explicit' \
+    && p "win --throttle -P 6: operator wins" \
+    || f "win --throttle -P 6: precedence wrong"
+
+# Arg-validation refusals
+out=$(python3 network/bulk-enum-windows.py --targets "$WTGT" -u x --auth basic -o /tmp/wbad --dry-run 2>&1); rc=$?
+[ "$rc" -eq 2 ] && p "win: --auth basic over HTTP refused (rc=2)" || f "win: basic-over-HTTP not refused (rc=$rc)"
+out=$(python3 network/bulk-enum-windows.py --targets "$WTGT" -u x --use-smb-admin -o /tmp/wbad2 --dry-run 2>&1); rc=$?
+[ "$rc" -eq 2 ] && p "win: --use-smb-admin without --pass refused" || f "win: smb-admin sans pass not refused (rc=$rc)"
+out=$(python3 network/bulk-enum-windows.py --targets "$WTGT" -u x -P 32 -o /tmp/wbad3 --dry-run 2>&1); rc=$?
+[ "$rc" -eq 2 ] && p "win: -P 32 refused (cap=16)" || f "win: parallel cap not enforced (rc=$rc)"
+
+rm -f "$WTGT"; rm -rf "$WOUT" "$WOUT2" "$WOUT3" /tmp/wbad*
 
 # -----------------------------------------------------------------
 section "12. git working tree is clean"

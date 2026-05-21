@@ -60,10 +60,21 @@ class TestBulkVerdicts(unittest.TestCase):
     contract for the verdict semantics."""
 
     EXPECTED = {
-        "web01": "critical",   # NOPASSWD sudo
-        "db02":  "critical",   # cap_setuid + perl SUID
-        "app03": "high",       # writable systemd + cred-in-history
-        "old04": "medium",     # non-gtfobin SUID + old kernel
+        # Linux fixtures (J)
+        "web01":            "critical",   # NOPASSWD sudo
+        "db02":             "critical",   # cap_setuid + perl SUID
+        "app03":            "high",       # writable systemd + cred-in-history
+        "old04":            "medium",     # non-gtfobin SUID + old kernel
+        # Windows fixtures (K)
+        "win-svc-imperson": "critical",   # SeImpersonate ENABLED + AlwaysInstallElevated + WRITABLE BINARY
+        "win-backup-op":    "high",       # SeBackup ENABLED + Account Operators + SYSTEM task + writable PATH
+        "win-old-rdp":      "medium",     # Remote Desktop Users + cred-in-file + EOL Win7
+    }
+    EXPECTED_OS = {
+        "web01": "linux", "db02": "linux", "app03": "linux", "old04": "linux",
+        "win-svc-imperson": "windows",
+        "win-backup-op":    "windows",
+        "win-old-rdp":      "windows",
     }
 
     def setUp(self):
@@ -75,10 +86,15 @@ class TestBulkVerdicts(unittest.TestCase):
         self.assertEqual(hosts_with_findings, set(self.EXPECTED.keys()),
                          f"Findings host set mismatch: {hosts_with_findings}")
 
-    def test_every_finding_has_linenum_service(self):
+    def test_finding_service_matches_evidence_file(self):
+        # Every Linux fixture finding should be tagged 'linenum'; every Windows
+        # fixture finding should be tagged 'winenum'. Mixed-OS detection in
+        # report.py uses this attribution.
         for f in self.findings:
-            self.assertEqual(f["service"], "linenum",
-                             f"finding {f!r} should have service=linenum")
+            if f["host"].startswith("win-"):
+                self.assertEqual(f["service"], "winenum", f"{f}")
+            else:
+                self.assertEqual(f["service"], "linenum", f"{f}")
 
     def test_per_host_verdicts_match_expected(self):
         for host, expected_verdict in self.EXPECTED.items():
@@ -86,6 +102,21 @@ class TestBulkVerdicts(unittest.TestCase):
             actual = self.per_host[host]["verdict"]
             self.assertEqual(actual, expected_verdict,
                              f"{host}: expected verdict={expected_verdict}, got {actual}")
+
+    def test_per_host_os_tagged_correctly(self):
+        for host, expected_os in self.EXPECTED_OS.items():
+            self.assertIn(host, self.per_host, f"{host} missing from per_host")
+            self.assertEqual(self.per_host[host]["os"], expected_os,
+                             f"{host}: expected os={expected_os}, got {self.per_host[host]['os']}")
+
+    def test_se_disabled_hint_does_not_false_positive_critical(self):
+        # Regression: `Privilege.*ENABLED` re.I previously matched the
+        # disabled hint `(disabled — can still be enabled)`. The literal-
+        # parens anchor `\(ENABLED\)` (no re.I) fixes this.
+        for f in self.findings:
+            if "(disabled" in f["line"] and "Privilege" in f["line"]:
+                self.assertNotEqual(f["severity"], "critical",
+                    f"disabled-hint should NOT be critical: {f}")
 
     def test_findings_have_required_fields(self):
         for f in self.findings:
