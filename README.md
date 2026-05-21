@@ -53,6 +53,7 @@ aratool/
 |---|---|
 | `network/nmap-parse.py` | Parse `.xml`, `.gnmap`, and `.nmap` files → JSON inventory by service |
 | `network/auto-enum.sh` | Master orchestrator: nmap output → service buckets → dispatch enum |
+| `network/bulk-enum-linux.sh` | **Post-foothold** — pipe `linenum-fast.sh` over SSH to many hosts in parallel; per-host verdicts via `report.py` (J.1) |
 | `network/enum-smb.sh` | `enum4linux-ng`, `nxc smb --shares --users --pass-pol --spider`, smbclient, rpcclient |
 | `network/enum-ldap.sh` | `nxc ldap`, `ldapsearch`, `GetUserSPNs.py`, `GetNPUsers.py` |
 | `network/enum-kerberos.sh` | AS-REP roast, SPN enum, `kerbrute userenum` |
@@ -131,13 +132,70 @@ python3 ./network/report.py ./enum-results --redact
 
 `auto-enum.sh` also writes a central `run.log` capturing tool versions, per-dispatcher exit codes, and elapsed times; `--resume` skips services with a `.done` marker from a prior run.
 
+## Bulk local-enum across many hosts (iteration J)
+
+When you have low-privilege credentials on a 50-500 host internal network and need fast per-host privesc enumeration, `network/bulk-enum-linux.sh` pipes `linux/linenum-fast.sh` over SSH to each target in parallel. The remote enumerator **never lands on the victim's disk** — stdin-pipe means it lives in the SSH session's bash memory and is gone when the session ends. Output streams back over the same authenticated SSH channel. See [`docs/ADR-002-20MAY2026-bulk-enum-design.md`](docs/ADR-002-20MAY2026-bulk-enum-design.md) for the design rationale.
+
+```bash
+# 1) Build a targets file — one user@host[:port] per line; '#' comments OK.
+cat > prod-hosts.txt <<'EOF'
+jay@web01.corp
+jay@web02.corp
+jay@db01.corp:2222
+jay@app03.corp
+EOF
+
+# 2) Run bulk-enum. Auth via ssh-agent (recommended), --key, or --pass (sshpass).
+./network/bulk-enum-linux.sh \
+    --targets prod-hosts.txt \
+    -k ~/.ssh/engagement_key \
+    --output ./prod-bulk \
+    --parallel 8
+
+# Sensitive environments (OT/legacy/lab) — gentle mode:
+./network/bulk-enum-linux.sh --targets lab-hosts.txt -u lab --pass 'Hunter2!' \
+    --throttle -o ./lab-bulk
+
+# Interrupted? --resume continues from where the prior run stopped:
+./network/bulk-enum-linux.sh --targets prod-hosts.txt -k ~/.ssh/engagement_key \
+    -o ./prod-bulk --resume
+
+# Preview what would happen without connecting:
+./network/bulk-enum-linux.sh --targets prod-hosts.txt -u jay -o /tmp/x --dry-run
+
+# 3) Generate the per-host privesc verdict report.
+python3 ./network/report.py ./prod-bulk
+#   -> ./prod-bulk/findings.json + report.md + report.html (per-host
+#      CRITICAL/HIGH/MEDIUM/LOW verdict + drill-down by host)
+```
+
+Per-engagement trust silo: `bulk-enum-linux.sh` writes a per-run `known_hosts` file under `$OUT/known_hosts` (not `~/.ssh/known_hosts`) with `accept-new` semantics so first contact is recorded and re-contact is verified within the engagement — without polluting your global trust store or inheriting a previous engagement's host keys.
+
+Output structure:
+```
+$OUT/
+  run.log              # central timestamped journal
+  hosts.txt            # copy of input list (audit)
+  known_hosts          # engagement-scoped SSH trust silo
+  _summary.tsv         # host  rc  elapsed_s  size_kb
+  <host>/
+    linenum.txt        # raw stdout from linenum-fast.sh
+    linenum.err        # ssh + script stderr
+    _meta.json         # rc, timing, ssh args
+    .done              # touched iff rc=0 (for --resume)
+```
+
+After `report.py` runs, `findings.json` adds a `per_host` map with each host's `verdict` (worst severity across its findings) + per-tier finding counts. `report.html` surfaces a sortable per-host verdict table BEFORE the service breakdown so the operator's first view is "which hosts should I focus on?"
+
+Windows orchestration is on the roadmap for `v0.16.0` (iteration K). Today, use the standalone Windows scripts via WinRM/SMB transfer.
+
 ## Dependencies
 
 Run `./deps-check.sh` to see what's installed/missing. Recommended:
 
 - **Required**: python3, nmap, ldapsearch, smbclient, rpcclient, dig, snmpwalk
 - **Highly recommended**: netexec (nxc), enum4linux-ng, impacket-scripts, kerbrute, ssh-audit, whatweb, httpx, ffuf, onesixtyone
-- **Optional**: nuclei, nikto, evil-winrm, mssqlclient.py, rdp-sec-check
+- **Optional**: nuclei, nikto, evil-winrm, mssqlclient.py, rdp-sec-check, shellcheck (for `make lint`), sshpass (only for `bulk-enum-linux.sh --pass`)
 
 ## Safety / OPSEC
 

@@ -76,6 +76,7 @@ check rdp-sec-check.pl   opt
 check redis-cli          opt
 check dnsrecon           opt
 check shellcheck         opt  # G.6 — lint gate for `make lint`; pip install shellcheck-py also works
+check sshpass            opt  # J.1 — only required for `bulk-enum-linux.sh --pass`; ssh-agent / --key are preferred
 
 # Python: defusedxml hardens nmap-parse.py against XXE / billion-laughs.
 # Without it, nmap-parse.py uses a hardened stdlib fallback that pre-scans
