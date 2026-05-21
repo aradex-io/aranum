@@ -22,7 +22,7 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **E** | Reporting & ergonomics | ~1.5 days | ✅ done 2026-05-19 | `v0.13.0` |
 | **G** | Tests + hardening | ~1 day | ✅ done 2026-05-20 | `v0.14.0` |
 | **J** | **Bulk local-enum at scale (Linux)** *(added 2026-05-20; scoped via [ADR-002](ADR-002-20MAY2026-bulk-enum-design.md))* | ~1.5 days | ✅ done 2026-05-20 | `v0.15.0` |
-| **K** | **Bulk local-enum (Windows)** *(added 2026-05-20; needs ADR-003)* | ~1 day | ⬜ (placeholder — needs ADR-003) | `v0.16.0` |
+| **K** | **Bulk local-enum (Windows)** *(added 2026-05-20; scoped via [ADR-003](ADR-003-20MAY2026-windows-bulk-enum-design.md))* | ~1 day | ✅ done 2026-05-20 | `v0.16.0` |
 | **D** | Windows / AD depth | ~2 days | ⬜ (deferred — operator preference) | `v0.17.0` |
 | **I** | **Internal-pentest protocol expansion** *(added 2026-05-19; engineering/science facility focus)* | ~3 days | ⬜ (placeholder — needs ADR for protocol selection) | `v0.18.0` |
 

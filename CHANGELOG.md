@@ -9,9 +9,33 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.15.0)*
+*(empty — accumulating since v0.16.0)*
 
 ---
+
+## [v0.16.0] — 2026-05-20
+
+**Iteration K** of ROADMAP-001 — Windows side of bulk-enum, completing the post-foothold orchestration story across both platforms. Per [ADR-003](docs/ADR-003-20MAY2026-windows-bulk-enum-design.md).
+
+A single `$OUT` directory can now hold output from BOTH `bulk-enum-linux.sh` (J, v0.15.0) and `bulk-enum-windows.py` (K). `report.py` auto-detects the mixed layout and emits ONE per-host verdict table covering the whole estate, sorted worst-first with an `os` column.
+
+### Added
+- **K.0 [ADR-003](docs/ADR-003-20MAY2026-windows-bulk-enum-design.md):** records the eight Windows-bulk-enum design decisions — WinRM-only default transport (`pywinrm`, no fallback parade); `--use-smb-admin` opt-in only, gated like the G.8 exploit flags (implementation deferred with explicit reason); output layout identical to ADR-002 D5 (filename swap only); Python orchestrator (pywinrm is canonical); `ThreadPoolExecutor` concurrency model; `--throttle` parity with the SSH side; explicit auth-method negotiation with no auto-fallback; read-only by default. Includes an explicit "WHAT THIS ADR DOES NOT VALIDATE" section flagging that the WinRM transport is unverified pre-engagement on this codebase's CI, with the operator's first-run verification checklist.
+- **K.1 `network/bulk-enum-windows.py`:** Python orchestrator using `pywinrm`. Flag parity with `bulk-enum-linux.sh`: `--targets`/`--user`/`--pass`/`--port`/`--connect-timeout`/`--script`/`--output`/`--parallel` (cap 16)/`--throttle`/`--dry-run`/`--resume`. New: `--auth {ntlm,basic,kerberos,credssp}` (default ntlm), `--tls` (HTTPS:5986 with cert-validation=ignore by default), `--use-smb-admin` (per ADR-003 D2, documented but rc=126'd with the reason). Arg-validation refusals at rc=2: basic-over-HTTP (clear-text password), `--use-smb-admin` without `--pass`, `-P > 16`, pywinrm missing on a non-dry-run. IPv6 endpoint URLs bracketed correctly. Output to `$OUT/<host>/{winenum.txt, winenum.err, _meta.json, .done}`, with `run.log` + `hosts.txt` + `_summary.tsv`.
+- **K.2 `network/report.py` Windows rules + mixed-OS verdicts:** `_BULK_RULES_WIN` anchored on what `windows/Invoke-PrivEscEnum.ps1` actually prints (formatting from its Section/Sub/Hit functions is stable across runs). CRITICAL: `AlwaysInstallElevated ENABLED`, `Se{Impersonate,AssignPrimaryToken,Debug,Tcb,CreateToken,LoadDriver}Privilege (ENABLED)` (literal `\(ENABLED\)` parens, no re.I — anchors away from the disabled-hint false positive), `WRITABLE BINARY:` (service binary the user can overwrite), `DefaultPassword=` (AutoLogon disclosure), membership in Domain/Enterprise/Schema Admins / Administrators / Backup/Server Operators / Hyper-V Administrators, GPP cpassword XML files, Unattend/sysprep on disk. HIGH: `Se{Backup,Restore,TakeOwnership,ManageVolume,Security}Privilege (ENABLED)`, unquoted service path with spaces under Program Files, writable PATH directory, Account/Print Operators / DnsAdmins membership, scheduled task running as SYSTEM / NETWORK SERVICE / Administrators, SCCM naa-credential path. MEDIUM: `Se*Privilege (disabled — operator can still enable)`, Remote Desktop / Remote Management Users membership, password/secret/api_key/token patterns in user files, EOL Windows (7 / Server 2008 / 2012). Layout detector (`_is_bulk_enum_dir`) and walker (`walk_findings_bulk`) extended: a subdir with `_meta.json` and EITHER `linenum.txt` OR `winenum.txt` qualifies; rules selected per file type. `_per_host_verdicts` gains an `os` field per host (`linux` / `windows` / `mixed` if both surfaces produce findings). Per-host verdict table in `report.md` / `report.html` gains an OS column.
+- **K.3 fixtures + unit + smoke:**
+  - `tests/fixtures/bulk-enum/win-{svc-imperson,backup-op,old-rdp}/` — three Windows fixtures anchoring CRITICAL / HIGH / MEDIUM verdict tiers. Named with lowercase hyphenated tokens to avoid colliding with the default `\bCRITICAL\b` severity rule (initial naming using "WIN-CRITICAL" was false-positiving on the host name itself — fixed during fixture testing).
+  - `tests/test_bulk_enum_report.py` extended to cover all 7 fixtures + an `EXPECTED_OS` map and a regression test that disabled-hint Se* privileges do not false-positive critical.
+  - `tests/test_bulk_enum_windows.py` (new): 14 stdlib-`unittest` tests covering `parse_spec`, WinRM endpoint URL construction (IPv6 bracketing, HTTPS scheme), and end-to-end orchestrator behaviour via mocked `winrm.Session.run_ps` — dry-run produces per-host dirs + run.log, `--throttle` precedence, the four arg-validation refusals, and a mocked-Session non-dry-run that writes winenum.txt + `_meta.json` correctly.
+  - `tests/smoke.sh` section 11e extended for the Windows fixtures (now copies winenum.txt alongside linenum.txt); new section 11f exercises bulk-enum-windows.py --dry-run + arg-validation paths.
+
+### Enhanced
+- **K.4 top-level `README.md`:** new Windows subsection of the bulk-enum quickstart — WinRM HTTP / HTTPS / Kerberos flows, the mixed-estate single-`$OUT` pattern (one `report.py` rolls both sides up), the "Remote Management Users" auth-reach caveat, the `--use-smb-admin` documented-but-deferred status, and the explicit "WHAT THIS DOES NOT VALIDATE" callout per ADR-003. Network table gets a `bulk-enum-windows.py` row.
+- **K.4 `deps-check.sh`:** pywinrm Python-package check added (same shape as the iteration-H stdlib check + defusedxml). Reports installed version or pip-install hint when absent.
+- IPv6 bracketing fix in `bulk-enum-linux.sh` (caught by the advisor's review of v0.15.0): the ssh destination spec now brackets bare IPv6 hosts (`user@[2001:db8::1]` instead of `user@2001:db8::1`) — older OpenSSH otherwise treats the trailing `:N` of the v6 address as a port. Mirrors A.5's `ldap_url()` pattern from the network dispatchers.
+
+### Real-data validation (this release)
+`nmap -sV --top-ports 1000 -oA localhost-scan 127.0.0.1` → `nmap-parse.py` produced 4 open ports across http/redis/jmx categories → `auto-enum.sh --only redis,unknown` executed dispatchers end-to-end → `report.py` emitted `findings.json` (`mode=auto-enum`) + `report.md` + `report.html` from 7 findings on 127.0.0.1. `bulk-enum-linux.sh` against localhost (no local sshd) produced the expected rc=255 + populated `_meta.json` + `linenum.err` per host, and `report.py` then correctly detected bulk-enum layout (`mode=bulk-enum`).
 
 ## [v0.15.0] — 2026-05-20
 
