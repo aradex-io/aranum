@@ -228,15 +228,22 @@ run_one_host() {
         return 0
     fi
 
+    # IPv6 addresses must be bracketed in the ssh destination spec —
+    # `ssh user@2001:db8::1` is ambiguous (older OpenSSH treats the trailing
+    # `:1` as a port); `ssh user@[2001:db8::1]` is unambiguous. IPv4 +
+    # hostnames pass through untouched.
+    local dest_host="$host"
+    [[ "$host" == *:* ]] && dest_host="[$host]"
+
     if [ "$DRY_RUN" = 1 ]; then
-        printf '[DRY] %s@%s:%s  ->  %s/linenum.txt\n' "$user" "$host" "$port" "$hdir"
-        run_log "dry-run: $user@$host:$port"
+        printf '[DRY] %s@%s:%s  ->  %s/linenum.txt\n' "$user" "$dest_host" "$port" "$hdir"
+        run_log "dry-run: $user@$dest_host:$port"
         return 0
     fi
 
     local ssh_args=()
     while IFS= read -r a; do ssh_args+=("$a"); done < <(ssh_base_args)
-    ssh_args+=(-p "$port" "$user@$host")
+    ssh_args+=(-p "$port" "$user@$dest_host")
 
     local t0 t1 elapsed rc
     t0=$(date +%s)
