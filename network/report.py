@@ -127,6 +127,82 @@ class Redactor:
         return self._ip_re().sub(_sub, text)
 
 
+# ---------------------------------------------------- bulk-enum severity rules
+# Patterns specific to linux/linenum-fast.sh output. Operators can extend via
+# --severity-rules just like for the network rules. Each entry is
+# (compiled regex, severity). First-match wins.
+#
+# Anchored on what linenum-fast.sh actually prints (see linux/linenum-fast.sh
+# section headers — SUDO, SUID, CAPABILITIES, WRITABLE, LD_*, etc.).
+_BULK_GTFOBINS = (
+    "bash", "sh", "dash", "ksh", "zsh", "csh", "tcsh",
+    "less", "more", "vi", "vim", "nvim", "nano", "ed", "emacs",
+    "awk", "gawk", "mawk", "sed", "grep", "find", "xargs",
+    "perl", "python", "python2", "python3", "ruby", "lua", "node", "nodejs", "php",
+    "gdb", "strace", "ltrace", "ftrace",
+    "env", "nice", "nohup", "time", "timeout", "watch",
+    "mount", "umount", "fusermount",
+    "nmap", "ncat", "nc", "socat",
+    "ssh", "scp", "sftp", "rsync",
+    "tar", "zip", "unzip", "gzip", "gunzip", "bzip2", "xz", "7z",
+    "base32", "base64", "xxd", "hexdump",
+    "wget", "curl", "tftp",
+    "busybox",
+    "make", "cmake", "msfconsole",
+    "apt", "apt-get", "dpkg", "rpm", "yum", "dnf", "pip", "pip3", "gem", "npm",
+    "cp", "mv", "dd", "install", "tee", "tail", "head",
+    "expect", "screen", "tmux",
+    "ar", "ld",
+    "git", "ssh-keyscan",
+)
+# Build one alternation so the SUID/SGID line regex stays fast.
+_GTFO_ALT = "|".join(re.escape(b) for b in _BULK_GTFOBINS)
+_BULK_RULES: list[tuple[re.Pattern, str]] = [
+    # SUDO — NOPASSWD is the canonical root primitive
+    (re.compile(r"NOPASSWD", re.I),                                              "critical"),
+    (re.compile(r"\(ALL\s*:\s*ALL\)\s*ALL", re.I),                               "critical"),
+    (re.compile(r"sudo version (1\.8\.[0-9]|1\.8\.1[0-9]|1\.8\.2[0-9]|1\.8\.31p1|1\.9\.[0-4])\b", re.I), "high"),
+    # CAPABILITIES — these are root-equivalent or near-root via documented chains
+    (re.compile(r"\bcap_(setuid|setgid|dac_read_search|dac_override|sys_admin|sys_ptrace|sys_module|chown|fowner|net_admin)\b\+ep", re.I), "critical"),
+    (re.compile(r"\bcap_(net_raw|net_bind_service|kill|sys_rawio)\b\+ep", re.I), "high"),
+    # SUID — match gtfobin binaries explicitly; non-gtfobin SUIDs are MEDIUM
+    (re.compile(rf"^-rws.*\b/((?:[^/\s]+/)*)({_GTFO_ALT})\s*$", re.I | re.M),    "critical"),
+    (re.compile(r"^-rws"),                                                       "medium"),
+    # WRITABLE — world-writable in /etc, /usr, systemd, init
+    (re.compile(r"^/(etc|usr|lib|lib64|sbin|bin)/.*\s.*\s.*\s.*world.*writable", re.I), "critical"),
+    (re.compile(r"^-rw.r..rw.\s.*/etc/(passwd|shadow|sudoers|sudoers\.d)", re.I),"critical"),
+    (re.compile(r"\bwritable\b.*/etc/systemd", re.I),                            "high"),
+    (re.compile(r"\bwritable\b.*/etc/cron", re.I),                               "high"),
+    # LD_* env in sudo env_keep
+    (re.compile(r"env_keep.*LD_(PRELOAD|LIBRARY_PATH)", re.I),                   "critical"),
+    # NFS no_root_squash
+    (re.compile(r"\bno_root_squash\b", re.I),                                    "high"),
+    # Docker
+    (re.compile(r"Privileged:\s*true", re.I),                                    "critical"),
+    (re.compile(r"docker.sock", re.I),                                           "high"),
+    # SSH key with no passphrase + private key location not in user dir
+    (re.compile(r"^-rw-+\s.*\sid_(rsa|ed25519|ecdsa|dsa)\b"),                    "high"),
+    # Cred patterns in history / files
+    (re.compile(r"(?:password|passwd|secret|api[_-]?key|token)\s*[=:]\s*\S{4,}", re.I), "high"),
+    # Old kernel — Dirty Pipe (CVE-2022-0847) fixed in 5.16.11/5.15.25
+    (re.compile(r"Linux\s+\S+\s+(2\.|3\.|4\.|5\.([0-9]|1[0-5])\.)", re.I),       "medium"),
+]
+
+
+# ---------------------------------------------------- layout detector
+def _is_bulk_enum_dir(out_dir: Path) -> bool:
+    """Return True iff out_dir looks like a bulk-enum-linux.sh output tree.
+    Heuristic: at least one direct subdir contains a `_meta.json` AND a
+    `linenum.txt`. auto-enum.sh subdirs are service names containing host
+    subdirs — they never contain a top-level linenum.txt."""
+    for sub in out_dir.iterdir():
+        if not sub.is_dir():
+            continue
+        if (sub / "_meta.json").is_file() and (sub / "linenum.txt").is_file():
+            return True
+    return False
+
+
 # ---------------------------------------------------- walker
 def walk_findings(out_dir: Path, rules) -> Iterable[dict]:
     """Yield finding dicts. Each finding has:
@@ -186,8 +262,55 @@ def walk_findings(out_dir: Path, rules) -> Iterable[dict]:
                 }
 
 
+# ---------------------------------------------------- bulk-enum walker
+def walk_findings_bulk(out_dir: Path, extra_rules) -> Iterable[dict]:
+    """Walk a bulk-enum-linux.sh output tree. Each top-level subdir is one host;
+    inside each: linenum.txt (raw stdout), linenum.err (stderr), _meta.json.
+    Findings carry service='linenum' so the existing renderer can group them."""
+    combined = list(_BULK_RULES) + list(extra_rules or [])
+    for host_dir in sorted(p for p in out_dir.iterdir() if p.is_dir()):
+        meta = host_dir / "_meta.json"
+        linenum = host_dir / "linenum.txt"
+        if not (meta.is_file() and linenum.is_file()):
+            continue
+        host = host_dir.name
+        try:
+            text = linenum.read_text(errors="replace")
+        except Exception:
+            continue
+        for line in text.splitlines():
+            sev = _classify(line, combined)
+            if sev is None:
+                continue
+            yield {
+                "host":          host,
+                "port":          "",
+                "service":       "linenum",
+                "severity":      sev,
+                "line":          line.strip()[:300],
+                "evidence_path": str(linenum.relative_to(out_dir)),
+            }
+
+
 # ---------------------------------------------------- renderers
 _SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def _per_host_verdicts(findings: list[dict]) -> dict[str, dict]:
+    """Compute per-host verdict (max severity across findings) for bulk-enum
+    reports. Returns {host: {verdict: 'critical', n_critical: N, n_high: ..., ...}}."""
+    per = {}
+    for f in findings:
+        if f["service"] != "linenum":
+            continue
+        h = f["host"]
+        if h not in per:
+            per[h] = {"n_critical": 0, "n_high": 0, "n_medium": 0, "n_low": 0,
+                      "verdict": "low"}
+        per[h][f"n_{f['severity']}"] += 1
+        if _SEV_ORDER[f["severity"]] < _SEV_ORDER[per[h]["verdict"]]:
+            per[h]["verdict"] = f["severity"]
+    return per
 
 
 def _summary(findings: list[dict]) -> dict:
@@ -210,7 +333,7 @@ def _summary(findings: list[dict]) -> dict:
 
 
 def render_markdown(findings: list[dict], summary: dict, run_label: str,
-                    redactor: Redactor) -> str:
+                    redactor: Redactor, per_host: dict | None = None) -> str:
     out = [f"# Findings report — {run_label}", ""]
     out.append(f"_Generated {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z_")
     out.append("")
@@ -223,6 +346,23 @@ def render_markdown(findings: list[dict], summary: dict, run_label: str,
         n = summary["counts"].get(sev, 0)
         out.append(f"  - {sev}: {n}")
     out.append("")
+
+    # Per-host verdict table — bulk-enum mode only. Shown BEFORE the
+    # service breakdown because for bulk-enum the operator's first question
+    # is "which hosts should I focus on?".
+    if per_host:
+        out.append("## Per-host privesc verdict (bulk-enum)")
+        out.append("")
+        out.append("| Host | Verdict | Critical | High | Medium | Low |")
+        out.append("|---|---|---:|---:|---:|---:|")
+        # Sort: critical hosts first, then high, etc.; alpha within tier.
+        ordered = sorted(per_host.items(),
+                         key=lambda kv: (_SEV_ORDER[kv[1]["verdict"]], kv[0]))
+        for host, v in ordered:
+            out.append(f"| {redactor(host)} | **{v['verdict']}** | "
+                       f"{v['n_critical']} | {v['n_high']} | {v['n_medium']} | {v['n_low']} |")
+        out.append("")
+
     out.append("## Findings by service")
     out.append("")
     out.append("| Service | Critical | High | Medium | Low |")
@@ -259,6 +399,12 @@ th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: left; vertical-al
 th { background: #f4f4f4; }
 td.critical, td .critical { color: #c00; font-weight: 600; }
 td.high, td .high { color: #d80; font-weight: 600; }
+td.medium, td .medium { color: #a60; }
+td.low, td .low { color: #060; }
+.verdict-critical { background: #fee; }
+.verdict-high { background: #ffe; }
+.verdict-medium { background: #ffd; }
+.verdict-low { background: #efe; }
 code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
 """
 
@@ -368,29 +514,47 @@ def main() -> int:
     redactor = Redactor(args.redact)
     label = args.label or out_dir.name
 
-    findings = list(walk_findings(out_dir, rules))
+    # Auto-detect bulk-enum vs auto-enum layout
+    bulk_mode = _is_bulk_enum_dir(out_dir)
+    if bulk_mode:
+        print(_c(f"[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
+        findings = list(walk_findings_bulk(out_dir, rules))
+        per_host = _per_host_verdicts(findings)
+    else:
+        findings = list(walk_findings(out_dir, rules))
+        per_host = None
+
     summary = _summary(findings)
 
     # Always emit findings.json (machine-readable)
     findings_json = {
-        "label": label,
+        "label":         label,
         "generated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
-        "redacted": args.redact,
-        "summary": summary,
-        "findings": findings,
+        "redacted":      args.redact,
+        "mode":          "bulk-enum" if bulk_mode else "auto-enum",
+        "summary":       summary,
+        "findings":      findings,
     }
+    if per_host:
+        # Sort by verdict (worst first), then host name
+        findings_json["per_host"] = {
+            h: v for h, v in sorted(per_host.items(),
+                                    key=lambda kv: (_SEV_ORDER[kv[1]["verdict"]], kv[0]))
+        }
     if args.redact:
         for f in findings_json["findings"]:
             f["host"] = redactor(f["host"])
             f["line"] = redactor(f["line"])
         findings_json["summary"]["hosts"] = [redactor(h) for h in summary["hosts"]]
+        if per_host:
+            findings_json["per_host"] = {redactor(h): v for h, v in findings_json["per_host"].items()}
     (out_dir / "findings.json").write_text(json.dumps(findings_json, indent=2))
     print(_c(f"[+] findings.json written ({len(findings)} findings)", "G"))
 
     if args.findings_only:
         return 0
 
-    md = render_markdown(findings, summary, label, redactor)
+    md = render_markdown(findings, summary, label, redactor, per_host)
     (out_dir / "report.md").write_text(md)
     print(_c(f"[+] report.md written", "G"))
 
