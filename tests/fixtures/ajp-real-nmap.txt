@@ -1,0 +1,10 @@
+# Nmap 7.94 scan initiated for ajp test
+8009/tcp open  ajp13
+| ajp-headers:
+|   Method = GET
+|   Status: HTTP/1.1 200 OK
+|   Server: Apache-Coyote/1.1
+|_  X-Powered-By: Servlet 2.5; JBoss-5.0/JBossWeb-2.1
+| ajp-methods:
+|   Supported methods: GET HEAD POST OPTIONS
+|_  Potentially risky methods: PUT DELETE

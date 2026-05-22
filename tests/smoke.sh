@@ -3,7 +3,8 @@
 # No external lab targets — purely syntax / smoke / fixture / security-regression.
 
 set -uo pipefail
-cd /home/jay/Documents/cyber/dev/aratool || exit 2
+REPO=/home/jay/Documents/cyber/dev/aratool
+cd "$REPO" || exit 2
 
 R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; C="\033[1;36m"; N="\033[0m"
 pass=0; fail=0; skip=0
@@ -674,13 +675,23 @@ else
     f "git: working tree dirty: $(git status --porcelain | head -3)"
 fi
 # Tags present
-for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.16.0 v0.17.0 v0.18.0 v0.19.0 v0.20.0; do
+for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.16.0 v0.17.0 v0.18.0 v0.19.0 v0.20.0 v0.20.1; do
     if git tag | grep -qx "$t"; then
         p "git: tag $t present"
     else
         f "git: tag $t MISSING"
     fi
 done
+
+# -----------------------------------------------------------------
+section "13. False-positive / true-positive regression harness"
+# -----------------------------------------------------------------
+echo "=== fp-harness (FP/TP regression) ==="
+if bash "$REPO/tests/fp-harness.sh" >/tmp/aratool-fp-harness.log 2>&1; then
+    p "fp-harness: no FPs, TP markers intact"
+else
+    f "fp-harness FAILED — see /tmp/aratool-fp-harness.log"
+fi
 
 # -----------------------------------------------------------------
 echo
