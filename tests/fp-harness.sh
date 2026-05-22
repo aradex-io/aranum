@@ -2,9 +2,14 @@
 # tests/fp-harness.sh — FP/TP regression harness for aratool network dispatchers.
 #
 # Runs fp-server.py (4 wrong-service scenarios) and tp-server.py (rsync + telnet
-# true-positive stubs) in the background, exercises all 19 dispatchers, and
+# true-positive stubs) in the background, exercises all 22 dispatchers, and
 # reports pass/fail. AJP TP is verified via the static fixture file
 # tests/fixtures/ajp-real-nmap.txt without needing a live server.
+#
+# E4 additions:
+#   - ike, slp, radius added to FP sweep (env-gated dispatchers need env var set)
+#   - ENV-GATE TEST block: verifies aggressive dispatchers refuse without env var
+#   - vCenter TP block added (stub at 19024)
 #
 # Exit codes:
 #   0 = all green (zero FPs, TP markers intact)
@@ -58,10 +63,27 @@ if ! kill -0 "$TP_PID" 2>/dev/null; then
 fi
 
 # ---- dispatcher list ---------------------------------------------------------
+# E4: ike/slp/radius are env-gated aggressive dispatchers. They are included in
+# the FP sweep with their respective env vars set (so the probe logic runs and
+# we verify it does NOT FP on wrong-service scenarios). The ENV-GATE TEST block
+# below separately verifies they refuse to run without the env var.
 DISPATCHERS=(
     ajp oracle pop3 imap telnet rsync mqtt sip
     ipp zookeeper cassandra kafka neo4j influxdb solr consul vault msrpc netbios-ns
+    ike slp radius
 )
+
+# Per-dispatcher extra env vars for the FP sweep. These must be set inline per
+# invocation — NOT exported globally — so the ENV-GATE TEST block sees a clean env.
+dispatcher_env() {
+    local svc="$1"
+    case "$svc" in
+        ike)    echo "ENUM_RUN_IKE=1" ;;
+        slp)    echo "ENUM_RUN_SLP=1" ;;
+        radius) echo "ENUM_RUN_RADIUS=1" ;;
+        *)      echo "" ;;
+    esac
+}
 
 declare -A SCENARIO_NAMES=(
     [0]="http-200"
@@ -71,7 +93,7 @@ declare -A SCENARIO_NAMES=(
 )
 
 # ---- FP sweep ----------------------------------------------------------------
-printf "\n${C}=====[ FP SWEEP — 19 dispatchers × 4 wrong-service scenarios ]=====${N}\n\n"
+printf "\n${C}=====[ FP SWEEP — 22 dispatchers × 4 wrong-service scenarios ]=====${N}\n\n"
 printf "%-15s %-15s %5s  %s\n" "dispatcher" "scenario" "hits" "first_hit"
 printf "%-15s %-15s %5s  %s\n" "----------" "--------" "----" "---------"
 
@@ -88,8 +110,17 @@ for svc in "${DISPATCHERS[@]}"; do
         rm -rf "$out"
         echo "127.0.0.1:${port}" > "$tgt"
 
-        timeout 45 bash "$REPO/network/enum-${svc}.sh" \
-            --targets "$tgt" --output "$out" > "$log" 2>&1 || true
+        # Build extra env inline — NOT exported globally — so ENV-GATE TEST sees clean env
+        extra_env=""
+        extra_env="$(dispatcher_env "$svc")"
+
+        if [ -n "$extra_env" ]; then
+            env "$extra_env" timeout 45 bash "$REPO/network/enum-${svc}.sh" \
+                --targets "$tgt" --output "$out" > "$log" 2>&1 || true
+        else
+            timeout 45 bash "$REPO/network/enum-${svc}.sh" \
+                --targets "$tgt" --output "$out" > "$log" 2>&1 || true
+        fi
 
         hits=$(grep -c $'^\033\\[1;32m\\[+\\]\033\\[0m' "$log" 2>/dev/null | tr -d '[:space:]')
         hits="${hits:-0}"
@@ -105,6 +136,50 @@ for svc in "${DISPATCHERS[@]}"; do
         fi
     done
 done
+
+# ---- ENV-GATE TEST -----------------------------------------------------------
+# Verify that the three aggressive dispatchers refuse to run WITHOUT their env
+# var set, exit 0, produce no hits, and emit the gate-message reminder string.
+printf "\n${C}=====[ ENV-GATE TEST — 3 aggressive dispatchers ]=====${N}\n\n"
+
+env_gate_failures=0
+declare -a ENV_GATE_CELLS=()
+
+_run_gate_test() {
+    local svc="$1"
+    local env_var="$2"
+    local gate_msg="$3"
+
+    local tgt="$RUNDIR/gate-${svc}.targets"
+    local out="$RUNDIR/gate-${svc}-out"
+    local log="$RUNDIR/gate-${svc}.log"
+    rm -rf "$out"
+    echo "127.0.0.1:500" > "$tgt"   # port doesn't matter — gate fires before probe
+
+    # Unset the env var explicitly in case parent shell has it set
+    env -u "$env_var" timeout 10 bash "$REPO/network/enum-${svc}.sh" \
+        --targets "$tgt" --output "$out" > "$log" 2>&1
+    local rc=$?
+
+    local hits
+    hits=$(grep -c $'^\033\\[1;32m\\[+\\]\033\\[0m' "$log" 2>/dev/null | tr -d '[:space:]')
+    hits="${hits:-0}"
+
+    local has_msg=0
+    grep -qi "$gate_msg" "$log" 2>/dev/null && has_msg=1
+
+    if [ "$rc" -eq 0 ] && [ "$hits" -eq 0 ] && [ "$has_msg" -eq 1 ]; then
+        ok "ENV gate ($svc): rc=0, 0 hits, gate message present"
+    else
+        bad "ENV gate ($svc): FAIL — rc=$rc hits=$hits gate_msg_found=$has_msg"
+        env_gate_failures=$((env_gate_failures + 1))
+        ENV_GATE_CELLS+=("$svc gate: rc=$rc hits=$hits msg=$has_msg")
+    fi
+}
+
+_run_gate_test "ike"    "ENUM_RUN_IKE"    "ENUM_RUN_IKE=1"
+_run_gate_test "slp"    "ENUM_RUN_SLP"    "ENUM_RUN_SLP=1"
+_run_gate_test "radius" "ENUM_RUN_RADIUS" "ENUM_RUN_RADIUS=1"
 
 # ---- TP checks ---------------------------------------------------------------
 printf "\n${C}=====[ TP CHECKS ]=====${N}\n\n"
@@ -236,10 +311,31 @@ else
     TP_CELLS+=("Prometheus TP: 'Prometheus detected' missing")
 fi
 
+# -- vCenter TP --
+vc_tp_port=$((TP_BASE + 14))
+info "vCenter TP: testing against stub at 127.0.0.1:${vc_tp_port}"
+vc_tgt="$RUNDIR/vcenter-tp.targets"
+vc_out="$RUNDIR/vcenter-tp-out"
+vc_log="$RUNDIR/vcenter-tp.log"
+rm -rf "$vc_out"
+echo "127.0.0.1:${vc_tp_port}" > "$vc_tgt"
+NO_NUCLEI=1 NO_FFUF=1 RUN_NIKTO=0 NO_WHATWEB=1 \
+    timeout 60 bash "$REPO/network/enum-http.sh" \
+    --targets "$vc_tgt" --output "$vc_out" > "$vc_log" 2>&1 || true
+if grep -q "VMware vCenter SDK reachable" "$vc_log" 2>/dev/null; then
+    ok "vCenter TP: 'VMware vCenter SDK reachable' hit present"
+else
+    bad "vCenter TP: REGRESSION — 'VMware vCenter SDK reachable' not found in log"
+    grep -i "vcenter\|vCenter\|vsphere\|vim25" "$vc_log" 2>/dev/null | head -5 || true
+    tp_failures=$((tp_failures + 1))
+    TP_CELLS+=("vCenter TP: expected hit missing")
+fi
+
 # ---- summary -----------------------------------------------------------------
 printf "\n${C}=====[ SUMMARY ]=====${N}\n"
-printf "  FP cells:      %d / %d (expected 0)\n" "$fp_failures" "$((${#DISPATCHERS[@]} * 4))"
-printf "  TP regressions: %d / 6 (expected 0)\n" "$tp_failures"
+printf "  FP cells:       %d / %d (expected 0)\n" "$fp_failures" "$((${#DISPATCHERS[@]} * 4))"
+printf "  ENV gates:      %d / 3 (expected 0)\n"  "$env_gate_failures"
+printf "  TP regressions: %d / 7 (expected 0)\n"  "$tp_failures"
 
 overall_rc=0
 
@@ -251,6 +347,14 @@ if [ "$fp_failures" -gt 0 ]; then
     overall_rc=1
 fi
 
+if [ "$env_gate_failures" -gt 0 ]; then
+    printf "\n${R}ENV GATE FAILURES:${N}\n"
+    for cell in "${ENV_GATE_CELLS[@]}"; do
+        printf "  ${R}GATE${N}: %s\n" "$cell"
+    done
+    [ "$overall_rc" -eq 0 ] && overall_rc=2
+fi
+
 if [ "$tp_failures" -gt 0 ]; then
     printf "\n${R}TP REGRESSIONS DETECTED:${N}\n"
     for cell in "${TP_CELLS[@]}"; do
@@ -260,7 +364,7 @@ if [ "$tp_failures" -gt 0 ]; then
 fi
 
 if [ "$overall_rc" -eq 0 ]; then
-    printf "\n${G}ALL GREEN — 0 FPs, 0 TP regressions${N}\n\n"
+    printf "\n${G}ALL GREEN — 0 FPs, 0 ENV gate failures, 0 TP regressions${N}\n\n"
 else
     printf "\n${R}HARNESS FAILED (rc=$overall_rc)${N}\n\n"
 fi

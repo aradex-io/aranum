@@ -12,9 +12,10 @@ Product-detect TP stubs (offsets from --port-base, default 19010):
   +10 (19020)  Jenkins stub  — X-Jenkins header + hudson.model.Hudson body
   +11 (19021)  Grafana stub  — /api/health with "database" + "version" keys
   +12 (19022)  Prometheus stub — /-/healthy exact body
+  +14 (19024)  vCenter stub  — /sdk/vimServiceVersions.xml + /ui/ responses
 
 These stubs serve on a fixed base+offset so fp-harness.sh can refer to
-the absolute ports directly (base=19010, so 19020/19021/19022).
+the absolute ports directly (base=19010, so 19020/19021/19022/19024).
 """
 import socket, threading, time, sys, signal, argparse
 
@@ -135,6 +136,42 @@ def prometheus_handler(c):
         c.close()
 
 
+# ---- VMware vCenter TP stub (port base+14 = 19024) --------------------------
+# enum-http.sh C.13 probes two endpoints:
+#   GET /sdk/vimServiceVersions.xml  — expects <namespace>urn:vim25</namespace>
+#   GET /ui/                          — expects <title>vSphere Client</title>
+VCENTER_SDK_BODY = b'<?xml version="1.0"?><namespaces><namespace>urn:vim25</namespace></namespaces>'
+VCENTER_SDK_LEN  = str(len(VCENTER_SDK_BODY)).encode()
+VCENTER_UI_BODY  = b'<html><head><title>vSphere Client</title></head></html>'
+VCENTER_UI_LEN   = str(len(VCENTER_UI_BODY)).encode()
+
+def vcenter_handler(c):
+    try:
+        req = c.recv(4096).decode("utf-8", errors="replace")
+        if "/sdk/vimServiceVersions.xml" in req:
+            c.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/xml\r\n"
+                b"Content-Length: " + VCENTER_SDK_LEN + b"\r\n"
+                b"\r\n" +
+                VCENTER_SDK_BODY
+            )
+        elif req.startswith("GET /ui/") or req.startswith("GET /ui "):
+            c.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/html\r\n"
+                b"Content-Length: " + VCENTER_UI_LEN + b"\r\n"
+                b"\r\n" +
+                VCENTER_UI_BODY
+            )
+        else:
+            c.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+    except Exception:
+        pass
+    finally:
+        c.close()
+
+
 # ---- generic listener --------------------------------------------------------
 def serve(port, handler, name):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -162,6 +199,7 @@ if __name__ == "__main__":
         (base + 10, jenkins_handler,    "jenkins-stub"),
         (base + 11, grafana_handler,    "grafana-stub"),
         (base + 12, prometheus_handler, "prometheus-stub"),
+        (base + 14, vcenter_handler,    "vcenter-stub"),
     ]
     for port, h, name in stubs:
         threading.Thread(target=serve, args=(port, h, name), daemon=True).start()
