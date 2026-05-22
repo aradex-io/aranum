@@ -17,6 +17,22 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.21.0] — 2026-05-22
+
+**HTTP product detectors (E3).** `enum-http.sh` now fingerprints 8 common product families on live HTTP targets, emitting product+version findings only when product-specific markers are present.
+
+### Added
+- `network/enum-http.sh` — C.13 product-fingerprint phase covering Tomcat Manager, Jenkins (including Groovy script console RCE check), GitLab, SonarQube, Grafana, Prometheus, Hadoop NameNode, Spark UI. Skippable via `NO_PRODUCT_DETECT=1`.
+- `network/report.py` — 12 severity rules for the product-detect hit patterns (CRITICAL for Tomcat-Manager-UNAUTH and Jenkins-Groovy-script-console; HIGH for the rest; MEDIUM for Spark).
+- `tests/tp-server.py` — Jenkins / Grafana / Prometheus TP stub servers on 19020-19022.
+- `tests/fp-harness.sh` — TP block exercises the three product-detect stubs end-to-end.
+
+**Notes:**
+- `enum-http.sh` is intentionally NOT added to the dispatcher FP sweep — it depends on optional external tools (httpx, whatweb, nuclei, ffuf, nikto) and its target shape differs (alive-URLs not raw ip:port). Per-product TP stubs cover the product-detect logic specifically.
+- The product detectors carry forward v0.20.1's "two-evidence" discipline: every detector requires a product-specific marker (header pattern OR JSON-key combination OR exact body string), never just "HTTP 200 on the canonical path".
+
+---
+
 ## [v0.20.2] — 2026-05-22
 
 **CHANGELOG hygiene + AJP behavioral note.** No code changes — pure documentation cleanup.
