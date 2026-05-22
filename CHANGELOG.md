@@ -19,6 +19,27 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.20.1] — 2026-05-22
+
+**Dispatcher FP fixes + in-tree regression harness.** Three confirmed false-positive bugs in network dispatchers corrected; in-tree FP/TP harness added so this class of regression cannot reappear silently.
+
+### Fixed
+- `network/enum-ajp.sh` — required two-evidence service fingerprint (nmap `ajp13` fingerprint line AND at least one `| ajp-*:` script-result line) before emitting AJP findings. Previously, `grep -qi 'AJP'` matched nmap's own NSE preamble ("NSE: Loading scripts: ajp-headers, …"), causing a false `UNAUTH:` hit on any open port.
+- `network/enum-telnet.sh` — required nmap telnet fingerprint OR IAC option-negotiation byte (0xFF 0xFB–0xFE) in the banner before emitting "Telnet open". Previously emitted a hit unconditionally after `nc` connected, regardless of protocol.
+- `network/enum-rsync.sh` — gated module parsing on `rsync` exit code 0 instead of regex-filtering error lines. Previously the regex `^(@|rsync:)` skipped `@RSYNCD:` and `rsync:` error lines but not `rsync error: …` lines (no colon immediately after "rsync"), so the token "rsync" was parsed as a module name.
+
+### Added
+- `tests/fp-harness.sh` — in-tree regression harness: runs all 19 dispatchers × 4 wrong-service scenarios (HTTP-200, SSH-banner, accept-silent, TCP-echo) and 3 TP markers (rsync stub, telnet IAC stub, AJP fixture). Returns rc=0 iff 0 FPs and 0 TP regressions.
+- `tests/fp-server.py` — multi-flavor wrong-protocol server (HTTP-200, SSH-banner, accept-silent, TCP-echo); `--port-base` flag for collision avoidance.
+- `tests/tp-server.py` — true-positive stub servers: rsync daemon with full handshake + module list, telnet IAC option-negotiation; `--port-base` flag.
+- `tests/fixtures/ajp-real-nmap.txt` — canonical `nmap --script ajp-headers` output fixture used by the AJP TP check in `fp-harness.sh`.
+- `tests/smoke.sh` — section 13 runs `fp-harness.sh` as part of the smoke suite.
+
+### Known gaps
+- Harness scenarios use plain HTTP/SSH/echo/silent — cross-service FPs (e.g., an HTTP server returning JSON containing both "sealed" and "neo4j_version") are not covered. The 4 scenarios cover the user-reported class ("open port, wrong service") but specifically-crafted evil servers could still FP. Worth a future expansion.
+
+---
+
 ## [v0.20.0] — 2026-05-22
 
 **Iteration E2** of ROADMAP-002 — Tier 2a network enumeration dispatchers. Covers 11 SERVICE_MAP categories: high-yield infrastructure and data-store services.
