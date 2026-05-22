@@ -104,6 +104,14 @@ aratool/
 | `network/enum-memcached.sh` | `stats` + key inventory via cachedump |
 | `network/enum-couchdb.sh` | _all_dbs + _config + CVE-2017-12635 version signal |
 | `network/enum-etcd.sh` | /v2/keys + /metrics — CRITICAL on unauth k8s control-plane KV |
+| `network/enum-ajp.sh` | AJP/Tomcat (8009) — nmap ajp-headers/methods/auth/brute; Ghostcat CVE-2020-1938 hints |
+| `network/enum-oracle.sh` | Oracle DB (1521/1522/1526) — TNS version, SID brute, optional tnscmd10g |
+| `network/enum-pop3.sh` | POP3 (110/995) — CAPA banner, plaintext-auth flag, optional ENUM_USER/PASS probe |
+| `network/enum-imap.sh` | IMAP (143/993) — CAPABILITY banner, STARTTLS flag, optional LOGIN probe |
+| `network/enum-telnet.sh` | Telnet (23) — nc banner + device-family fingerprint (Cisco/HP iLO/Brother/iDRAC/Juniper/Ubiquiti/DD-WRT) |
+| `network/enum-rsync.sh` | rsync daemon (873) — anonymous module listing; flags high-value modules (etc/home/root/backup) |
+| `network/enum-mqtt.sh` | MQTT (1883/8883) — anonymous $SYS/# subscribe; broker version from $SYS topic |
+| `network/enum-sip.sh` | SIP (5060/5061) — nmap sip-methods/enum-users; vendor fingerprint (Asterisk/FreePBX/CUCM/Avaya/Polycom) |
 
 ## Jabber / XMPP (iteration H)
 
