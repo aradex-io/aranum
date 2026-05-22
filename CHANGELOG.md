@@ -9,7 +9,34 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-*(empty — accumulating since v0.18.0)*
+### Added
+
+### Changed
+
+### Enhanced
+
+### Fixed
+
+---
+
+## [v0.19.0] — 2026-05-22
+
+**Iteration E1** of ROADMAP-002 — Tier 1 network enumeration dispatchers. Covers 8 SERVICE_MAP categories that routed to targets but had no dispatcher scripts.
+
+### Added
+- `network/enum-ajp.sh` — AJP / Tomcat (8009) — nmap ajp-headers/methods/auth/brute scripts + Ghostcat CVE-2020-1938 hints in _hints.txt. Flags `UNAUTH:` when ajp-auth output does not include `Authentication: Required`.
+- `network/enum-oracle.sh` — Oracle DB (1521/1522/1526) — TNS version, SID brute (oracle-sid-brute NSE), oracle-brute-stealth. Discovered SIDs written to sids_<port>.txt. Optional tnscmd10g version probe.
+- `network/enum-pop3.sh` — POP3 (110/995) — CAPA banner grab (nc for plain, openssl s_client for POP3S), plaintext-auth flag (USER present + STLS absent on port 110), optional ENUM_USER/ENUM_PASS probe via nc.
+- `network/enum-imap.sh` — IMAP (143/993) — CAPABILITY banner grab, STARTTLS flag (LOGIN present + STARTTLS absent on port 143), optional LOGIN cred probe via nc.
+- `network/enum-telnet.sh` — Telnet (23) — nc banner grab + optional nmap telnet-encryption/telnet-ntlm-info/banner. Device-family fingerprint regex (Cisco, HP iLO, Brother, Dell iDRAC, Juniper, Ubiquiti, DD-WRT). Per-family default-cred shortlist in _hints.txt — no auto-attempt performed.
+- `network/enum-rsync.sh` — rsync daemon (873) — anonymous module listing via rsync://. Per-module directory listing (up to 10 modules). Flags high-value modules (etc, home, root, backup, var, srv, www) exposed without auth.
+- `network/enum-mqtt.sh` — MQTT (1883/8883) — anonymous $SYS/# subscribe via mosquitto_sub (50-message/5-second cap). rc 0 and rc 27 (timeout-after-success) treated as success; rc 5 (auth required) and rc 14 (unreachable) produce no finding. Records broker version from $SYS topic.
+- `network/enum-sip.sh` — SIP (5060/5061) — nmap sip-methods/sip-enum-users (UDP + TCP). Vendor fingerprint from Server:/User-Agent: lines (Asterisk, FreePBX, Cisco CUCM, Avaya, Polycom). Optional svmap (SIPVicious) probe.
+- `network/report.py` — 8 explicit HIGH severity rules anchored on E1 dispatcher hit strings (AJP unauthenticated, Oracle TNS/SIDs, POP3 plaintext-auth/AUTH SUCCESS, IMAP plaintext-auth/AUTH SUCCESS, Telnet open/device, rsync HIGH-VALUE module, MQTT UNAUTH broker, SIP service). Rules inserted after generic UNAUTH rule to document intent.
+- `docs/ROADMAP-002-22MAY2026-tier1-tier2-enumeration.md` — Opus-authored plan mapping E1-E4 iteration scope.
+
+### Changed
+- `deps-check.sh` — added E1 TIER-1 DISPATCHERS section: rsync (required), mosquitto_sub (recommended), tnscmd10g (optional), svmap/sipvicious (optional), kafkacat/kcat (optional, reserved for Tier 2a).
 
 ---
 
