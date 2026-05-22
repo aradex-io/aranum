@@ -13,9 +13,17 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ### Changed
 
-### Enhanced
-
 ### Fixed
+
+---
+
+## [v0.20.2] — 2026-05-22
+
+**CHANGELOG hygiene + AJP behavioral note.** No code changes — pure documentation cleanup.
+
+### Changed
+- `CHANGELOG.md` v0.20.1 — folded the non-standard `Known gaps` section into a `Notes:` paragraph under `Fixed`, per Keep a Changelog 1.1.0.
+- `CHANGELOG.md` v0.20.1 — documented the AJP two-evidence guard's false-negative tail under tight timing.
 
 ---
 
@@ -35,8 +43,9 @@ See `CLAUDE.md` §6 for the entry style guide.
 - `tests/fixtures/ajp-real-nmap.txt` — canonical `nmap --script ajp-headers` output fixture used by the AJP TP check in `fp-harness.sh`.
 - `tests/smoke.sh` — section 13 runs `fp-harness.sh` as part of the smoke suite.
 
-### Known gaps
-- Harness scenarios use plain HTTP/SSH/echo/silent — cross-service FPs (e.g., an HTTP server returning JSON containing both "sealed" and "neo4j_version") are not covered. The 4 scenarios cover the user-reported class ("open port, wrong service") but specifically-crafted evil servers could still FP. Worth a future expansion.
+**Notes:**
+- The AJP two-evidence guard is conservative — a real AJP service whose `ajp-*` nmap scripts time out (aggressive `--throttle` mode, lossy network, very busy backend) will be silently skipped. If AJP findings disappear after upgrade against a target you previously saw on v0.20.0, re-run with `--script-timeout 60` or higher.
+- The FP harness scenarios use plain HTTP / SSH / echo / silent servers — cross-service false positives (e.g. an HTTP server returning JSON containing both "sealed" and "neo4j_version") are out of scope for the harness. The 4 scenarios cover the user-reported "open port, wrong service" class; specifically-crafted evil servers could still trigger FPs. Future expansion candidate.
 
 ---
 
