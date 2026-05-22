@@ -160,6 +160,40 @@ check kafkacat      opt
 check kcat          opt
 
 echo
+echo "=== E2 TIER-2A DISPATCHERS (iteration E2) ==="
+# At least one of {kcat, kafkacat} required for enum-kafka.sh
+if have kcat || have kafkacat; then
+    if have kcat; then
+        v=$(kcat -V 2>&1 | head -1 || true)
+        printf "${G}[+]${N} %-22s %s\n" "kcat" "$v"
+    fi
+    if have kafkacat; then
+        v=$(kafkacat -V 2>&1 | head -1 || true)
+        printf "${G}[+]${N} %-22s %s\n" "kafkacat" "$v"
+    fi
+else
+    printf "${Y}[?]${N} %-22s (one of kcat/kafkacat required for enum-kafka.sh)\n" "kcat/kafkacat"
+fi
+# cqlsh — optional; improves Cassandra anonymous CQL detection beyond nmap
+check cqlsh           opt
+# At least one of {nbtscan, nmblookup} for enum-netbios-ns.sh
+if have nbtscan || have nmblookup; then
+    have nbtscan   && check nbtscan    opt
+    have nmblookup && check nmblookup  opt
+else
+    printf "${Y}[?]${N} %-22s (one of nbtscan/nmblookup required for enum-netbios-ns.sh)\n" "nbtscan/nmblookup"
+fi
+# At least one of {impacket-rpcdump, rpcdump.py, rpcclient} for enum-msrpc.sh
+# Note: rpcclient is already checked in REQUIRED above (from samba/winbind);
+# just surface the impacket alternatives here.
+if have impacket-rpcdump || have rpcdump.py; then
+    have impacket-rpcdump && check impacket-rpcdump  opt
+    have rpcdump.py       && check rpcdump.py        opt
+else
+    printf "[ ] %-22s (optional — impacket-rpcdump or rpcdump.py extends enum-msrpc.sh beyond rpcclient/nmap)\n" "impacket-rpcdump"
+fi
+
+echo
 echo "Install hints (Fedora/Arch/Debian vary):"
 cat <<'EOF'
   pipx install netexec                       # nxc
