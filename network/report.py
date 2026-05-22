@@ -104,6 +104,21 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bCORS\b.*\breflect", re.I),                          "medium"),
     (re.compile(r"\bKEY_ONLY\b", re.I),                                 "medium"),
     (re.compile(r"\bAUTH OK\b", re.I),                                  "medium"),
+    # E3 HTTP product-detect rules — CRITICAL for unauth Tomcat Manager and Jenkins Groovy console;
+    # HIGH for all other unauth product exposures; MEDIUM for Spark UI (lower-impact API).
+    # Ordered: most-specific (CRITICAL) first so first-match-wins classifies correctly.
+    (re.compile(r"\bUNAUTH: Tomcat Manager exposed:", re.I),            "critical"),
+    (re.compile(r"\bUNAUTH: Tomcat host-manager exposed:", re.I),       "critical"),
+    (re.compile(r"\bUNAUTH: Jenkins API exposed:", re.I),               "critical"),
+    (re.compile(r"\bCRITICAL: Jenkins Groovy script console reachable:", re.I), "critical"),
+    (re.compile(r"\bJenkins user enumeration exposed:", re.I),          "high"),
+    (re.compile(r"\bUNAUTH: GitLab API exposed:", re.I),                "high"),
+    (re.compile(r"\bUNAUTH: SonarQube system info exposed:", re.I),     "high"),
+    (re.compile(r"\bUNAUTH: Grafana datasources exposed:", re.I),       "high"),
+    (re.compile(r"\bUNAUTH: Prometheus config exposed:", re.I),         "high"),
+    (re.compile(r"\bHadoop NameNode UI exposed:", re.I),                "high"),
+    (re.compile(r"\bHadoop JMX endpoint exposed:", re.I),               "high"),
+    (re.compile(r"\bSpark UI applications API exposed:", re.I),         "medium"),
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
 
