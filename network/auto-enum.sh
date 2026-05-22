@@ -32,6 +32,8 @@ DRY_RUN=0
 RESUME=0
 THROTTLE=0
 THROTTLE_EXPLICIT_PARALLEL=0
+# E4 — opt-in aggressive UDP services accumulator (space-separated)
+AGGRESSIVE_ENABLED=""
 
 usage() {
     cat <<EOF
@@ -68,12 +70,30 @@ Tuning:
                       and warns. Use --dry-run --throttle to preview the
                       effective environment without scanning.
 
+Opt-in aggressive probes (E4 — disabled by default):
+  --ike               enable enum-ike.sh (UDP 500 — IKEv1 main-mode probe).
+                      DOUBLY-AGGRESSIVE: aggressive-mode hash-harvest requires
+                      also setting ENUM_IKE_AGGRESSIVE_MODE=1.
+  --slp               enable enum-slp.sh (UDP 427 — SLP discovery).
+                      Amplification surface; NOT for arbitrary internet hosts.
+  --radius            enable enum-radius.sh (UDP 1812/1813 — RADIUS probe +
+                      BlastRADIUS CVE-2024-3596 precondition check).
+  --aggressive        shorthand for --ike --slp --radius (all three).
+
+  OPSEC / aggressive probes: ike, slp, and radius are stripped from the
+  auto-derived service list unless explicitly opted in via the flags above.
+  Each dispatcher also checks an ENUM_RUN_X=1 env gate (set automatically
+  when you use the flag); direct manual invocation without the env var will
+  refuse to run and print a reminder.
+
   -h, --help          show this help
 
 Examples:
   $0 -i scan.xml -o /tmp/enum -u 'CORP\\jay' -p 'Hunter2!' -d CORP.LOCAL --dc-ip 10.0.0.1
   $0 -i scan.gnmap --only smb,winrm
   $0 -i scan.xml -u jay -H aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0
+  $0 -i scan.xml --ike --radius         (enable IKE + RADIUS aggressive probes)
+  $0 -i scan.xml --aggressive           (enable all three aggressive UDP probes)
 
 Env knobs (pass-through to dispatchers):
   NO_NUCLEI=1           skip nuclei in http/unknown dispatchers
@@ -103,6 +123,10 @@ while [ $# -gt 0 ]; do
         --dry-run)      DRY_RUN=1; shift ;;
         --resume)       RESUME=1; shift ;;
         --throttle)     THROTTLE=1; shift ;;
+        --ike)          AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED ike"; shift ;;
+        --slp)          AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED slp"; shift ;;
+        --radius)       AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED radius"; shift ;;
+        --aggressive)   AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED ike slp radius"; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "unknown arg: $1"; usage; exit 1 ;;
     esac
@@ -193,6 +217,35 @@ if [ -n "$EXCLUDE" ]; then
         SERVICES=$(echo "$SERVICES" | tr ' ' '\n' | grep -v "^$x$" | tr '\n' ' ')
     done
 fi
+# ---------- E4 — strip aggressive services unless operator opted in ----------
+# ike, slp, radius are disabled by default even if nmap found open ports.
+# Each flag (--ike / --slp / --radius / --aggressive) adds the name to
+# AGGRESSIVE_ENABLED; any not opted-in are stripped from the dispatch list.
+# The env gates in each dispatcher are a second independent check.
+AGGRESSIVE_SERVICES="ike slp radius"
+for svc in $AGGRESSIVE_SERVICES; do
+    case " $AGGRESSIVE_ENABLED " in
+        *" $svc "*)
+            # Opted in — leave in SERVICES, export its env gate
+            ;;
+        *)
+            # Not opted in — strip from SERVICES (may not be present; that's fine)
+            if echo "$SERVICES" | tr ' ' '\n' | grep -q "^${svc}$"; then
+                echo "[*] Aggressive service '$svc' found in scan but not opted in — use --${svc} or --aggressive to enable"
+                SERVICES=$(echo "$SERVICES" | tr ' ' '\n' | grep -v "^${svc}$" | tr '\n' ' ')
+            fi
+            ;;
+    esac
+done
+# Export env gates for opted-in aggressive services so dispatchers see them
+for svc in $AGGRESSIVE_ENABLED; do
+    case "$svc" in
+        ike)    export ENUM_RUN_IKE=1 ;;
+        slp)    export ENUM_RUN_SLP=1 ;;
+        radius) export ENUM_RUN_RADIUS=1 ;;
+    esac
+done
+
 echo
 echo "[*] Will run: $SERVICES"
 echo "$SERVICES" | tr ' ' '\n' > "$OUTDIR/services.txt"
