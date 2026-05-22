@@ -112,6 +112,17 @@ aratool/
 | `network/enum-rsync.sh` | rsync daemon (873) — anonymous module listing; flags high-value modules (etc/home/root/backup) |
 | `network/enum-mqtt.sh` | MQTT (1883/8883) — anonymous $SYS/# subscribe; broker version from $SYS topic |
 | `network/enum-sip.sh` | SIP (5060/5061) — nmap sip-methods/enum-users; vendor fingerprint (Asterisk/FreePBX/CUCM/Avaya/Polycom) |
+| `network/enum-ipp.sh` | IPP/CUPS (631) — printer list, admin UI, CUPS version; CVE-2024-47176 chain flag for CUPS < 2.4.10 |
+| `network/enum-zookeeper.sh` | ZooKeeper (2181/2182) — 4LW commands (ruok/mntr/srvr/conf); flags imok reachability and config exposure |
+| `network/enum-cassandra.sh` | Cassandra (9042/9160) — nmap cassandra-info/brute; optional cqlsh anonymous CQL confirm |
+| `network/enum-kafka.sh` | Kafka (9092/9093) — kcat/kafkacat broker metadata; topic count; TLS variant for 9093 |
+| `network/enum-neo4j.sh` | Neo4j (7474/7687) — HTTP API version, unauth /db/data/; default-cred gated on `ENUM_NEO4J_DEFAULT_CRED=1` |
+| `network/enum-influxdb.sh` | InfluxDB (8086/8088) — /ping version header, unauth SHOW DATABASES, /debug/vars |
+| `network/enum-solr.sh` | Apache Solr (8983/8984) — system info, core list; CVE-2019-17558 / CVE-2023-50386 version-range signals |
+| `network/enum-consul.sh` | Consul (8500/8501) — agent self, unauth KV dump, service catalog, ACL state |
+| `network/enum-vault.sh` | Vault (8200/8201) — seal-status (version/cluster/sealed), init-state; tries http + https |
+| `network/enum-msrpc.sh` | MSRPC endpoint mapper (135) — impacket-rpcdump → rpcdump.py → rpcclient → nmap msrpc-enum |
+| `network/enum-netbios-ns.sh` | NetBIOS-NS (137/udp) — name table via nbtscan/nmblookup; workgroup mismatch signal (rogue host) |
 
 ## Jabber / XMPP (iteration H)
 
