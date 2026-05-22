@@ -22,29 +22,32 @@ while read -r target; do
     mkdir -p "$OUT/$ip"
 
     # ---------- list modules (unauthenticated) ----------
+    # rsync returns 0 only when the daemon greeting succeeded AND it sent a
+    # module list. Any non-zero rc means: not an rsync service, auth required,
+    # connection refused, or protocol failure — none of which is a finding.
     timeout 10 rsync --port="$port" "rsync://$ip/" \
-        > "$OUT/$ip/modules_${port}.txt" 2>&1 || true
+        > "$OUT/$ip/modules_${port}.txt" 2>&1
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        miss "rsync protocol negotiation failed at $ip:$port (rc=$rc — not an rsync service or auth required)"
+        throttle_sleep
+        continue
+    fi
 
-    # Check for non-empty output that isn't an error line
+    # rc=0 from here on: every non-empty line IS a module per rsync's contract
     module_count=0
     modules_found=""
-    if [ -s "$OUT/$ip/modules_${port}.txt" ]; then
-        # Filter out lines starting with @ (error) or rsync: (error) or empty
-        while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            # Skip error lines
-            echo "$line" | grep -qE '^(@|rsync:)' && continue
-            # First whitespace-separated token is the module name
-            mod=$(echo "$line" | awk '{print $1}')
-            [ -z "$mod" ] && continue
-            module_count=$((module_count + 1))
-            if [ -z "$modules_found" ]; then
-                modules_found="$mod"
-            else
-                modules_found="$modules_found,$mod"
-            fi
-        done < "$OUT/$ip/modules_${port}.txt"
-    fi
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        mod=$(echo "$line" | awk '{print $1}')
+        [ -z "$mod" ] && continue
+        module_count=$((module_count + 1))
+        if [ -z "$modules_found" ]; then
+            modules_found="$mod"
+        else
+            modules_found="$modules_found,$mod"
+        fi
+    done < "$OUT/$ip/modules_${port}.txt"
 
     if [ "$module_count" -gt 0 ]; then
         hit "UNAUTH: rsync unauthenticated modules: $ip:$port — $modules_found"
@@ -52,24 +55,21 @@ while read -r target; do
 
     # ---------- per-module listing (up to 10 modules) ----------
     listed=0
-    if [ -s "$OUT/$ip/modules_${port}.txt" ]; then
-        while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            echo "$line" | grep -qE '^(@|rsync:)' && continue
-            mod=$(echo "$line" | awk '{print $1}')
-            [ -z "$mod" ] && continue
-            [ "$listed" -ge 10 ] && break
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        mod=$(echo "$line" | awk '{print $1}')
+        [ -z "$mod" ] && continue
+        [ "$listed" -ge 10 ] && break
 
-            timeout 10 rsync --port="$port" "rsync://$ip/$mod/" \
-                > "$OUT/$ip/${mod}_listing_${port}.txt" 2>&1 || true
-            listed=$((listed + 1))
+        timeout 10 rsync --port="$port" "rsync://$ip/$mod/" \
+            > "$OUT/$ip/${mod}_listing_${port}.txt" 2>&1 || true
+        listed=$((listed + 1))
 
-            # ---------- high-value module check ----------
-            if echo "$mod" | grep -qE '^(etc|home|root|backup|var|srv|www)$'; then
-                hit "rsync HIGH-VALUE module exposed anonymously: $ip:$port::$mod"
-            fi
-        done < "$OUT/$ip/modules_${port}.txt"
-    fi
+        # ---------- high-value module check ----------
+        if echo "$mod" | grep -qE '^(etc|home|root|backup|var|srv|www)$'; then
+            hit "rsync HIGH-VALUE module exposed anonymously: $ip:$port::$mod"
+        fi
+    done < "$OUT/$ip/modules_${port}.txt"
 
     throttle_sleep
 done < "$TARGETS"
