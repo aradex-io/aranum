@@ -17,6 +17,29 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.22.0] — 2026-05-22
+
+**Opt-in aggressive UDP probes + VMware vCenter detector (E4).** Three new dispatchers (IKE, SLP, RADIUS) covering UDP service-discovery surface with significant operational risk; disabled by default and double-gated (auto-enum flag + env var). Plus a vCenter detector folded into `enum-http.sh` C.13.
+
+### Added
+- `network/enum-ike.sh` — IKE/IPsec UDP 500 main-mode probe; aggressive-mode hash harvest doubly-gated on `ENUM_IKE_AGGRESSIVE_MODE=1`.
+- `network/enum-slp.sh` — SLP UDP 427 discovery via nmap NSE; CVE-2023-29552 amplification flag.
+- `network/enum-radius.sh` — RADIUS UDP 1812/1813 reachability + BlastRADIUS (CVE-2024-3596) Message-Authenticator-enforcement precondition check.
+- `network/enum-http.sh` — VMware vCenter SDK (`/sdk/vimServiceVersions.xml`) + UI (`/ui/`) detection in C.13 product-detect block (9th product family).
+- `network/auto-enum.sh` — `--ike`, `--slp`, `--radius`, `--aggressive` flags. Aggressive services are stripped from the auto-derived service list unless explicitly opted in; opt-in also sets `ENUM_RUN_X=1` env vars so dispatchers double-gate against accidental manual invocation.
+- `network/nmap-parse.py` — SERVICE_MAP routes 3 new aggressive categories (`ike`, `slp`, `radius`).
+- `network/report.py` — 11 severity rules for E4 hit patterns (CRITICAL: PSK hash harvest, SLP amplification, RADIUS bogus-accept; HIGH: BlastRADIUS precondition, vCenter SDK; MEDIUM: SLP registry, vCenter UI; LOW: RADIUS reachable, IKE endpoint, IKE vendor).
+- `tests/tp-server.py` — vCenter SDK/UI TP stub on port 19024 (base+14).
+- `tests/fp-harness.sh` — FP sweep expanded to 22 dispatchers × 4 scenarios = 88 cells; new ENV-GATE TEST block verifies the 3 aggressive dispatchers refuse to run without their env var (0/3 expected failures); TP block adds vCenter (7 total TP checks).
+- `deps-check.sh` — E4 OPT-IN AGGRESSIVE PROBES section checks `ike-scan` (required for `--ike`), `nmap` (confirmed for SLP NSE), `python3` (confirmed for RADIUS stdlib probe).
+
+**Notes:**
+- E4 dispatchers are AGGRESSIVE: IKE aggressive-mode is a known historical PSK-hash leak; SLP is a CVE-2023-29552 amplification surface (do not fire indiscriminately); RADIUS probes may interact with NAS lockout policies. The double-gate (auto-enum flag + ENUM_RUN_X env var) is intentional and load-bearing — do not weaken without operator request.
+- `slptool` direct-target mode is unreliable across distros; the SLP dispatcher uses nmap NSE (`slp-discovery,slp-info`) instead.
+- BlastRADIUS detection here is the precondition only (Message-Authenticator enforcement check). Full exploit requires nonce-grinding + on-path position.
+
+---
+
 ## [v0.21.0] — 2026-05-22
 
 **HTTP product detectors (E3).** `enum-http.sh` now fingerprints 8 common product families on live HTTP targets, emitting product+version findings only when product-specific markers are present.
