@@ -536,6 +536,33 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
         throttle_sleep
 
+        # --- 9. VMware vCenter ---
+        # Two-evidence gate: SDK namespace marker OR vSphere Client title.
+        # Neither probe fires a hit on bare HTTP 200 — the product-specific
+        # marker string must be present in the response body.
+
+        # SDK endpoint: expects <namespace>urn:vim25</namespace>
+        vc_sdk_hdr="$OUT/prod_vcenter_sdk_hdr_${safe}.txt"
+        vc_sdk_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$vc_sdk_hdr" \
+            "${url}/sdk/vimServiceVersions.xml" 2>/dev/null)
+        if echo "$vc_sdk_body" | grep -q "urn:vim25"; then
+            hit "VMware vCenter SDK reachable: ${url}"
+        fi
+
+        # UI endpoint: expects <title>vSphere Client</title>
+        vc_ui_hdr="$OUT/prod_vcenter_ui_hdr_${safe}.txt"
+        vc_ui_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$vc_ui_hdr" \
+            "${url}/ui/" 2>/dev/null)
+        if echo "$vc_ui_body" | grep -qi "vSphere Client"; then
+            hit "VMware vCenter UI: ${url}"
+        fi
+
+        throttle_sleep
+
     done < "$LIVE_URLS"
 fi
 
