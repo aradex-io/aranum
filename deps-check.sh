@@ -194,6 +194,19 @@ else
 fi
 
 echo
+echo "=== E4 OPT-IN AGGRESSIVE PROBES (iteration E4) ==="
+# These dispatchers are disabled by default and require explicit --ike / --slp /
+# --radius flags (or --aggressive). Each dispatcher also env-gates on ENUM_RUN_X=1.
+# ike-scan: IKEv1/v2 prober. Fedora: dnf install ike-scan; Debian: apt install ike-scan
+check ike-scan       opt
+# nmap: already in REQUIRED above; confirmed here for the NSE-based SLP dispatcher.
+# enum-slp.sh uses nmap NSE scripts (slp-discovery, slp-info) rather than slptool
+# because slptool does not reliably take direct host:port arguments across distros.
+check nmap           req
+# python3: already in REQUIRED above; confirmed here — enum-radius.sh uses stdlib only.
+check python3        req
+
+echo
 echo "Install hints (Fedora/Arch/Debian vary):"
 cat <<'EOF'
   pipx install netexec                       # nxc
