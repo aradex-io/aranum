@@ -19,6 +19,31 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.20.0] — 2026-05-22
+
+**Iteration E2** of ROADMAP-002 — Tier 2a network enumeration dispatchers. Covers 11 SERVICE_MAP categories: high-yield infrastructure and data-store services.
+
+### Added
+- `network/enum-ipp.sh` — IPP / CUPS (631) — printer enum + CVE-2024-47176 version hint.
+- `network/enum-zookeeper.sh` — Zookeeper (2181/2182) — 4LW enumeration.
+- `network/enum-cassandra.sh` — Cassandra (9042/9160) — cluster info, anonymous CQL.
+- `network/enum-kafka.sh` — Kafka (9092/9093) — anonymous broker metadata + topic list.
+- `network/enum-neo4j.sh` — Neo4j (7474/7687) — version + opt-in default-cred check (gated on ENUM_NEO4J_DEFAULT_CRED=1).
+- `network/enum-influxdb.sh` — InfluxDB (8086/8088) — version, unauth query API.
+- `network/enum-solr.sh` — Apache Solr (8983/8984) — cores, version + CVE-2019-17558 / CVE-2023-50386 hints.
+- `network/enum-consul.sh` — Consul (8500) — agent self, KV dump.
+- `network/enum-vault.sh` — Vault (8200) — seal-status, init-state probe.
+- `network/enum-msrpc.sh` — MSRPC endpoint mapper (135) — rpcdump / rpcclient / nmap msrpc-enum.
+- `network/enum-netbios-ns.sh` — NetBIOS-NS (137/udp) — name-table dump via nbtscan/nmblookup.
+- `network/nmap-parse.py` — SERVICE_MAP routes 11 new tier-2a categories.
+- `network/report.py` — severity rules for tier-2a dispatchers.
+
+### Changed
+- `deps-check.sh` — checks tier 2a tooling (kafkacat, cqlsh, nbtscan, impacket-rpcdump, etc.).
+- `tests/test_nmap_parse.py` — REQUIRED_CATEGORIES extended with the 11 new keys.
+
+---
+
 ## [v0.19.0] — 2026-05-22
 
 **Iteration E1** of ROADMAP-002 — Tier 1 network enumeration dispatchers. Covers 8 SERVICE_MAP categories that routed to targets but had no dispatcher scripts.
