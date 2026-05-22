@@ -63,6 +63,11 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bremote command execution\b", re.I),                 "critical"),
     (re.compile(r"\bguest:guest\b", re.I),                              "critical"),
     (re.compile(r"\bEXPOSED\b", re.I),                                  "high"),
+    # E2 tier-2a medium rules that contain "UNAUTH" — must precede the generic UNAUTH high rule
+    # so first-match-wins classifies them at the intended severity.
+    (re.compile(r"\bCUPS UNAUTH and POTENTIALLY VULN\b", re.I),         "high"),
+    (re.compile(r"\bCUPS UNAUTH:", re.I),                               "medium"),
+    (re.compile(r"\bConsul UNAUTH agent API:", re.I),                   "medium"),
     (re.compile(r"\bUNAUTH\b", re.I),                                   "high"),
     # E1 tier-1 dispatcher-specific HIGH rules (documented intent, survive generic rule rewrite)
     (re.compile(r"\bAJP responding without auth\b", re.I),               "high"),
@@ -79,6 +84,21 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bRealVNC\b.*\bbypass\b", re.I),                      "high"),
     (re.compile(r"\balg=none\b", re.I),                                 "high"),
     (re.compile(r"\bdefault[- ]cred", re.I),                            "high"),
+    # E2 tier-2a HIGH rules
+    (re.compile(r"\bZookeeper 4LW exposed:", re.I),                     "high"),
+    (re.compile(r"\bZookeeper config exposed \(HIGH-VALUE\)", re.I),    "high"),
+    (re.compile(r"\bCassandra UNAUTH CQL:", re.I),                      "high"),
+    (re.compile(r"\bKafka UNAUTH broker:", re.I),                       "high"),
+    (re.compile(r"\bNeo4j UNAUTH HTTP API:", re.I),                     "high"),
+    (re.compile(r"\bNeo4j DEFAULT CRED \(neo4j/neo4j\) WORKED:", re.I),"high"),
+    (re.compile(r"\bInfluxDB UNAUTH query API:", re.I),                 "high"),
+    (re.compile(r"\bConsul UNAUTH KV dump \(HIGH-VALUE\)", re.I),       "high"),
+    (re.compile(r"\bVault NOT INITIALIZED \(claim-init opportunity\)", re.I), "high"),
+    (re.compile(r"\bNetBIOS workgroup mismatch \(HIGH-VALUE", re.I),    "high"),
+    # E2 tier-2a MEDIUM rules
+    (re.compile(r"Solr reachable:.+ — (1\.|2\.|3\.|4\.|5\.|6\.|7\.|8\.[0-9]\.|8\.10|8\.11\.[0-3])", re.I), "medium"),
+    (re.compile(r"\bSolr cores exposed:", re.I),                        "medium"),
+    (re.compile(r"\bMSRPC anonymous srvinfo:", re.I),                   "medium"),
     (re.compile(r"\bCVE-\d{4}-\d{4,7}\b.*\b(candidate|VULNERABLE|signal)\b", re.I), "medium"),
     (re.compile(r"\bsigning disabled\b|\bsigning enabled but not required\b", re.I), "medium"),
     (re.compile(r"\bCORS\b.*\breflect", re.I),                          "medium"),
