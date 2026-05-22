@@ -149,6 +149,18 @@ SERVICE_MAP = {
     # collide on openfire-admin). The dedicated dispatcher handles version
     # detection from the served HTML.
     "openfire-admin":  ({9090, 9091}, r"a^"),  # `a^` is the canonical never-match regex
+    # Iteration E2 — Tier 2a high-yield services
+    "cassandra":   ({9042, 9160},          r"^(cassandra|apani1)"),
+    "consul":      ({8500, 8501},          r"a^"),  # fingerprints as http
+    "influxdb":    ({8086, 8088},          r"^influxdb"),
+    "ipp":         ({631},                 r"^(ipp|cups)"),
+    "kafka":       ({9092, 9093},          r"^kafka"),
+    "msrpc":       ({135},                 r"^(msrpc|ms-rpc|epmap)"),
+    "netbios-ns":  ({137},                 r"^netbios-ns"),
+    "neo4j":       ({7474, 7687},          r"^neo4j"),
+    "solr":        ({8983, 8984},          r"a^"),  # fingerprints as http
+    "vault":       ({8200, 8201},          r"a^"),  # fingerprints as http/https
+    "zookeeper":   ({2181, 2182},          r"^zookeeper"),
 }
 
 
