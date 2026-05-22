@@ -66,6 +66,8 @@ class TestServiceMap(unittest.TestCase):
         # Iteration E2 — Tier 2a high-yield services
         "cassandra", "consul", "influxdb", "ipp", "kafka",
         "msrpc", "netbios-ns", "neo4j", "solr", "vault", "zookeeper",
+        # Iteration E4 — opt-in aggressive UDP services
+        "ike", "slp", "radius",
     }
 
     def test_every_required_category_present(self):

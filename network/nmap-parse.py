@@ -161,6 +161,14 @@ SERVICE_MAP = {
     "solr":        ({8983, 8984},          r"a^"),  # fingerprints as http
     "vault":       ({8200, 8201},          r"a^"),  # fingerprints as http/https
     "zookeeper":   ({2181, 2182},          r"^zookeeper"),
+    # Iteration E4 — opt-in aggressive UDP services. These categories route but
+    # auto-enum.sh strips them from the auto-derived service list by default;
+    # enable with --ike / --slp / --radius / --aggressive. Each dispatcher also
+    # checks an ENUM_RUN_X=1 env gate (set by auto-enum on the flag) and refuses
+    # to run otherwise.
+    "ike":        ({500, 4500},              r"^(isakmp|ike)"),
+    "slp":        ({427},                    r"^svrloc"),
+    "radius":     ({1812, 1813, 1645, 1646}, r"^radius"),
 }
 
 
