@@ -119,6 +119,21 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bHadoop NameNode UI exposed:", re.I),                "high"),
     (re.compile(r"\bHadoop JMX endpoint exposed:", re.I),               "high"),
     (re.compile(r"\bSpark UI applications API exposed:", re.I),         "medium"),
+    # E4 opt-in aggressive UDP probes — IKE, SLP, RADIUS, vCenter.
+    # Ordered: CRITICAL first (PSK hash harvest, SLP amplification, RADIUS bogus-accept
+    # already caught by the top-level \bCRITICAL\b rule, but listed here explicitly
+    # so the intent is clear and the rule survives a future rule-list rewrite).
+    (re.compile(r"\bAGGRESSIVE MODE PSK HASH HARVESTED:", re.I),       "critical"),
+    (re.compile(r"\bSLP AMPLIFICATION VECTOR \(CVE-2023-29552\):", re.I), "critical"),
+    (re.compile(r"\bCRITICAL: RADIUS Access-Accept to bogus credential:", re.I), "critical"),
+    (re.compile(r"\bRADIUS BlastRADIUS \(CVE-2024-3596\) precondition:", re.I), "high"),
+    (re.compile(r"\bSLP service-type list exposed \(HIGH-VALUE\):", re.I), "high"),
+    (re.compile(r"\bVMware vCenter SDK reachable:", re.I),              "high"),
+    (re.compile(r"\bSLP open service registry:", re.I),                 "medium"),
+    (re.compile(r"\bVMware vCenter UI:", re.I),                         "medium"),
+    (re.compile(r"\bRADIUS server reachable:", re.I),                   "low"),
+    (re.compile(r"\bIKE/IPsec VPN endpoint reachable:", re.I),          "low"),
+    (re.compile(r"\bIKE vendor:", re.I),                                "low"),
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
 
