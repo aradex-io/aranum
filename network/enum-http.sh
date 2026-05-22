@@ -280,6 +280,265 @@ if [ -s "$LIVE_URLS" ]; then
     # Already covered by the VCS+API list in C.9 above. Skip duplicate work.
 fi
 
+# ---------- C.13 Product fingerprint + version checks ----------
+# Fan out 8 product-specific probes per live URL. Each detector requires a
+# product-specific marker (header pattern, JSON key, or exact body string)
+# before emitting a hit — "HTTP 200 on the canonical path" is never sufficient
+# (lesson from v0.20.1 two-evidence discipline).
+#
+# Skip the whole phase with NO_PRODUCT_DETECT=1 (mirrors NO_NUCLEI=1 / NO_FFUF=1).
+if [ "${NO_PRODUCT_DETECT:-0}" = "1" ]; then
+    log "product-detect skipped (NO_PRODUCT_DETECT=1)"
+elif [ -s "$LIVE_URLS" ]; then
+    log "C.13 product-fingerprint probes against $(wc -l < "$LIVE_URLS") live URL(s)"
+
+    while read -r url; do
+        [ -z "$url" ] && continue
+        safe=$(echo "$url" | sed 's|[:/]|_|g')
+
+        # Helper: run one probe and emit status + body + saved headers.
+        # Usage: probe_result=$(prod_probe "$url" "$path" "$safe" "$product")
+        # Returns body with sentinel appended; headers written to
+        # $OUT/prod_${product}_hdr_${safe}.txt
+        #
+        # Inline below per product to avoid subshell overhead on many URLs.
+
+        # --- 1. Tomcat Manager ---
+        # Probe /manager/html — require realm="Tomcat Manager Application" OR
+        # body contains distinctive Tomcat Manager string.
+        tm_hdr="$OUT/prod_tomcat_hdr_${safe}.txt"
+        tm_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$tm_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/manager/html" 2>/dev/null)
+        tm_status=$(echo "$tm_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        tm_body=$(echo "$tm_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$tm_status" = "401" ] && grep -qi 'realm="Tomcat Manager Application"' "$tm_hdr" 2>/dev/null; then
+            hit "Tomcat Manager auth required: ${url}/manager/html"
+        elif [ "$tm_status" = "200" ] && (echo "$tm_body" | grep -qi "Tomcat Web Application Manager" || echo "$tm_body" | grep -qi "Manager - HTML Host Manager"); then
+            hit "UNAUTH: Tomcat Manager exposed: ${url}"
+        fi
+        # Also probe /host-manager/text/list
+        hm_hdr="$OUT/prod_tomcat_hm_hdr_${safe}.txt"
+        hm_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$hm_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/host-manager/text/list" 2>/dev/null)
+        hm_status=$(echo "$hm_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        hm_body=$(echo "$hm_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$hm_status" = "200" ] && echo "$hm_body" | grep -q "^OK - Listed hosts:"; then
+            hit "UNAUTH: Tomcat host-manager exposed: ${url}"
+        fi
+        throttle_sleep
+
+        # --- 2. Jenkins ---
+        jk_hdr="$OUT/prod_jenkins_hdr_${safe}.txt"
+        jk_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$jk_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/api/json" 2>/dev/null)
+        jk_status=$(echo "$jk_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        jk_body=$(echo "$jk_body" | sed '/---HTTP-STATUS:/d')
+        # X-Jenkins header is the definitive marker
+        if grep -qi "^X-Jenkins:" "$jk_hdr" 2>/dev/null; then
+            jk_version=$(grep -i "^X-Jenkins:" "$jk_hdr" 2>/dev/null | head -1 | sed 's/[Xx]-[Jj]enkins:[[:space:]]*//' | tr -d '\r\n')
+            hit "Jenkins detected: ${url} — ${jk_version}"
+            if [ "$jk_status" = "200" ] && echo "$jk_body" | grep -q '"_class":"hudson.model.Hudson"'; then
+                hit "UNAUTH: Jenkins API exposed: ${url}"
+            fi
+        fi
+        # Probe /asynchPeople/api/json for user enumeration
+        jp_hdr="$OUT/prod_jenkins_people_hdr_${safe}.txt"
+        jp_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$jp_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/asynchPeople/api/json" 2>/dev/null)
+        jp_status=$(echo "$jp_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        jp_body=$(echo "$jp_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$jp_status" = "200" ] && echo "$jp_body" | grep -q '"users":'; then
+            hit "Jenkins user enumeration exposed: ${url}"
+        fi
+        # Probe /script for Groovy script console (full RCE if accessible)
+        js_hdr="$OUT/prod_jenkins_script_hdr_${safe}.txt"
+        js_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$js_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/script" 2>/dev/null)
+        js_status=$(echo "$js_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        js_body=$(echo "$js_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$js_status" = "200" ] && echo "$js_body" | grep -qi "Groovy script" && echo "$js_body" | grep -qi "console"; then
+            hit "CRITICAL: Jenkins Groovy script console reachable: ${url}"
+        fi
+        throttle_sleep
+
+        # --- 3. GitLab ---
+        gl_hdr="$OUT/prod_gitlab_hdr_${safe}.txt"
+        gl_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$gl_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/api/v4/version" 2>/dev/null)
+        gl_status=$(echo "$gl_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        gl_body=$(echo "$gl_body" | sed '/---HTTP-STATUS:/d')
+        # GitLab marker: Server header OR body with both "version" and "revision" JSON keys
+        gl_is_gitlab=0
+        grep -qi "^Server: GitLab" "$gl_hdr" 2>/dev/null && gl_is_gitlab=1
+        if [ "$gl_status" = "200" ] && echo "$gl_body" | grep -q '"version"' && echo "$gl_body" | grep -q '"revision"'; then
+            gl_is_gitlab=1
+        fi
+        if [ "$gl_is_gitlab" = "1" ]; then
+            gl_version=$(echo "$gl_body" | grep -oE '"version":"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "GitLab detected: ${url} — ${gl_version}"
+            if [ "$gl_status" = "200" ]; then
+                hit "UNAUTH: GitLab API exposed: ${url}"
+            fi
+        fi
+        throttle_sleep
+
+        # --- 4. SonarQube ---
+        sq_hdr="$OUT/prod_sonarqube_hdr_${safe}.txt"
+        sq_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$sq_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/api/server/version" 2>/dev/null)
+        sq_status=$(echo "$sq_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        sq_body=$(echo "$sq_body" | sed '/---HTTP-STATUS:/d')
+        sq_ver=$(echo "$sq_body" | tr -d '[:space:]')
+        if [ "$sq_status" = "200" ] && echo "$sq_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+            hit "SonarQube detected: ${url} — ${sq_ver}"
+            # Probe /api/system/info for unauth system info
+            si_hdr="$OUT/prod_sonarqube_si_hdr_${safe}.txt"
+            si_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+                --connect-timeout 4 --max-time 8 \
+                -D "$si_hdr" \
+                -w "\n---HTTP-STATUS:%{http_code}---\n" \
+                "${url}/api/system/info" 2>/dev/null)
+            si_status=$(echo "$si_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+            si_body=$(echo "$si_body" | sed '/---HTTP-STATUS:/d')
+            if [ "$si_status" = "200" ] && echo "$si_body" | grep -q '"System":{'; then
+                hit "UNAUTH: SonarQube system info exposed: ${url}"
+            fi
+        fi
+        throttle_sleep
+
+        # --- 5. Grafana ---
+        gf_hdr="$OUT/prod_grafana_hdr_${safe}.txt"
+        gf_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$gf_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/api/health" 2>/dev/null)
+        gf_status=$(echo "$gf_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        gf_body=$(echo "$gf_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$gf_status" = "200" ] && echo "$gf_body" | grep -q '"database"' && echo "$gf_body" | grep -q '"version"'; then
+            gf_version=$(echo "$gf_body" | grep -oE '"version":"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Grafana detected: ${url} — ${gf_version}"
+            # Probe /api/datasources
+            gd_hdr="$OUT/prod_grafana_ds_hdr_${safe}.txt"
+            gd_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+                --connect-timeout 4 --max-time 8 \
+                -D "$gd_hdr" \
+                -w "\n---HTTP-STATUS:%{http_code}---\n" \
+                "${url}/api/datasources" 2>/dev/null)
+            gd_status=$(echo "$gd_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+            gd_body=$(echo "$gd_body" | sed '/---HTTP-STATUS:/d')
+            if [ "$gd_status" = "200" ] && echo "$gd_body" | grep -q '^\['; then
+                hit "UNAUTH: Grafana datasources exposed: ${url}"
+            fi
+        fi
+        throttle_sleep
+
+        # --- 6. Prometheus ---
+        pm_hdr="$OUT/prod_prometheus_hdr_${safe}.txt"
+        pm_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$pm_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/-/healthy" 2>/dev/null)
+        pm_status=$(echo "$pm_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        pm_body=$(echo "$pm_body" | sed '/---HTTP-STATUS:/d')
+        pm_body_trimmed=$(echo "$pm_body" | tr -d '\r' | sed '/^$/d')
+        if [ "$pm_status" = "200" ] && [ "$pm_body_trimmed" = "Prometheus Server is Healthy." ]; then
+            hit "Prometheus detected: ${url}"
+            # Probe /api/v1/status/buildinfo for version
+            pb_hdr="$OUT/prod_prometheus_bi_hdr_${safe}.txt"
+            pb_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+                --connect-timeout 4 --max-time 8 \
+                -D "$pb_hdr" \
+                -w "\n---HTTP-STATUS:%{http_code}---\n" \
+                "${url}/api/v1/status/buildinfo" 2>/dev/null)
+            pb_status=$(echo "$pb_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+            pb_body=$(echo "$pb_body" | sed '/---HTTP-STATUS:/d')
+            if [ "$pb_status" = "200" ] && echo "$pb_body" | grep -q '"status":"success"' && echo "$pb_body" | grep -q '"version":'; then
+                pb_version=$(echo "$pb_body" | grep -oE '"version":"[^"]+"' | head -1 | cut -d'"' -f4)
+                hit "Prometheus version: ${url} — ${pb_version}"
+            fi
+            # Probe /api/v1/status/config for unauth config exposure
+            pc_hdr="$OUT/prod_prometheus_cfg_hdr_${safe}.txt"
+            pc_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+                --connect-timeout 4 --max-time 8 \
+                -D "$pc_hdr" \
+                -w "\n---HTTP-STATUS:%{http_code}---\n" \
+                "${url}/api/v1/status/config" 2>/dev/null)
+            pc_status=$(echo "$pc_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+            pc_body=$(echo "$pc_body" | sed '/---HTTP-STATUS:/d')
+            if [ "$pc_status" = "200" ] && echo "$pc_body" | grep -q '"status":"success"' && echo "$pc_body" | grep -q '"yaml":'; then
+                hit "UNAUTH: Prometheus config exposed: ${url}"
+            fi
+        fi
+        throttle_sleep
+
+        # --- 7. Hadoop NameNode ---
+        hn_hdr="$OUT/prod_hadoop_hdr_${safe}.txt"
+        hn_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$hn_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/dfshealth.html" 2>/dev/null)
+        hn_status=$(echo "$hn_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        hn_body=$(echo "$hn_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$hn_status" = "200" ] && echo "$hn_body" | grep -q "Hadoop" && echo "$hn_body" | grep -q "NameNode"; then
+            hit "Hadoop NameNode UI exposed: ${url}"
+        fi
+        # Probe /jmx
+        hj_hdr="$OUT/prod_hadoop_jmx_hdr_${safe}.txt"
+        hj_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$hj_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/jmx" 2>/dev/null)
+        hj_status=$(echo "$hj_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        hj_body=$(echo "$hj_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$hj_status" = "200" ] && echo "$hj_body" | grep -q '"beans"' && echo "$hj_body" | grep -q '"java.lang:type=Runtime"'; then
+            hit "Hadoop JMX endpoint exposed: ${url}"
+        fi
+        throttle_sleep
+
+        # --- 8. Spark UI ---
+        sp_hdr="$OUT/prod_spark_hdr_${safe}.txt"
+        sp_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$sp_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/api/v1/applications" 2>/dev/null)
+        sp_status=$(echo "$sp_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        sp_body=$(echo "$sp_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$sp_status" = "200" ] \
+            && grep -qi "^Server: Jetty" "$sp_hdr" 2>/dev/null \
+            && (echo "$sp_body" | grep -q '"sparkUser"' || echo "$sp_body" | grep -q '"appId"'); then
+            hit "Spark UI applications API exposed: ${url}"
+        fi
+        throttle_sleep
+
+    done < "$LIVE_URLS"
+fi
+
 # ---------- 8. iteration-C hints ----------
 cat >> "$OUT/_hints.txt" 2>/dev/null <<'EOF'
 
