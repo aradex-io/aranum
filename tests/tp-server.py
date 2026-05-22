@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""True-positive simulator stubs for the three fixed dispatchers.
+"""True-positive simulator stubs for the fixed dispatchers.
 
 Port layout (offsets from --port-base, default 19010):
-  +0  rsync daemon stub  — sends module list after handshake (rc=0)
-  +1  telnet IAC stub    — sends IAC option-negotiation bytes on connect
+  +0  rsync daemon stub   — sends module list after handshake (rc=0)
+  +1  telnet IAC stub     — sends IAC option-negotiation bytes on connect
 
 AJP TP is NOT stubbed here — it is verified via a static fixture file
 tests/fixtures/ajp-real-nmap.txt in fp-harness.sh.
+
+Product-detect TP stubs (offsets from --port-base, default 19010):
+  +10 (19020)  Jenkins stub  — X-Jenkins header + hudson.model.Hudson body
+  +11 (19021)  Grafana stub  — /api/health with "database" + "version" keys
+  +12 (19022)  Prometheus stub — /-/healthy exact body
+
+These stubs serve on a fixed base+offset so fp-harness.sh can refer to
+the absolute ports directly (base=19010, so 19020/19021/19022).
 """
 import socket, threading, time, sys, signal, argparse
 
@@ -60,6 +68,73 @@ def telnet_handler(c):
     finally:
         c.close()
 
+# ---- Jenkins TP stub (port base+10 = 19020) ---------------------------------
+# Serves any request with X-Jenkins header + hudson.model.Hudson JSON body.
+# enum-http.sh C.13 requires X-Jenkins header to be present — that is the
+# product-specific marker. Status 200 + "_class":"hudson.model.Hudson" triggers
+# the UNAUTH: Jenkins API exposed hit too.
+JENKINS_BODY = b'{"_class":"hudson.model.Hudson","mode":"NORMAL"}'
+JENKINS_BODY_LEN = str(len(JENKINS_BODY)).encode()
+
+def jenkins_handler(c):
+    try:
+        c.recv(4096)   # drain the HTTP request
+        c.sendall(
+            b"HTTP/1.1 200 OK\r\n"
+            b"X-Jenkins: 2.452.1\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + JENKINS_BODY_LEN + b"\r\n"
+            b"\r\n" +
+            JENKINS_BODY
+        )
+    except Exception:
+        pass
+    finally:
+        c.close()
+
+
+# ---- Grafana TP stub (port base+11 = 19021) ---------------------------------
+# /api/health response must contain both "database" and "version" JSON keys.
+GRAFANA_BODY = b'{"commit":"abc123","database":"ok","version":"10.4.2"}'
+GRAFANA_BODY_LEN = str(len(GRAFANA_BODY)).encode()
+
+def grafana_handler(c):
+    try:
+        c.recv(4096)
+        c.sendall(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + GRAFANA_BODY_LEN + b"\r\n"
+            b"\r\n" +
+            GRAFANA_BODY
+        )
+    except Exception:
+        pass
+    finally:
+        c.close()
+
+
+# ---- Prometheus TP stub (port base+12 = 19022) ------------------------------
+# /-/healthy must return exactly "Prometheus Server is Healthy.\n".
+PROMETHEUS_BODY = b"Prometheus Server is Healthy.\n"
+PROMETHEUS_BODY_LEN = str(len(PROMETHEUS_BODY)).encode()
+
+def prometheus_handler(c):
+    try:
+        c.recv(4096)
+        c.sendall(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Content-Length: " + PROMETHEUS_BODY_LEN + b"\r\n"
+            b"\r\n" +
+            PROMETHEUS_BODY
+        )
+    except Exception:
+        pass
+    finally:
+        c.close()
+
+
 # ---- generic listener --------------------------------------------------------
 def serve(port, handler, name):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -82,8 +157,11 @@ if __name__ == "__main__":
     base = args.port_base
 
     stubs = [
-        (base + 0, rsync_handler,  "rsync-stub"),
-        (base + 1, telnet_handler, "telnet-iac-stub"),
+        (base + 0,  rsync_handler,      "rsync-stub"),
+        (base + 1,  telnet_handler,     "telnet-iac-stub"),
+        (base + 10, jenkins_handler,    "jenkins-stub"),
+        (base + 11, grafana_handler,    "grafana-stub"),
+        (base + 12, prometheus_handler, "prometheus-stub"),
     ]
     for port, h, name in stubs:
         threading.Thread(target=serve, args=(port, h, name), daemon=True).start()

@@ -175,10 +175,71 @@ else
     fi
 fi
 
+# ---- product-detect TP checks (Jenkins / Grafana / Prometheus) --------------
+printf "\n${C}=====[ PRODUCT-DETECT TP CHECKS ]=====${N}\n\n"
+
+# -- Jenkins TP --
+jk_tp_port=$((TP_BASE + 10))
+info "Jenkins TP: testing against stub at 127.0.0.1:${jk_tp_port}"
+jk_tgt="$RUNDIR/jenkins-tp.targets"
+jk_out="$RUNDIR/jenkins-tp-out"
+jk_log="$RUNDIR/jenkins-tp.log"
+rm -rf "$jk_out"
+echo "127.0.0.1:${jk_tp_port}" > "$jk_tgt"
+NO_NUCLEI=1 NO_FFUF=1 RUN_NIKTO=0 NO_WHATWEB=1 \
+    timeout 60 bash "$REPO/network/enum-http.sh" \
+    --targets "$jk_tgt" --output "$jk_out" > "$jk_log" 2>&1 || true
+if grep -q "Jenkins detected" "$jk_log" 2>/dev/null && grep -q "UNAUTH: Jenkins API exposed" "$jk_log" 2>/dev/null; then
+    ok "Jenkins TP: 'Jenkins detected' + 'UNAUTH: Jenkins API exposed' hits present"
+else
+    bad "Jenkins TP: REGRESSION — expected hits not found in log"
+    grep -E "(Jenkins|UNAUTH)" "$jk_log" 2>/dev/null | head -5 || true
+    tp_failures=$((tp_failures + 1))
+    TP_CELLS+=("Jenkins TP: expected hits missing")
+fi
+
+# -- Grafana TP --
+gf_tp_port=$((TP_BASE + 11))
+info "Grafana TP: testing against stub at 127.0.0.1:${gf_tp_port}"
+gf_tgt="$RUNDIR/grafana-tp.targets"
+gf_out="$RUNDIR/grafana-tp-out"
+gf_log="$RUNDIR/grafana-tp.log"
+rm -rf "$gf_out"
+echo "127.0.0.1:${gf_tp_port}" > "$gf_tgt"
+NO_NUCLEI=1 NO_FFUF=1 RUN_NIKTO=0 NO_WHATWEB=1 \
+    timeout 60 bash "$REPO/network/enum-http.sh" \
+    --targets "$gf_tgt" --output "$gf_out" > "$gf_log" 2>&1 || true
+if grep -q "Grafana detected" "$gf_log" 2>/dev/null; then
+    ok "Grafana TP: 'Grafana detected' hit present"
+else
+    bad "Grafana TP: REGRESSION — 'Grafana detected' not found in log"
+    tp_failures=$((tp_failures + 1))
+    TP_CELLS+=("Grafana TP: 'Grafana detected' missing")
+fi
+
+# -- Prometheus TP --
+pm_tp_port=$((TP_BASE + 12))
+info "Prometheus TP: testing against stub at 127.0.0.1:${pm_tp_port}"
+pm_tgt="$RUNDIR/prometheus-tp.targets"
+pm_out="$RUNDIR/prometheus-tp-out"
+pm_log="$RUNDIR/prometheus-tp.log"
+rm -rf "$pm_out"
+echo "127.0.0.1:${pm_tp_port}" > "$pm_tgt"
+NO_NUCLEI=1 NO_FFUF=1 RUN_NIKTO=0 NO_WHATWEB=1 \
+    timeout 60 bash "$REPO/network/enum-http.sh" \
+    --targets "$pm_tgt" --output "$pm_out" > "$pm_log" 2>&1 || true
+if grep -q "Prometheus detected" "$pm_log" 2>/dev/null; then
+    ok "Prometheus TP: 'Prometheus detected' hit present"
+else
+    bad "Prometheus TP: REGRESSION — 'Prometheus detected' not found in log"
+    tp_failures=$((tp_failures + 1))
+    TP_CELLS+=("Prometheus TP: 'Prometheus detected' missing")
+fi
+
 # ---- summary -----------------------------------------------------------------
 printf "\n${C}=====[ SUMMARY ]=====${N}\n"
 printf "  FP cells:      %d / %d (expected 0)\n" "$fp_failures" "$((${#DISPATCHERS[@]} * 4))"
-printf "  TP regressions: %d / 3 (expected 0)\n" "$tp_failures"
+printf "  TP regressions: %d / 6 (expected 0)\n" "$tp_failures"
 
 overall_rc=0
 
