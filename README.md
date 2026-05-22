@@ -83,7 +83,7 @@ aratool/
 | `network/enum-winrm.sh` | `nxc winrm`, command exec test, evil-winrm spray |
 | `network/enum-rdp.sh` | `nxc rdp`, `rdp-sec-check`, NLA detection |
 | `network/enum-mssql.sh` | `nxc mssql`, `mssqlclient.py`, xp_cmdshell check |
-| `network/enum-http.sh` | `whatweb`, `httpx`, `nuclei`, `ffuf` (light wordlist), `nikto` (optional) |
+| `network/enum-http.sh` | `whatweb`, `httpx`, `nuclei`, `ffuf` (light wordlist), `nikto` (optional); **C.13 product-fingerprint phase** fans 8 product-specific probes per live URL (Tomcat Manager, Jenkins including Groovy script console RCE check, GitLab, SonarQube, Grafana, Prometheus, Hadoop NameNode, Spark UI); each detector requires a product-specific marker (header pattern, JSON key, or exact body string) before emitting a hit; skippable via `NO_PRODUCT_DETECT=1` |
 | `network/enum-ssh.sh` | `ssh-audit`, banner, `nxc ssh` cred spray, key auth probe |
 | `network/enum-ftp.sh` | Anonymous, `nxc ftp` cred spray |
 | `network/enum-snmp.sh` | `onesixtyone` + `snmpwalk` with common communities |
