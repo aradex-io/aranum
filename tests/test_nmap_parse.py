@@ -63,6 +63,9 @@ class TestServiceMap(unittest.TestCase):
         "vnc", "jmx", "activemq",
         # Iteration H jabber
         "xmpp", "openfire-admin",
+        # Iteration E2 — Tier 2a high-yield services
+        "cassandra", "consul", "influxdb", "ipp", "kafka",
+        "msrpc", "netbios-ns", "neo4j", "solr", "vault", "zookeeper",
     }
 
     def test_every_required_category_present(self):
