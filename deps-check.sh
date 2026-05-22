@@ -146,6 +146,20 @@ if python3 -c "import impacket" 2>/dev/null; then
 fi
 
 echo
+echo "=== E1 TIER-1 DISPATCHERS (iteration E1) ==="
+# Required for the new dispatchers; rsync is commonly available but worth confirming.
+check rsync         req
+# mosquitto_sub is from the mosquitto-clients package (Fedora: dnf install mosquitto)
+check mosquitto_sub rec  mosquitto_sub
+# tnscmd10g — optional Oracle TNS command tool (part of tnscmd10g package or manual install)
+check tnscmd10g     opt
+# svmap — SIPVicious scanner (optional; pip install sipvicious or pipx install sipvicious)
+check svmap         opt
+# kafkacat / kcat — optional Kafka enumeration tool (reserved for Tier 2a dispatchers)
+check kafkacat      opt
+check kcat          opt
+
+echo
 echo "Install hints (Fedora/Arch/Debian vary):"
 cat <<'EOF'
   pipx install netexec                       # nxc
