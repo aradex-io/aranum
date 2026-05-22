@@ -83,7 +83,7 @@ aratool/
 | `network/enum-winrm.sh` | `nxc winrm`, command exec test, evil-winrm spray |
 | `network/enum-rdp.sh` | `nxc rdp`, `rdp-sec-check`, NLA detection |
 | `network/enum-mssql.sh` | `nxc mssql`, `mssqlclient.py`, xp_cmdshell check |
-| `network/enum-http.sh` | `whatweb`, `httpx`, `nuclei`, `ffuf` (light wordlist), `nikto` (optional); **C.13 product-fingerprint phase** fans 8 product-specific probes per live URL (Tomcat Manager, Jenkins including Groovy script console RCE check, GitLab, SonarQube, Grafana, Prometheus, Hadoop NameNode, Spark UI); each detector requires a product-specific marker (header pattern, JSON key, or exact body string) before emitting a hit; skippable via `NO_PRODUCT_DETECT=1` |
+| `network/enum-http.sh` | `whatweb`, `httpx`, `nuclei`, `ffuf` (light wordlist), `nikto` (optional); **C.13 product-fingerprint phase** fans 9 product-specific probes per live URL (Tomcat Manager, Jenkins including Groovy script console RCE check, GitLab, SonarQube, Grafana, Prometheus, Hadoop NameNode, Spark UI, **VMware vCenter SDK + UI** added in E4); each detector requires a product-specific marker (header pattern, JSON key, or exact body string) before emitting a hit; skippable via `NO_PRODUCT_DETECT=1` |
 | `network/enum-ssh.sh` | `ssh-audit`, banner, `nxc ssh` cred spray, key auth probe |
 | `network/enum-ftp.sh` | Anonymous, `nxc ftp` cred spray |
 | `network/enum-snmp.sh` | `onesixtyone` + `snmpwalk` with common communities |
@@ -123,6 +123,9 @@ aratool/
 | `network/enum-vault.sh` | Vault (8200/8201) — seal-status (version/cluster/sealed), init-state; tries http + https |
 | `network/enum-msrpc.sh` | MSRPC endpoint mapper (135) — impacket-rpcdump → rpcdump.py → rpcclient → nmap msrpc-enum |
 | `network/enum-netbios-ns.sh` | NetBIOS-NS (137/udp) — name table via nbtscan/nmblookup; workgroup mismatch signal (rogue host) |
+| `network/enum-ike.sh` | **OPT-IN** IKE/IPsec UDP 500/4500 — IKEv1 main-mode handshake probe; vendor-ID extraction; doubly-gated aggressive-mode PSK hash harvest (`ENUM_IKE_AGGRESSIVE_MODE=1`); requires `--ike` or `--aggressive` |
+| `network/enum-slp.sh` | **OPT-IN** SLP UDP 427 — nmap NSE slp-discovery/slp-info; CVE-2023-29552 amplification surface flag; requires `--slp` or `--aggressive` |
+| `network/enum-radius.sh` | **OPT-IN** RADIUS UDP 1812/1813 — stdlib-only Access-Request probe; BlastRADIUS (CVE-2024-3596) Message-Authenticator enforcement precondition check; requires `--radius` or `--aggressive` |
 
 ## Jabber / XMPP (iteration H)
 
@@ -134,6 +137,32 @@ Authorized-testing-only XMPP helpers in `jabber/`. **Read [`docs/ADR-001-19MAY20
 | `jabber/jabber-validate.py` | Single-credential SASL validation (SCRAM-SHA-256 → SHA-1 → PLAIN) | NO spray — one user, one password, one attempt |
 | `jabber/jabber-admin-api-probe.sh` | Ejabberd `/api/` + Prosody `mod_admin_telnet` / `mod_admin_web` exposure detection | HEAD/banner only |
 | `jabber/openfire-cve-2023-32315.py` | `detect` default (read-only); `exploit` modifies target state, requires typed-FQDN confirm + operator-supplied JSP plugin; `cleanup` reverses | Lab-verify against vulnerable 4.7.4 container before engagement use |
+
+### Opt-in aggressive probes (E4)
+
+Three dispatchers cover high-risk UDP services that can cause operational disruption (account lockouts, DDoS reflection amplification, PSK hash leakage). They are **disabled by default** and require an explicit opt-in:
+
+```bash
+# Enable specific aggressive probes
+./network/auto-enum.sh -i scan.xml --ike          # IKE/IPsec UDP 500
+./network/auto-enum.sh -i scan.xml --slp          # SLP UDP 427
+./network/auto-enum.sh -i scan.xml --radius       # RADIUS UDP 1812/1813
+./network/auto-enum.sh -i scan.xml --aggressive   # all three
+
+# IKE aggressive-mode PSK hash harvest is doubly-gated within --ike:
+ENUM_IKE_AGGRESSIVE_MODE=1 ./network/auto-enum.sh -i scan.xml --ike
+```
+
+Manual invocation also requires the env gate — the dispatcher refuses with a reminder:
+```bash
+ENUM_RUN_IKE=1 bash network/enum-ike.sh --targets targets.txt --output /tmp/out
+```
+
+**Safety stance (§9):**
+- `--slp` / SLP UDP 427 is a CVE-2023-29552 amplification surface (up to 2200x). Do **not** use against internet-facing or arbitrary addresses — you risk becoming a reflection DDoS source.
+- `--radius` probes may interact with NAS-side account-lockout policies. Verify that `aratool-probe` does not match any real account before running.
+- `--ike` aggressive mode (`ENUM_IKE_AGGRESSIVE_MODE=1`) sends IKEv1 Aggressive Mode packets which can harvest PSK hashes. The double gate is intentional and load-bearing.
+- BlastRADIUS detection (CVE-2024-3596) checks the precondition only (Message-Authenticator enforcement). Full exploitation requires nonce-grinding and an on-path position.
 
 ## Usage — Network Auto-Enumeration
 
