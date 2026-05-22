@@ -35,7 +35,27 @@ while read -r target; do
             "$ip" -oN "$OUT/$ip/telnet_${port}.txt" 2>/dev/null || true
     fi
 
-    # ---------- always flag as open ----------
+    # ---------- service-fingerprint guard ----------
+    # A real telnet service either (a) nmap-fingerprints as `telnet`, or
+    # (b) sends IAC option-negotiation bytes (0xFF 0xFB/FC/FD/FE ...) within
+    # the first bytes of the response. Without one of these, the port is
+    # not telnet, no matter what nc connected to.
+    is_telnet=0
+    if [ -s "$OUT/$ip/telnet_${port}.txt" ] && \
+       grep -qE '^[0-9]+/tcp[[:space:]]+open[[:space:]]+telnet' "$OUT/$ip/telnet_${port}.txt" 2>/dev/null; then
+        is_telnet=1
+    fi
+    # IAC byte 0xFF check on raw banner (nc < /dev/null may have captured it)
+    if [ "$is_telnet" = 0 ] && [ -s "$OUT/$ip/banner_${port}.txt" ] && \
+       LC_ALL=C grep -qP '\xff[\xfb-\xfe]' "$OUT/$ip/banner_${port}.txt" 2>/dev/null; then
+        is_telnet=1
+    fi
+    if [ "$is_telnet" = 0 ]; then
+        miss "Telnet not confirmed at $ip:$port (no nmap telnet fingerprint, no IAC bytes in banner)"
+        throttle_sleep
+        continue
+    fi
+
     hit "Telnet open: $ip:$port"
 
     # ---------- device family fingerprint (case-insensitive regex) ----------
