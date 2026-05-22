@@ -30,21 +30,36 @@ while read -r target; do
         $(throttle_nmap_args) \
         "$ip" -oN "$OUT/$ip/ajp_${port}.txt" 2>/dev/null || true
 
-    # ---------- detect Tomcat presence ----------
+    # ---------- service-fingerprint guard ----------
+    # nmap prints a line like "8009/tcp open  ajp13" only when it actually
+    # negotiated the AJP protocol — wrong-service ports fingerprint as
+    # something else (or as "open" with no service name). The script-result
+    # lines `| ajp-headers:` / `| ajp-methods:` / etc. only appear when an
+    # AJP script successfully completed an exchange. Require BOTH to fire.
+    is_ajp=0
+    has_script_result=0
+    if grep -qE '^[0-9]+/tcp[[:space:]]+open[[:space:]]+ajp13' "$OUT/$ip/ajp_${port}.txt" 2>/dev/null; then
+        is_ajp=1
+    fi
+    if grep -qE '^\| ajp-(headers|methods|auth|brute):' "$OUT/$ip/ajp_${port}.txt" 2>/dev/null; then
+        has_script_result=1
+    fi
+    if [ "$is_ajp" = 0 ] || [ "$has_script_result" = 0 ]; then
+        miss "AJP not confirmed at $ip:$port (nmap did not fingerprint as ajp13 and no ajp-* script returned data)"
+        throttle_sleep
+        continue
+    fi
+
+    # ---------- Tomcat backend hint ----------
     if grep -qi 'Tomcat' "$OUT/$ip/ajp_${port}.txt" 2>/dev/null; then
         hit "AJP/Tomcat detected: $ip:$port"
     fi
 
-    # ---------- auth check ----------
+    # ---------- auth state ----------
     if grep -qi 'ajp-auth.*Authentication: Required' "$OUT/$ip/ajp_${port}.txt" 2>/dev/null; then
-        # Auth is required — note it but no unauth finding
         miss "AJP auth required: $ip:$port"
     else
-        # No auth required line — treat as unauthenticated AJP
-        if grep -qi 'AJP' "$OUT/$ip/ajp_${port}.txt" 2>/dev/null || \
-           grep -qi 'ajp-headers' "$OUT/$ip/ajp_${port}.txt" 2>/dev/null; then
-            hit "UNAUTH: $ip:$port AJP responding without auth"
-        fi
+        hit "UNAUTH: $ip:$port AJP responding without auth"
     fi
 
     throttle_sleep
