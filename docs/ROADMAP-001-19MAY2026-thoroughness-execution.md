@@ -25,7 +25,8 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **K** | **Bulk local-enum (Windows)** *(added 2026-05-20; scoped via [ADR-003](ADR-003-20MAY2026-windows-bulk-enum-design.md))* | ~1 day | ✅ done 2026-05-20 | `v0.16.0` |
 | **D1** | **AD remote depth + Windows local AD scripts** *(REVIEW-001 §2.2-§2.7; scoped via [ADR-004](ADR-004-20MAY2026-ad-depth-tool-deps.md))* | ~2 days | ✅ done 2026-05-20 | `v0.17.0` |
 | **D2** | **Linux CVE checks + creds enhancements** *(REVIEW-001 §2.8/§2.9)* | ~1 day | ✅ done 2026-05-20 | `v0.18.0` |
-| **I** | **Internal-pentest protocol expansion** *(added 2026-05-19; engineering/science facility focus)* | ~3 days | ⬜ (placeholder — needs ADR for protocol selection) | `v0.19.0` |
+| **I (partial)** | **Internal-pentest protocol expansion** *(added 2026-05-19)* — absorbed into ROADMAP-002 E1–E4 | ~3 days | 🟦 partial (see [reconciliation table](#iteration-i-reconciliation-table-2026-05-22)) | `v0.19.0`–`v0.22.0` |
+| **T4** | **OT / ICS read-side identification** *(deferred from I-A; scoped via [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md) + [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md))* | ~2 days | ⬜ pending impl | `v0.23.0` |
 
 **Note on version mapping** (corrected 2026-05-19): the original roadmap aspired to map iteration A→v0.2.0, B→v0.3.0, etc. Reality: iteration H was prioritized ahead of B–G and shipped as v0.9.0, after which semver's monotonic-increase requirement means subsequent iterations occupy `v0.10.0+`. The iteration identity is preserved in commit messages and CHANGELOG sections; the version-to-iteration mapping is no longer 1:1 with the alphabetical letter.
 
@@ -231,7 +232,14 @@ Tag `v0.4.0`.
 
 ---
 
-## Iteration D — Windows / AD depth
+## Iteration D — Windows / AD depth *(superseded by D1 + D2)*
+
+**Status:** Superseded 2026-05-20. The original "Iteration D" was reorganized
+into two shipped iterations — **D1** (Windows / AD depth + LDAP additions,
+shipped as `v0.17.0`, scoped via [ADR-004](ADR-004-20MAY2026-ad-depth-tool-deps.md))
+and **D2** (Linux CVE checks + creds enhancements, shipped as `v0.18.0`). The
+sub-item table below is preserved for traceability; status reflects what
+actually shipped under D1/D2.
 
 **Prerequisites:** A.
 
@@ -239,19 +247,21 @@ Tag `v0.4.0`.
 
 | Item | Scope | Files | Status |
 |---|---|---|---|
-| D.1 | `Get-LAPSPassword.ps1` | `windows/` | ⬜ |
-| D.2 | `Get-ADCSMisconfig.ps1` (ESC1/2/4 via ADSI) | `windows/` | ⬜ |
-| D.3 | `Get-GPPCPassword.ps1` (SYSVOL `cpassword=`) | `windows/` | ⬜ |
-| D.4 | `Get-DPAPIBlobs.ps1` (locations only — no decrypt) | `windows/` | ⬜ |
-| D.5 | `Get-NamedPipes.ps1` (ACL enumeration) | `windows/` | ⬜ |
-| D.6 | `Get-PrintNightmare.ps1` (registry + Spooler state) | `windows/` | ⬜ |
-| D.7 | `Test-CoercedAuth.ps1` (local-only safety probe) | `windows/` | ⬜ |
-| D.8 | LDAP: BloodHound ingestion when creds + DC IP present | `network/enum-ldap.sh` | ⬜ |
-| D.9 | LDAP: Certipy `find` for ADCS templates | `network/enum-ldap.sh` | ⬜ |
-| D.10 | LDAP: delegation enum (constrained/unconstrained/RBCD) | `network/enum-ldap.sh` | ⬜ |
-| D.11 | Linux: `pwnkit-check.sh`, `looney-check.sh`, `overlayfs-check.sh`, `io-uring-check.sh`, `namespaces-check.sh` | `linux/` | ⬜ |
+| D.1 | `Get-LAPSPassword.ps1` | `windows/` | ✅ shipped in D1 / `v0.17.0` |
+| D.2 | `Get-ADCSMisconfig.ps1` (ESC1/2/4 via ADSI) | `windows/` | ✅ covered by D1 LDAP-side Certipy ingest (D.9); pure-PowerShell ADSI variant ❌ declined (Certipy is the maintained path) |
+| D.3 | `Get-GPPCPassword.ps1` (SYSVOL `cpassword=`) | `windows/` | ✅ shipped in D1 / `v0.17.0` |
+| D.4 | `Get-DPAPIBlobs.ps1` (locations only — no decrypt) | `windows/` | ✅ shipped in D1 / `v0.17.0` |
+| D.5 | `Get-NamedPipes.ps1` (ACL enumeration) | `windows/` | ✅ shipped in D1 / `v0.17.0` |
+| D.6 | `Get-PrintNightmare.ps1` (registry + Spooler state) | `windows/` | ✅ shipped in D1 / `v0.17.0` |
+| D.7 | `Test-CoercedAuth.ps1` (local-only safety probe) | `windows/` | ✅ shipped in D1 / `v0.17.0` |
+| D.8 | LDAP: BloodHound ingestion when creds + DC IP present | `network/enum-ldap.sh` | ✅ shipped in D1 / `v0.17.0` (ADR-004 D1) |
+| D.9 | LDAP: Certipy `find` for ADCS templates | `network/enum-ldap.sh` | ✅ shipped in D1 / `v0.17.0` (ADR-004 D2) |
+| D.10 | LDAP: delegation enum (constrained/unconstrained/RBCD) | `network/enum-ldap.sh` | ✅ shipped in D1 / `v0.17.0` |
+| D.11 | Linux: `pwnkit-check.sh`, `looney-check.sh`, `overlayfs-check.sh`, `io-uring-check.sh`, `namespaces-check.sh` | `linux/` | ✅ shipped in D2 / `v0.18.0` |
 
-Tag `v0.5.0`.
+Iteration D's original `v0.5.0` target was bypassed by the renumbering noted
+in §Overall status. The actual tags carrying this work are `v0.17.0` (D1)
+and `v0.18.0` (D2).
 
 ---
 
@@ -382,13 +392,15 @@ Cisco UC stack, SIP/voice telephony, modern team chat, password spray, CVE-2023-
 
 ---
 
-## Iteration I — Internal-pentest protocol expansion *(added 2026-05-19)*
+## Iteration I — Internal-pentest protocol expansion *(added 2026-05-19; partially absorbed by ROADMAP-002)*
 
 **Origin:** user milestone — "RemoteAnywhere — add any protocols that may be faced on an internal network pentest of a large engineering and science facility."
 
 **Why:** the dispatchers shipped through v0.12.0 cover the modern cloud-native + Windows-AD surface well, but engineering and science facilities have a distinct protocol stack: industrial/OT control systems, scientific-instrument license servers, remote-support tools, HPC schedulers, lab-bench RDP-alternatives, and out-of-band hardware management. None of these are covered yet.
 
-**Status:** placeholder — needs ADR-002 before sequencing. The candidate list below is for scope conversation, not commitment.
+**Status update 2026-05-22:** [ROADMAP-002](ROADMAP-002-22MAY2026-tier1-tier2-enumeration.md) E1–E4 (shipped as `v0.19.0`–`v0.22.0`) absorbed a meaningful slice of the I-* candidate list. The original ADR-002 placeholder remains unwritten — its slot was consumed by the bulk-enum ADR-002 — but the remaining gaps below are now small enough that a fresh ADR is not gating. See the per-cluster reconciliation below and the **Remaining I-* gaps** table.
+
+The candidate list that follows is preserved verbatim for historical traceability; the status of each cluster now lives in the reconciliation table.
 
 **Candidate protocol surface (clustered by category):**
 
@@ -521,7 +533,56 @@ Cisco UC stack, SIP/voice telephony, modern team chat, password spray, CVE-2023-
 - Default-cred brute-force against BMC at scale — single-cred validation only, same policy as Jabber (ADR-001 D2). `creds/default-creds-sweep.py` already exists for vendor-default sweeps and is the right place for that work.
 - Anything that modifies HPC scheduler state (submit jobs, cancel jobs).
 
-**Pre-execution requirement:** `docs/ADR-002-<DATE>-internal-pentest-scope.md` resolving questions 1–5 and committing to a top-12-15 protocol list for v0.16.0. Operator approves before code lands.
+**Pre-execution requirement (original):** `docs/ADR-002-<DATE>-internal-pentest-scope.md` resolving questions 1–5 and committing to a top-12-15 protocol list for v0.16.0. Operator approves before code lands. *(Not written — the ADR-002 slot was consumed by [ADR-002 bulk-enum](ADR-002-20MAY2026-bulk-enum-design.md). The reconciliation table below replaces it.)*
+
+### Iteration I reconciliation table (2026-05-22)
+
+Per-cluster coverage after ROADMAP-002 E1–E4 shipped (`v0.19.0`–`v0.22.0`):
+
+| Cluster | Coverage status | Notes |
+|---|---|---|
+| **I-A** Industrial / OT (Modbus, S7, EtherNet/IP, BACnet, OPC-UA, DNP3, IEC 60870-5-104) | ⏸ deferred to T4 via [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md) + [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md) | Read-side identification only; planned for `v0.23.0` |
+| **I-B** Remote support / screen sharing (TeamViewer, AnyDesk, ScreenConnect, NoMachine, ICA, RDWeb, RustDesk, pcAnywhere) | ⬜ not covered | Most are outbound-mostly; ICA / Citrix + RDWeb are the highest-yield server-side targets |
+| **I-C** License servers (FlexNet, HASP, RLM, LUM, LabVIEW VI Server) | ⬜ not covered | FlexNet `lmstat -a` is the highest-yield single probe; characteristic of MATLAB/Cadence/Synopsys/Ansys hosts |
+| **I-D** Out-of-band BMC (iLO, iDRAC, Supermicro, Lenovo XCC, Cisco CIMC) | 🟦 partial | IPMI 623/udp shipped in B.7 (`v0.10.0`). Vendor-specific HTTPS admin consoles (iLO/iDRAC/etc.) are not specifically fingerprinted — `enum-http.sh` product-detect could be extended |
+| **I-E** Hypervisor / virtualization (ESXi, vCenter, Proxmox, oVirt, XenServer, Nutanix Prism, OpenStack) | 🟦 partial | vCenter shipped in E4 (`v0.22.0`). ESXi 902/8000, Proxmox 8006, Nutanix 9440, OpenStack Keystone 5000 not specifically fingerprinted |
+| **I-F** HPC scheduler / cluster mgmt (Slurm, PBS, SGE, HTCondor, Spark, HDFS, YARN) | 🟦 partial | Spark UI + Hadoop NameNode shipped in E3 (`v0.21.0`). Slurm 6817/6818, PBS, HTCondor 9618, YARN 8088 not specifically covered |
+| **I-G** Scientific / lab data (DICOM, HL7, Splunk, Grafana, InfluxDB, Zabbix, Nagios NRPE) | 🟦 partial | Grafana + Prometheus shipped in E3, InfluxDB shipped in E2 (`v0.20.0`). DICOM 104/11112, HL7 MLLP 2575, Splunk 8089, Zabbix 10051, Nagios NRPE 5666 not covered |
+| **I-H** Backup infrastructure (Veeam, CommVault, NetBackup) | ⬜ not covered | High-value lateral; pre-auth RCE CVEs |
+| **I-I** Source / CI infra (Jenkins, Gerrit, Atlassian Bamboo/Confluence/Jira) | 🟦 partial | Jenkins (incl. Groovy console RCE check) shipped in E3. Gerrit 29418, Confluence 8090, Jira 8080, Bamboo 8085 not specifically fingerprinted |
+| **I-J** VPN concentrators (Cisco ASA, Pulse/Ivanti, Fortinet, Palo, OpenVPN, WireGuard, PPTP) | ⬜ not covered | Vendor-specific CVE checks; could be Nuclei-template-driven from `enum-http.sh` |
+| **I-K** Print servers (IPP/IPPS, JetDirect, LPD, vendor admin consoles) | 🟦 partial | IPP / CUPS shipped in E2. JetDirect 9100 and LPD 515 banner probes not covered |
+
+**Outstanding work** (in priority order, biggest engagement-yield first):
+
+1. **I-K JetDirect 9100 + LPD 515** — cheap, low-risk; banner + PJL info on
+   JetDirect, banner on LPD. Single dispatcher (`enum-print.sh`) covering
+   both. Ship target: `v0.22.x` patch or `v0.24.0` minor.
+2. **I-C FlexNet `lmstat -a`** — high yield on engineering hosts; single
+   probe per port; characteristic of MATLAB/Cadence/Synopsys/Ansys
+   environments. Dispatcher: `enum-flexnet.sh` (ports 27000–27009). Ship
+   target: `v0.24.0`.
+3. **I-F Slurm / PBS / HTCondor / YARN** — HPC schedulers; read-side
+   `sacctmgr show` / `qmgr list` / `condor_status` / YARN apps API.
+   Dispatcher: `enum-hpc.sh`. Ship target: `v0.24.0` or `v0.25.0`.
+4. **I-G DICOM / HL7 / Zabbix / Nagios NRPE / Splunk** — lab-data services;
+   ship as a `v0.25.0` mini-iteration. Splunk + Zabbix are higher priority
+   (engagement-frequency) than DICOM/HL7 (specialist).
+5. **I-H Backup (Veeam / CommVault / NetBackup)** — pre-auth RCE pedigree;
+   fingerprint-only at this tier (no exploit). Ship target: `v0.25.0`.
+6. **I-D BMC vendor fingerprinting** — fold into `enum-http.sh` product-
+   detect (alongside the existing Tomcat / Jenkins / Grafana / vCenter
+   detectors). Ship target: `v0.24.0`.
+7. **I-J VPN concentrator detection** — fold into `enum-http.sh` product-
+   detect; banner + vendor-specific path checks. Ship target: `v0.25.0`.
+8. **I-B Remote support (ICA / RDWeb / ScreenConnect)** — least urgent;
+   target shape is awkward (ICA UDP browser, RDWeb is HTTPS portal). Ship
+   target: `v0.26.0` or deferred.
+
+**No new ADR is gating** any of items 1–7 above — each is bounded by the
+existing safety invariants (CLAUDE.md §9). Item 8 (Remote support) may need
+a scope note if it grows to include credential-relay probing; for plain
+fingerprinting, no ADR is required.
 
 ---
 
