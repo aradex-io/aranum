@@ -17,6 +17,23 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.28.1] — 2026-05-23
+
+**Second-tier evil-server FP class: shape mimicry.** Closes the v0.22.1-noted gap *"specifically-crafted evil servers could still FP — that requires deeper protocol semantics (e.g. validating the version field format)"*. New `evil-shape` harness scenario + Vault dispatcher third-evidence regex. PATCH per CLAUDE.md §5 (hardening + test infrastructure; no interface change).
+
+### Fixed
+- `network/enum-vault.sh` — third-evidence shape-mimicry guard. After the existing `sealed`+`t`+`n` two-evidence check, the dispatcher now extracts the `version` field and, if non-empty, requires it to match `^[0-9]+\.[0-9]+\.[0-9]+([+\-][a-zA-Z0-9.+\-]*)?$` (semver with optional Enterprise suffix — accepts `1.18.3`, `1.18.3+ent`, `1.18.3+ent.hsm.fips1403`, `1.15.4-rc1`). If the field is present but does not match, the candidate is rejected with a `log` line and no `hit` is emitted. Empty version is still accepted (rare early-init state). The two existing FP scenarios (`evil-json`, `evil-banner`, `evil-product-hdrs`) continue to be rejected by the prior gates — the new check is additive.
+
+### Added
+- `tests/fp-server.py` — new `evil_shape_handler` on `base+7` (port 19007). Routes `/v1/sys/seal-status` to a Vault-shape JSON payload with the correct `type=shamir` / `sealed=false` / `t=3` / `n=5` / `progress=0` / `initialized=true` AND all the expected metadata keys, but `"version":"NOT_A_REAL_VAULT_VERSION"` (bogus content in a correctly-shaped wrapper). All other paths return 404. The `fp-server.py` listener now binds eight consecutive ports (was seven).
+- `tests/fp-harness.sh` — `SCENARIO_NAMES[7]="evil-shape"`, `NUM_SCENARIOS=8`. FP sweep grows from 189 cells (27 × 7) to **216 cells** (27 × 8), all green. The `vault/evil-shape` cell explicitly emits 0 hits, confirming the new third-evidence check fires.
+
+**Notes:**
+- YARN and Splunk shape-mimicry hardening is deliberately deferred. Both dispatchers gate on port (`enum-hpc.sh` on 8088, `enum-monitoring.sh` on 8089) so testing them against a non-standard test-stub port would require introducing `HPC_EXTRA_YARN_PORT` / `MONITORING_EXTRA_SPLUNK_PORT` test-seam env vars (see `enum-print.sh` `PRINT_EXTRA_*_PORT` precedent). That work — including the matching `state` closed-enum + `hadoopVersion` semver + Splunk `version`/`build` regex checks — is a clean follow-up but is not gated by an ADR.
+- The chosen Vault regex deliberately accepts a wide Enterprise-suffix grammar. False-negative risk against a real Vault: < 1% (HashiCorp has not changed the version-field format since 1.0). A specifically-crafted server that ALSO returns a syntactically valid semver string would still defeat this gate — that's the next tier of mimicry and would require cross-endpoint validation (e.g., follow up with `GET /v1/sys/health` and require both endpoints to return consistent product metadata).
+
+---
+
 ## [v0.28.0] — 2026-05-23
 
 **ROADMAP-001 I-I source/CI partial-gap closure.** 4 new product-detect blocks folded into `enum-http.sh` C.13 (blocks 16–19) covering Gerrit and the Atlassian stack — Jenkins was shipped in E3 (`v0.21.0`); these complete the I-I cluster. No new dispatchers; same two-evidence discipline; evil-product-hdrs FP cell preserved at 0 hits.
