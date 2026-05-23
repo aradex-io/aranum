@@ -139,6 +139,12 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     # had at least one pre-auth CVE in 2023-2024 (CVE-2024-3400, -42475, -3519,
     # -46805/-21887, -40766) — fingerprint alone is high-yield.
     (re.compile(r"\bVPN (Cisco AnyConnect/ASA SSL VPN|Fortinet SSL VPN|Palo Alto GlobalProtect|Pulse/Ivanti Connect Secure|Citrix NetScaler Gateway|SonicWall SMA/NetExtender) detected:", re.I), "high"),
+    # I-E — hypervisor / virtualization product consoles.
+    # MEDIUM for detection-only (parity with BMC); HIGH for explicit UNAUTH
+    # escalation (e.g., Proxmox /api2/json/version returning data without auth).
+    (re.compile(r"\bUNAUTH: Proxmox version API exposed:", re.I),          "high"),
+    (re.compile(r"\bHypervisor (VMware ESXi host|Proxmox VE|Nutanix Prism) detected:", re.I), "medium"),
+    (re.compile(r"\bOpenStack Keystone detected:", re.I),                  "medium"),
     (re.compile(r"\bRADIUS server reachable:", re.I),                   "low"),
     (re.compile(r"\bIKE/IPsec VPN endpoint reachable:", re.I),          "low"),
     (re.compile(r"\bIKE vendor:", re.I),                                "low"),
