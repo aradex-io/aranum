@@ -27,7 +27,9 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **D2** | **Linux CVE checks + creds enhancements** *(REVIEW-001 §2.8/§2.9)* | ~1 day | ✅ done 2026-05-20 | `v0.18.0` |
 | **I (partial)** | **Internal-pentest protocol expansion** *(added 2026-05-19)* — absorbed into ROADMAP-002 E1–E4 | ~3 days | 🟦 partial (see [reconciliation table](#iteration-i-reconciliation-table-2026-05-22)) | `v0.19.0`–`v0.22.0` |
 | **I-K** | **Network print services** (JetDirect 9100 + LPD 515) — first I-* cluster shipped post-reconciliation | ~0.5 day | ✅ done 2026-05-22 | `v0.23.0` |
-| **T4** | **OT / ICS read-side identification** *(deferred from I-A; scoped via [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md) + [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md))* | ~2 days | ⬜ pending impl | `v0.24.0` |
+| **T4** | **OT / ICS read-side identification** *(deferred from I-A; scoped via [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md) + [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md))* | ~2 days | ✅ done 2026-05-23 | `v0.24.0` |
+| **I-C / I-F / I-G / I-H** | **FlexNet license servers + HPC schedulers + monitoring + backup detection** — four `network/` dispatchers in one MINOR bump | ~1 day | ✅ done 2026-05-23 | `v0.25.0` |
+| **I-D / I-J** | **BMC vendor + VPN concentrator fingerprints** — folded into `enum-http.sh` C.13 product-detect (5 BMC vendors + 6 VPN vendors, 11 new probes total) | ~0.5 day | ✅ done 2026-05-23 | `v0.26.0` |
 
 **Note on version mapping** (corrected 2026-05-19): the original roadmap aspired to map iteration A→v0.2.0, B→v0.3.0, etc. Reality: iteration H was prioritized ahead of B–G and shipped as v0.9.0, after which semver's monotonic-increase requirement means subsequent iterations occupy `v0.10.0+`. The iteration identity is preserved in commit messages and CHANGELOG sections; the version-to-iteration mapping is no longer 1:1 with the alphabetical letter.
 
@@ -542,48 +544,40 @@ Per-cluster coverage after ROADMAP-002 E1–E4 shipped (`v0.19.0`–`v0.22.0`):
 
 | Cluster | Coverage status | Notes |
 |---|---|---|
-| **I-A** Industrial / OT (Modbus, S7, EtherNet/IP, BACnet, OPC-UA, DNP3, IEC 60870-5-104) | ⏸ deferred to T4 via [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md) + [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md) | Read-side identification only; planned for `v0.23.0` |
-| **I-B** Remote support / screen sharing (TeamViewer, AnyDesk, ScreenConnect, NoMachine, ICA, RDWeb, RustDesk, pcAnywhere) | ⬜ not covered | Most are outbound-mostly; ICA / Citrix + RDWeb are the highest-yield server-side targets |
-| **I-C** License servers (FlexNet, HASP, RLM, LUM, LabVIEW VI Server) | ⬜ not covered | FlexNet `lmstat -a` is the highest-yield single probe; characteristic of MATLAB/Cadence/Synopsys/Ansys hosts |
-| **I-D** Out-of-band BMC (iLO, iDRAC, Supermicro, Lenovo XCC, Cisco CIMC) | 🟦 partial | IPMI 623/udp shipped in B.7 (`v0.10.0`). Vendor-specific HTTPS admin consoles (iLO/iDRAC/etc.) are not specifically fingerprinted — `enum-http.sh` product-detect could be extended |
-| **I-E** Hypervisor / virtualization (ESXi, vCenter, Proxmox, oVirt, XenServer, Nutanix Prism, OpenStack) | 🟦 partial | vCenter shipped in E4 (`v0.22.0`). ESXi 902/8000, Proxmox 8006, Nutanix 9440, OpenStack Keystone 5000 not specifically fingerprinted |
-| **I-F** HPC scheduler / cluster mgmt (Slurm, PBS, SGE, HTCondor, Spark, HDFS, YARN) | 🟦 partial | Spark UI + Hadoop NameNode shipped in E3 (`v0.21.0`). Slurm 6817/6818, PBS, HTCondor 9618, YARN 8088 not specifically covered |
-| **I-G** Scientific / lab data (DICOM, HL7, Splunk, Grafana, InfluxDB, Zabbix, Nagios NRPE) | 🟦 partial | Grafana + Prometheus shipped in E3, InfluxDB shipped in E2 (`v0.20.0`). DICOM 104/11112, HL7 MLLP 2575, Splunk 8089, Zabbix 10051, Nagios NRPE 5666 not covered |
-| **I-H** Backup infrastructure (Veeam, CommVault, NetBackup) | ⬜ not covered | High-value lateral; pre-auth RCE CVEs |
-| **I-I** Source / CI infra (Jenkins, Gerrit, Atlassian Bamboo/Confluence/Jira) | 🟦 partial | Jenkins (incl. Groovy console RCE check) shipped in E3. Gerrit 29418, Confluence 8090, Jira 8080, Bamboo 8085 not specifically fingerprinted |
-| **I-J** VPN concentrators (Cisco ASA, Pulse/Ivanti, Fortinet, Palo, OpenVPN, WireGuard, PPTP) | ⬜ not covered | Vendor-specific CVE checks; could be Nuclei-template-driven from `enum-http.sh` |
-| **I-K** Print servers (IPP/IPPS, JetDirect, LPD, vendor admin consoles) | 🟦 partial | IPP / CUPS shipped in E2. JetDirect 9100 and LPD 515 banner probes not covered |
+| **I-A** Industrial / OT (Modbus, S7, EtherNet/IP, BACnet, OPC-UA, DNP3, IEC 60870-5-104) | ✅ shipped as **T4 / `v0.24.0`** via [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md) + [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md) | Read-side identification only; `ot/ot-enum.sh` orchestrator with `--ics-confirm` typed gate; 500ms throttle floor; 7 protocol dispatchers |
+| **I-B** Remote support / screen sharing (TeamViewer, AnyDesk, ScreenConnect, NoMachine, ICA, RDWeb, RustDesk, pcAnywhere) | ⬜ not covered (deferred) | Most are outbound-mostly; ICA / Citrix + RDWeb are the highest-yield server-side targets — see "Outstanding work" list |
+| **I-C** License servers (FlexNet, HASP, RLM, LUM, LabVIEW VI Server) | ✅ FlexNet shipped in `v0.25.0` via `network/enum-flexnet.sh` (HASP / RLM / LUM / LabVIEW VI deferred) | Banner + `lmutil lmstat -a` when available |
+| **I-D** Out-of-band BMC (iLO, iDRAC, Supermicro, Lenovo XCC, Cisco CIMC) | ✅ shipped in `v0.26.0` — IPMI 623/udp covered by B.7 (`v0.10.0`); 5 vendor HTTPS consoles folded into `enum-http.sh` C.13 product-detect (HPE iLO, Dell iDRAC, Supermicro, Lenovo XCC/IMM, Cisco CIMC) | All 5 detectors require vendor-specific body markers — evil-product-hdrs FP cell verifies header-stuffing alone doesn't trigger |
+| **I-E** Hypervisor / virtualization (ESXi, vCenter, Proxmox, oVirt, XenServer, Nutanix Prism, OpenStack) | 🟦 partial | vCenter shipped in E4 (`v0.22.0`). ESXi 902/8000, Proxmox 8006, Nutanix 9440, OpenStack Keystone 5000 still not specifically fingerprinted |
+| **I-F** HPC scheduler / cluster mgmt (Slurm, PBS, SGE, HTCondor, Spark, HDFS, YARN) | ✅ Slurm + HTCondor + YARN shipped in `v0.25.0` via `network/enum-hpc.sh` (PBS / SGE deferred); Spark UI + Hadoop NameNode shipped earlier in E3 (`v0.21.0`) | Read-side only; no job submission |
+| **I-G** Scientific / lab data (DICOM, HL7, Splunk, Grafana, InfluxDB, Zabbix, Nagios NRPE) | ✅ Zabbix + NRPE + Splunk shipped in `v0.25.0` via `network/enum-monitoring.sh`; Grafana + Prometheus + InfluxDB shipped earlier | DICOM 104/11112 + HL7 MLLP 2575 deferred (specialist, low engagement-frequency) |
+| **I-H** Backup infrastructure (Veeam, CommVault, NetBackup) | ✅ shipped in `v0.25.0` via `network/enum-backup.sh` | Detection-only at this tier; HIGH severity because reaching backup tier from user VLAN is itself a segmentation finding |
+| **I-I** Source / CI infra (Jenkins, Gerrit, Atlassian Bamboo/Confluence/Jira) | 🟦 partial | Jenkins (incl. Groovy console RCE check) shipped in E3. Gerrit 29418, Confluence 8090, Jira 8080, Bamboo 8085 still not specifically fingerprinted |
+| **I-J** VPN concentrators (Cisco ASA, Pulse/Ivanti, Fortinet, Palo, OpenVPN, WireGuard, PPTP) | ✅ shipped in `v0.26.0` — 6 vendor SSL VPN portals folded into `enum-http.sh` C.13 product-detect (Cisco AnyConnect/ASA, Fortinet, Palo GlobalProtect, Pulse/Ivanti, Citrix NetScaler, SonicWall) | All HIGH severity (each has had ≥1 pre-auth CVE in 2023-2024); OpenVPN / WireGuard / PPTP deferred (UDP / no banner / niche) |
+| **I-K** Print servers (IPP/IPPS, JetDirect, LPD, vendor admin consoles) | ✅ shipped (`v0.20.0` IPP; `v0.23.0` JetDirect + LPD via `enum-print.sh`) | Vendor admin consoles still partially covered — folds into `enum-http.sh` via existing whatweb / nuclei phases |
 
-**Outstanding work** (in priority order, biggest engagement-yield first):
+**Closure summary (2026-05-23):** Items 1–7 from the original priority list
+all shipped between `v0.23.0` and `v0.26.0`. The iteration-I reconciliation
+table above reflects the current state. Items still uncovered:
 
-1. **I-K JetDirect 9100 + LPD 515** — cheap, low-risk; banner + PJL info on
-   JetDirect, banner on LPD. Single dispatcher (`enum-print.sh`) covering
-   both. Ship target: `v0.22.x` patch or `v0.24.0` minor.
-2. **I-C FlexNet `lmstat -a`** — high yield on engineering hosts; single
-   probe per port; characteristic of MATLAB/Cadence/Synopsys/Ansys
-   environments. Dispatcher: `enum-flexnet.sh` (ports 27000–27009). Ship
-   target: `v0.24.0`.
-3. **I-F Slurm / PBS / HTCondor / YARN** — HPC schedulers; read-side
-   `sacctmgr show` / `qmgr list` / `condor_status` / YARN apps API.
-   Dispatcher: `enum-hpc.sh`. Ship target: `v0.24.0` or `v0.25.0`.
-4. **I-G DICOM / HL7 / Zabbix / Nagios NRPE / Splunk** — lab-data services;
-   ship as a `v0.25.0` mini-iteration. Splunk + Zabbix are higher priority
-   (engagement-frequency) than DICOM/HL7 (specialist).
-5. **I-H Backup (Veeam / CommVault / NetBackup)** — pre-auth RCE pedigree;
-   fingerprint-only at this tier (no exploit). Ship target: `v0.25.0`.
-6. **I-D BMC vendor fingerprinting** — fold into `enum-http.sh` product-
-   detect (alongside the existing Tomcat / Jenkins / Grafana / vCenter
-   detectors). Ship target: `v0.24.0`.
-7. **I-J VPN concentrator detection** — fold into `enum-http.sh` product-
-   detect; banner + vendor-specific path checks. Ship target: `v0.25.0`.
-8. **I-B Remote support (ICA / RDWeb / ScreenConnect)** — least urgent;
-   target shape is awkward (ICA UDP browser, RDWeb is HTTPS portal). Ship
-   target: `v0.26.0` or deferred.
+- **I-B Remote support (TeamViewer / AnyDesk / ScreenConnect / NoMachine /
+  ICA / RDWeb / RustDesk / pcAnywhere)** — least urgent and deferred. Most
+  targets are outbound-mostly; the server-side surfaces (ICA / Citrix +
+  RDWeb) are reachable today via the existing `enum-http.sh` whatweb /
+  nuclei phases without product-specific code. A dedicated
+  `enum-remotesupport.sh` would add value only if credential-relay probing
+  is added — that needs a fresh ADR.
+- **I-E partial gaps** — ESXi 902/8000, Proxmox 8006, Nutanix 9440,
+  OpenStack Keystone 5000. Could fold into `enum-http.sh` product-detect.
+  Engagement-frequency lower than the I-D/I-J vendors already shipped.
+- **I-I partial gaps** — Gerrit 29418, Confluence 8090, Jira 8080,
+  Bamboo 8085. Atlassian stack has perennial RCE history but the
+  fingerprint shape is well-handled by existing whatweb / nuclei phases;
+  a dedicated detector would be a "nice to have" not a closure-gate.
 
-**No new ADR is gating** any of items 1–7 above — each is bounded by the
-existing safety invariants (CLAUDE.md §9). Item 8 (Remote support) may need
-a scope note if it grows to include credential-relay probing; for plain
-fingerprinting, no ADR is required.
+**No new ADR is gating** any of these residual items — each is bounded by
+existing CLAUDE.md §9 invariants. Future operator request can pick any of
+them up as a discrete mini-iteration.
 
 ---
 
