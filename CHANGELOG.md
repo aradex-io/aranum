@@ -22,6 +22,9 @@ See `CLAUDE.md` §6 for the entry style guide.
 ### Security
 - `network/enum-smb.sh` — moved NTLM-relay-candidate awk-staging from the fixed path `/tmp/relay_cand.tmp` to a per-run `mktemp` file. The prior fixed path was symlink-attackable by any local user (steering the awk append target) and raced across concurrent `auto-enum.sh -P` invocations or parallel `enum-smb.sh` runs against split target lists. The output (`$OUT/_relay_candidates.txt`) is unchanged.
 
+### Fixed (continued)
+- `network/enum-http.sh` — the CLI flags `--no-nuclei`, `--no-ffuf`, `--no-whatweb`, `--probe-only` are now actually honoured. The post-`parse_common_args` parsing loop that was supposed to set the corresponding env knobs was unreachable: `parse_common_args` rejects any flag outside `--targets` / `--output` with `unknown arg: ...` → rc=1, and the caller's `|| exit 1` exited before the loop ran. Only the env-var form (`NO_NUCLEI=1 enum-http.sh ...`) ever worked from the command line. The extension flags are now pre-filtered out of `$@` before `parse_common_args` runs, so both forms work and the dispatcher contract is preserved.
+
 ---
 
 ## [v0.30.1] — 2026-05-23

@@ -13,18 +13,29 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
-parse_common_args "$@" || exit 1
-log "http: $(wc -l < "$TARGETS") targets -> $OUT"
 
-# CLI aliases for the env knobs above (override or set them)
+# Pre-filter the extension flags out of "$@" BEFORE parse_common_args runs.
+# parse_common_args (network/_lib.sh) rejects any flag that isn't --targets
+# or --output with "unknown arg: ..." → return 1; previously these CLI
+# aliases were documented and parsed in a post-call loop that could never be
+# reached, so only the env-var form (NO_NUCLEI=1 ...) ever worked from the
+# command line. Operators passing `enum-http.sh --no-nuclei ...` saw an
+# `unknown arg` error and exit instead of the intended behaviour.
+_passthrough=()
 for a in "$@"; do
     case "$a" in
         --no-nuclei)      NO_NUCLEI=1 ;;
         --no-ffuf)        NO_FFUF=1 ;;
         --no-whatweb)     NO_WHATWEB=1 ;;
         --probe-only)     WEB_PROBE_ONLY=1 ;;
+        *)                _passthrough+=("$a") ;;
     esac
 done
+set -- "${_passthrough[@]+"${_passthrough[@]}"}"
+unset _passthrough
+
+parse_common_args "$@" || exit 1
+log "http: $(wc -l < "$TARGETS") targets -> $OUT"
 
 if [ "${WEB_PROBE_ONLY:-0}" = "1" ]; then
     NO_NUCLEI=1; NO_FFUF=1; NO_WHATWEB=1
