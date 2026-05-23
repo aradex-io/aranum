@@ -674,6 +674,75 @@ elif [ -s "$LIVE_URLS" ]; then
 
         throttle_sleep
 
+        # --- 12. VMware ESXi host (NOT vCenter) ---
+        # Discriminator from block 9: title contains "VMware Host Client"
+        # (vCenter is "vSphere Client"). Probe /ui/ — same path, different marker.
+        esxi_ui_hdr="$OUT/prod_esxi_ui_hdr_${safe}.txt"
+        esxi_ui_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$esxi_ui_hdr" \
+            "${url}/ui/" 2>/dev/null)
+        if echo "$esxi_ui_body" | grep -qi "VMware Host Client"; then
+            hit "Hypervisor VMware ESXi host detected: ${url}"
+        fi
+        throttle_sleep
+
+        # --- 13. Proxmox VE ---
+        # Probe /api2/json/version — two-evidence: JSON contains "data":
+        # AND data has all three of "release":, "version":, "repoid": keys.
+        # If the endpoint returns data without auth, also emit UNAUTH signal.
+        pve_hdr="$OUT/prod_proxmox_hdr_${safe}.txt"
+        pve_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$pve_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/api2/json/version" 2>/dev/null)
+        pve_status=$(echo "$pve_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        pve_body=$(echo "$pve_body" | sed '/---HTTP-STATUS:/d')
+        if [ "$pve_status" = "200" ] \
+           && echo "$pve_body" | grep -q '"data":' \
+           && echo "$pve_body" | grep -q '"release":' \
+           && echo "$pve_body" | grep -q '"version":' \
+           && echo "$pve_body" | grep -q '"repoid":'; then
+            version=$(echo "$pve_body" | grep -oE '"version":"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Hypervisor Proxmox VE detected: ${url} — version=${version:-?}"
+            hit "UNAUTH: Proxmox version API exposed: ${url}"
+        fi
+        throttle_sleep
+
+        # --- 14. Nutanix Prism ---
+        # Probe /console/ with headers — two-evidence: Set-Cookie header
+        # contains NTNX_IGW_SESSION AND body contains "Nutanix" or "Prism".
+        ntnx_hdr="$OUT/prod_nutanix_hdr_${safe}.txt"
+        ntnx_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$ntnx_hdr" \
+            "${url}/console/" 2>/dev/null)
+        if grep -qiE 'Set-Cookie:.*NTNX_IGW_SESSION' "$ntnx_hdr" 2>/dev/null \
+           && (echo "$ntnx_body" | grep -qiE '(Nutanix|Prism)'); then
+            hit "Hypervisor Nutanix Prism detected: ${url}"
+        fi
+        throttle_sleep
+
+        # --- 15. OpenStack Keystone ---
+        # Probe /v3 — two-evidence: JSON envelope with "version":{ AND
+        # contains "status":"stable"|"beta"|"deprecated" AND contains "rel":"self".
+        ks_hdr="$OUT/prod_keystone_hdr_${safe}.txt"
+        ks_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$ks_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/v3" 2>/dev/null)
+        ks_status=$(echo "$ks_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        ks_body=$(echo "$ks_body" | sed '/---HTTP-STATUS:/d')
+        if echo "$ks_body" | grep -q '"version":{' \
+           && echo "$ks_body" | grep -qE '"status":"(stable|beta|deprecated)"' \
+           && echo "$ks_body" | grep -q '"rel":"self"'; then
+            kid=$(echo "$ks_body" | grep -oE '"id":"v[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "OpenStack Keystone detected: ${url} — id=${kid:-?}"
+        fi
+        throttle_sleep
+
     done < "$LIVE_URLS"
 fi
 
