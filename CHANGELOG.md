@@ -10,6 +10,28 @@ See `CLAUDE.md` §6 for the entry style guide.
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Enhanced
+
+### Fixed
+
+### Security
+
+### Refactored
+
+### Chore
+
+---
+
+## [v0.31.0] — 2026-05-23
+
+**Codebase-review fix-up release.** Multi-area cleanup driven by `docs/REVIEW-003-23MAY2026-codebase-audit.md`: critical-bug fixes (broken `deps-check.sh` + smoke harness, dispatcher race conditions, dead CLI flags), §9 hardening (OT/ICS confirmation gate closes the pipe-bypass), §8 sweeps (PowerShell `[CmdletBinding()]`, `Get-WmiObject` → `Get-CimInstance` for PS Core compat), build-system tightening (Makefile lint coverage now spans the privesc-enum dirs), and test-coverage expansion (39-dispatcher contract + gql.py CLI smoke).
+
+No CLI-breaking changes. MINOR per CLAUDE.md §5: new tests, new robustness checks, new PS-Core compatibility surface, new doc cross-links.
+
+### Added
 - `LICENSE` — Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0), adopted from the `purplesploit` license text with project name rebranded to *Aranum*. Non-commercial use only; commercial use requires explicit maintainer permission.
 - `tests/test_dispatcher_contract.py` — fixture-based unit tests that exercise the entire `network/enum-*.sh` dispatcher fleet (39 scripts) against the `parse_common_args` contract: empty targets → rc=0, `$OUT` created, `_hints.txt` produced for the post-Iteration-B fleet, refusal-with-rc=0 for E4 env-gated probes (ike/slp/radius). Also covers four `parse_common_args` rejection paths (unknown flag, missing flags, missing targets file). Catches regressions that the existing 14-dispatcher empty-targets smoke (smoke.sh §10b) would miss.
 - `tests/test_gql_cli.py` — CLI subcommand smoke tests for `graphql/gql.py`. Asserts every advertised subcommand (`introspect`, `ls`, `describe`, `call`, `loop`, `diff`, `raw`, `suggest`, `apq-probe`, `csrf-probe`) responds to `--help` with rc=0, and that `suggest` / `apq-probe` / `csrf-probe` degrade cleanly when the target is unreachable (no Python traceback leaked to stderr; expected marker present in output). Closes the gap noted in REVIEW T4 — `test_gql_internals.py` covered pure helpers but no CLI surface.
@@ -17,25 +39,29 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ### Changed
 - `README.md` — header rebranded to `aranum`, license badge added, new upstream repo link (`https://github.com/aradex-io/aranum`), authorization & non-commercial notice added above the layout section.
-- `README.md` (network table) — added rows for `enum-activemq.sh`, `enum-https.sh` (documented as a symlink → `enum-http.sh`), and `enum-unknown.sh`, which existed on disk but were absent from the README service table. Updated the Layout section to point operators at the per-subsystem READMEs (`activemq/README.md`, `redis/README.md`, `smtp/README.md`, `jabber/README.md`, `ot/README.md`) so the orphan helpers (`redis-quickwin.sh`, `redis-lateral.sh`, `redis-rogue-master.py`, `redis-rce-module.sh`, `redis-rce-ssh.sh`, `activemq-quickwin.sh`, `activemq-queues.sh`, `activemq-jolokia-rce.sh`, `smtp-quickwin.sh`, `smtp-relay-test.sh`, `smtp-phish-send.sh`, `smtp-smuggling-test.py`, `smtp-user-enum.sh`, `spf-dmarc-check.sh`) become discoverable from the top-level entry point.
+- `README.md` (network table) — added rows for `enum-activemq.sh`, `enum-https.sh` (documented as a symlink → `enum-http.sh`), and `enum-unknown.sh`, which existed on disk but were absent from the README service table. Updated the Layout section to point operators at the per-subsystem READMEs (`activemq/README.md`, `redis/README.md`, `smtp/README.md`, `jabber/README.md`, `ot/README.md`) so the orphan helpers become discoverable from the top-level entry point.
 - `network/bulk-enum-windows.py --help` — added an explicit `TRANSPORT-VALIDATION CAVEAT (ADR-003)` epilog that surfaces ADR-003's "WHAT THIS ADR DOES NOT VALIDATE" warning. Previously this caveat lived only in the ADR file; operators running `--help` had no way to know the WinRM transport is unverified pre-engagement.
-- `.gitignore` — added explicit patterns for `*.pem`, `*.key`, `*.crt`, `*.p12`, `*.pfx`. These were previously only covered by `*.local` (if the operator named them `engagement.pem.local`), so a stray `engagement.pem` could have been staged accidentally.
+- `.gitignore` — added explicit patterns for `*.pem`, `*.key`, `*.crt`, `*.p12`, `*.pfx`. Previously only covered by `*.local` (if the operator named them `engagement.pem.local`), so a stray `engagement.pem` could have been staged accidentally.
+- `jabber/openfire-cve-2023-32315.py cleanup` — returns rc=78 (sysexits.h `EX_CONFIG`) instead of rc=1 when hitting the documented scaffold path. rc=1 conflated "tool tried cleanup and the target rejected it" with "this code path is intentionally not implemented yet — use the manual procedure in jabber/README.md §Manual cleanup". Wrapper scripts can now branch on rc=78 to fall through to the manual procedure without treating it as a hard failure.
+
+### Enhanced
+- `windows/Get-AlwaysInstallElevated.ps1`, `windows/Get-ScheduledTasks.ps1`, `windows/Get-ServiceMisconfig.ps1`, `windows/Get-StoredCreds.ps1`, `windows/Get-TokenPrivileges.ps1`, `windows/Get-UnquotedServices.ps1`, `windows/Get-WritablePathDirs.ps1` — added `[CmdletBinding()] + param()` preamble per CLAUDE.md §8 (Verb-Noun cmdlets, advanced-function form). Bare scripts without `[CmdletBinding()]` fail to load under Constrained Language Mode (`__PSLockdownPolicy=4`) and lose common-parameter support (`-Verbose`, `-ErrorAction`, etc.). All 17 windows/*.ps1 now compliant.
+- `windows/Get-ServiceMisconfig.ps1`, `windows/Get-UnquotedServices.ps1`, `windows/Invoke-PrivEscEnum.ps1` — replaced four `Get-WmiObject win32_service` callsites with `Get-CimInstance Win32_Service`. `Get-WmiObject` is **not available** in PowerShell Core 6+ / 7+, so the affected scripts crashed under any Windows host where the operator dropped a modern `pwsh` runtime, or when invoked via `Invoke-Command` from a `pwsh` initiator. CIM uses WSMan (or DCOM as a fallback) instead of pure DCOM and is the Microsoft-recommended replacement; property names on `Win32_Service` are identical so downstream `.PathName / .Name / .StartMode / .State / .StartName` references all keep working unchanged.
 
 ### Fixed
 - `deps-check.sh` — defined missing `have()` helper at the top of the script. The Tier-2a / E4 / OT branches at lines 165+ called `have kcat`, `have nbtscan`, `have impacket-rpcdump`, etc., but `have()` is defined in `network/_lib.sh` which the script never sources. Operators following the README's "first run `./deps-check.sh`" guidance saw `have: command not found` errors during the dispatcher-readiness phase. Also tightened `set -u` → `set -uo pipefail` per CLAUDE.md §8.
 - `tests/smoke.sh` — derived `REPO` from the script's own location instead of the hardcoded `/home/jay/Documents/cyber/dev/aratool` path that previously broke `make smoke` (and therefore `make test` and the CI `make smoke` step) on every machine except one developer's box. Harness now runs in any checkout location.
+- `network/enum-http.sh` — the CLI flags `--no-nuclei`, `--no-ffuf`, `--no-whatweb`, `--probe-only` are now actually honoured. The post-`parse_common_args` parsing loop that was supposed to set the corresponding env knobs was unreachable: `parse_common_args` rejects any flag outside `--targets` / `--output` with `unknown arg: ...` → rc=1, and the caller's `|| exit 1` exited before the loop ran. Only the env-var form (`NO_NUCLEI=1 enum-http.sh ...`) ever worked from the command line. The extension flags are now pre-filtered out of `$@` before `parse_common_args` runs, so both forms work and the dispatcher contract is preserved.
+- `activemq/activemq-cve-2023-46604.py` — `--xml-file` write now uses `with open(...) as fp:` instead of a leaked-file-handle `open(args.xml_file, "w").write(cmd_xml)`. The previous form relied on CPython refcount-driven close timing; on an exception between `open()` and the implicit close, the partial XML would persist with the fd still attached to the process (and on PyPy it might never flush at all).
 
 ### Security
 - `network/enum-smb.sh` — moved NTLM-relay-candidate awk-staging from the fixed path `/tmp/relay_cand.tmp` to a per-run `mktemp` file. The prior fixed path was symlink-attackable by any local user (steering the awk append target) and raced across concurrent `auto-enum.sh -P` invocations or parallel `enum-smb.sh` runs against split target lists. The output (`$OUT/_relay_candidates.txt`) is unchanged.
-
-### Fixed (continued)
-- `network/enum-http.sh` — the CLI flags `--no-nuclei`, `--no-ffuf`, `--no-whatweb`, `--probe-only` are now actually honoured. The post-`parse_common_args` parsing loop that was supposed to set the corresponding env knobs was unreachable: `parse_common_args` rejects any flag outside `--targets` / `--output` with `unknown arg: ...` → rc=1, and the caller's `|| exit 1` exited before the loop ran. Only the env-var form (`NO_NUCLEI=1 enum-http.sh ...`) ever worked from the command line. The extension flags are now pre-filtered out of `$@` before `parse_common_args` runs, so both forms work and the dispatcher contract is preserved.
-
-### Changed
-- `jabber/openfire-cve-2023-32315.py cleanup` — returns rc=78 (sysexits.h `EX_CONFIG`) instead of rc=1 when hitting the documented scaffold path. rc=1 conflated "tool tried cleanup and the target rejected it" with "this code path is intentionally not implemented yet — use the manual procedure in jabber/README.md §Manual cleanup". Wrapper scripts can now branch on rc=78 to fall through to the manual procedure without treating it as a hard failure.
+- `ot/_lib.sh::ot_confirm_prompt` (§9 — OT/ICS confirmation hardening) — refuses non-TTY stdin (rc=2) before printing the warning, closing the `echo ICS-CONFIRMED | ot-enum.sh --ics-confirm ...` bypass. The whole point of a typed-confirmation control is "a human deliberately typed this"; piping defeats it. The escape hatch for genuinely-scripted operators (`OT_CONFIRMED=1 ./ot/enum-modbus.sh --targets ... --output ...` bypassing the orchestrator entirely) is unchanged and documented in ADR-005 D3.
 
 ### Refactored
 - `network/_lib.sh::parse_common_args` — rewrote the chained `[ -z A ] || [ -z B ] && { ...; }` guards as explicit `if … fi` blocks. The chained form parses correctly today (POSIX shell evaluates `(test||test) && action`) but the precedence is non-obvious; the explicit form makes the validation contract readable at a glance. All four contract paths verified (unknown arg, missing flags, missing file, happy).
+- `network/bulk-enum-windows.py` — removed a dead-code `if t.port == default_port and args.tls and t.port == 5986: pass` block in the targets-parsing loop. `default_port` is already set to 5986 when `--tls` is passed (lines 301-302), so the per-target check was a no-op with a misleading comment about "auto-port from --tls". Behaviour is unchanged.
+- `redis/redis-rogue-master.py` — converted the magic `for _ in range(20)` handshake loop to `while cmd_count < MAX_HANDSHAKE_CMDS` (50) with a named constant and an explicit `else` branch that surfaces a hostile/buggy peer streaming non-PSYNC commands. The previous form silently exited rc=0 if 20 commands passed without PSYNC; the new form returns rc=3 with a stderr warning so the operator knows the payload was NOT delivered.
 
 ### Chore
 - `Makefile lint` — extended shellcheck coverage to `linux/*.sh`, `ot/*.sh`, and `graphql/examples/*.sh`, which were previously not linted at all. Added `-e SC2046` (word-splitting from command substitution) because the dispatcher fleet intentionally relies on the `$(curl_proxy_arg)` / `$(curl_ua)` / `$(throttle_nmap_args)` helpers in `network/_lib.sh` emitting 0-or-2 args via word-splitting; a focused exclusion is preferable to silencing the rule globally elsewhere. The proper array-based refactor of those helpers is tracked separately and planned for v0.32.0.
@@ -46,16 +72,6 @@ See `CLAUDE.md` §6 for the entry style guide.
   - `ot/_lib.sh`: marked `OT_THROTTLE_FLOOR_MS`, `OT_MAX_PARALLEL_DEFAULT`, `OT_MAX_PARALLEL_HARD` as `export` so shellcheck recognises the cross-file consumption from `ot/ot-enum.sh` and the per-proto dispatchers.
 - Cleaned up four warnings the new `linux/*.sh` and `ot/*.sh` lint surfaced:
   - `linux/linenum-fast.sh`: added a `*)` default branch to the `getopts` `case` (SC2220), and the Baron-Samedit / CVE-2019-14287 case branch now uses bash's `;;&` fall-through so both warnings can fire on overlapping sudo versions (SC2221/SC2222). Also tightened `set -u` → `set -uo pipefail` per CLAUDE.md §8.
-- `network/bulk-enum-windows.py` — removed a dead-code `if t.port == default_port and args.tls and t.port == 5986: pass` block in the targets-parsing loop. `default_port` is already set to 5986 when `--tls` is passed (lines 301-302), so the per-target check was a no-op with a misleading comment about "auto-port from --tls". Behaviour is unchanged.
-- `redis/redis-rogue-master.py` — converted the magic `for _ in range(20)` handshake loop to `while cmd_count < MAX_HANDSHAKE_CMDS` (50) with a named constant and an explicit `else` branch that surfaces a hostile/buggy peer streaming non-PSYNC commands. The previous form silently exited rc=0 if 20 commands passed without PSYNC; the new form returns rc=3 with a stderr warning so the operator knows the payload was NOT delivered.
-- `activemq/activemq-cve-2023-46604.py` — `--xml-file` write now uses `with open(...) as fp:` instead of a leaked-file-handle `open(args.xml_file, "w").write(cmd_xml)`. The previous form relied on CPython refcount-driven close timing; on an exception between `open()` and the implicit close, the partial XML would persist with the fd still attached to the process (and on PyPy it might never flush at all).
-
-### Enhanced
-- `windows/Get-AlwaysInstallElevated.ps1`, `windows/Get-ScheduledTasks.ps1`, `windows/Get-ServiceMisconfig.ps1`, `windows/Get-StoredCreds.ps1`, `windows/Get-TokenPrivileges.ps1`, `windows/Get-UnquotedServices.ps1`, `windows/Get-WritablePathDirs.ps1` — added `[CmdletBinding()] + param()` preamble per CLAUDE.md §8 (Verb-Noun cmdlets, advanced-function form). Bare scripts without `[CmdletBinding()]` fail to load under Constrained Language Mode (`__PSLockdownPolicy=4`) and lose common-parameter support (`-Verbose`, `-ErrorAction`, etc.). All 17 windows/*.ps1 now compliant.
-- `windows/Get-ServiceMisconfig.ps1`, `windows/Get-UnquotedServices.ps1`, `windows/Invoke-PrivEscEnum.ps1` — replaced four `Get-WmiObject win32_service` callsites with `Get-CimInstance Win32_Service`. `Get-WmiObject` is **not available** in PowerShell Core 6+ / 7+, so the affected scripts crashed under any Windows host where the operator dropped a modern `pwsh` runtime, or when invoked via `Invoke-Command` from a `pwsh` initiator. CIM uses WSMan (or DCOM as a fallback) instead of pure DCOM and is the Microsoft-recommended replacement; property names on `Win32_Service` are identical so downstream `.PathName / .Name / .StartMode / .State / .StartName` references all keep working unchanged.
-
-### Security (§9 — OT/ICS confirmation hardening)
-- `ot/_lib.sh::ot_confirm_prompt` — refuses non-TTY stdin (rc=2) before printing the warning, closing the `echo ICS-CONFIRMED | ot-enum.sh --ics-confirm ...` bypass. The whole point of a typed-confirmation control is "a human deliberately typed this"; piping defeats it. The escape hatch for genuinely-scripted operators (`OT_CONFIRMED=1 ./ot/enum-modbus.sh --targets ... --output ...` bypassing the orchestrator entirely) is unchanged and documented in ADR-005 D3.
 
 ---
 
