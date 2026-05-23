@@ -25,6 +25,9 @@ See `CLAUDE.md` §6 for the entry style guide.
 ### Fixed (continued)
 - `network/enum-http.sh` — the CLI flags `--no-nuclei`, `--no-ffuf`, `--no-whatweb`, `--probe-only` are now actually honoured. The post-`parse_common_args` parsing loop that was supposed to set the corresponding env knobs was unreachable: `parse_common_args` rejects any flag outside `--targets` / `--output` with `unknown arg: ...` → rc=1, and the caller's `|| exit 1` exited before the loop ran. Only the env-var form (`NO_NUCLEI=1 enum-http.sh ...`) ever worked from the command line. The extension flags are now pre-filtered out of `$@` before `parse_common_args` runs, so both forms work and the dispatcher contract is preserved.
 
+### Changed
+- `jabber/openfire-cve-2023-32315.py cleanup` — returns rc=78 (sysexits.h `EX_CONFIG`) instead of rc=1 when hitting the documented scaffold path. rc=1 conflated "tool tried cleanup and the target rejected it" with "this code path is intentionally not implemented yet — use the manual procedure in jabber/README.md §Manual cleanup". Wrapper scripts can now branch on rc=78 to fall through to the manual procedure without treating it as a hard failure.
+
 ---
 
 ## [v0.30.1] — 2026-05-23
