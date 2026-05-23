@@ -41,14 +41,24 @@ while read -r target; do
         if grep -q '"sealed"\s*:' "$seal_file" 2>/dev/null \
            && grep -qE '"t"\s*:\s*[0-9]+' "$seal_file" 2>/dev/null \
            && grep -qE '"n"\s*:\s*[0-9]+' "$seal_file" 2>/dev/null; then
-            vault_confirmed=1
             sealed=$(grep -oE '"sealed"\s*:\s*(true|false)' "$seal_file" \
                 | head -1 | grep -oE 'true|false')
             version=$(grep -oE '"version"\s*:\s*"[^"]*"' "$seal_file" \
                 | head -1 | grep -oE '"[^"]*"$' | tr -d '"')
             cluster=$(grep -oE '"cluster_name"\s*:\s*"[^"]*"' "$seal_file" \
                 | head -1 | grep -oE '"[^"]*"$' | tr -d '"')
-            hit "Vault reachable ($scheme): $ip:$port — sealed=${sealed} version=${version} cluster=${cluster}"
+            # Third-evidence (v0.28.1): reject shape-mimicry where the version
+            # field is a bogus string. Real Vault versions are semver with an
+            # optional Enterprise suffix (1.18.3, 1.18.3+ent, 1.18.3+ent.hsm,
+            # 1.15.4-rc1). Empty version is accepted (rare early-init state).
+            # Anchor: CHANGELOG v0.22.1 "specifically-crafted evil servers" note.
+            if [ -n "$version" ] \
+               && ! echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([+\-][a-zA-Z0-9.+-]*)?$'; then
+                log "Vault candidate at $ip:$port ($scheme) rejected: version '$version' does not match expected semver shape"
+            else
+                vault_confirmed=1
+                hit "Vault reachable ($scheme): $ip:$port — sealed=${sealed} version=${version} cluster=${cluster}"
+            fi
         fi
 
         # ---------- health ----------
