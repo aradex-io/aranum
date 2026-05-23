@@ -134,6 +134,12 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bRADIUS server reachable:", re.I),                   "low"),
     (re.compile(r"\bIKE/IPsec VPN endpoint reachable:", re.I),          "low"),
     (re.compile(r"\bIKE vendor:", re.I),                                "low"),
+    # I-K — network print services (JetDirect 9100 / LPD 515). Unauth by design.
+    # HIGH because PJL filesystem dump and stored-job-name credential leak are
+    # established post-discovery follow-ups; LPD reachable is MEDIUM because
+    # the default probe does not retrieve queue jobs unless a queue name hits.
+    (re.compile(r"\bJetDirect / PJL UNAUTH:", re.I),                   "high"),
+    (re.compile(r"\bLPD reachable:", re.I),                            "medium"),
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
 
