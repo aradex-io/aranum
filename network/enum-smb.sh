@@ -111,17 +111,23 @@ fi
 # Hosts with signing disabled OR not required are NTLM-relay candidates.
 if [ -f "$OUT/nmap-smb-vuln.nmap" ]; then
     : > "$OUT/_relay_candidates.txt"
-    awk '
+    # Use a private mktemp file rather than a fixed /tmp path. The previous
+    # /tmp/relay_cand.tmp was symlink-attackable by any local user and raced
+    # across concurrent enum-smb.sh runs (e.g. parallel auto-enum.sh
+    # invocations against split target lists).
+    _relay_tmp="$(mktemp)"
+    trap '[ -n "${_relay_tmp:-}" ] && rm -f "$_relay_tmp"' EXIT
+    awk -v out="$_relay_tmp" '
         /^Nmap scan report for/ { host = $NF; gsub(/[()]/, "", host) }
-        /Message signing enabled but not required/ { print host >> "/tmp/relay_cand.tmp" }
-        /Message signing enabled: false/            { print host >> "/tmp/relay_cand.tmp" }
+        /Message signing enabled but not required/ { print host >> out }
+        /Message signing enabled: false/            { print host >> out }
     ' "$OUT/nmap-smb-vuln.nmap" 2>/dev/null
-    if [ -s /tmp/relay_cand.tmp ]; then
-        sort -u /tmp/relay_cand.tmp > "$OUT/_relay_candidates.txt"
+    if [ -s "$_relay_tmp" ]; then
+        sort -u "$_relay_tmp" > "$OUT/_relay_candidates.txt"
         n=$(wc -l < "$OUT/_relay_candidates.txt")
         err "CRITICAL: $n SMB host(s) with signing disabled or not-required — NTLM-relay candidates in _relay_candidates.txt"
-        rm -f /tmp/relay_cand.tmp
     fi
+    rm -f "$_relay_tmp"
 fi
 
 # PetitPotam: probe MS-EFSRPC EfsRpcOpenFileRaw on a DC (or any host running
