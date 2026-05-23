@@ -48,11 +48,131 @@ SEVERITY_RANK = {s: i for i, s in enumerate(SEVERITY_ORDER)}
 NAV_ITEMS = [
     ("Dashboard", "index.html"),
     ("Hosts",     "hosts.html"),
+    ("Inventory", "inventory.html"),
     ("Services",  "services.html"),
     ("Severity",  "severity.html"),
     ("Timeline",  "timeline.html"),
     ("Coverage",  "coverage.html"),
 ]
+
+# Default ports for services where the dispatcher doesn't encode the port in
+# its filenames AND the finding text doesn't always carry a port. Best-effort —
+# operators interpret missing port as "default for that service".
+DEFAULT_PORTS: dict[str, list[int]] = {
+    "smb":         [445, 139],
+    "ldap":        [389, 636],
+    "kerberos":    [88],
+    "winrm":       [5985, 5986],
+    "rdp":         [3389],
+    "ssh":         [22],
+    "ftp":         [21],
+    "snmp":        [161],
+    "nfs":         [2049],
+    "dns":         [53],
+    "mssql":       [1433],
+    "mysql":       [3306],
+    "postgres":    [5432],
+    "mongo":       [27017],
+    "redis":       [6379],
+    "vnc":         [5900],
+    "rabbitmq":    [15672, 5672],
+    "memcached":   [11211],
+    "couchdb":     [5984],
+    "etcd":        [2379, 2380],
+    "docker":      [2375, 2376],
+    "kubernetes":  [6443, 8080, 10250],
+    "ipmi":        [623],
+    "elastic":     [9200, 5601],
+    "jmx":         [1099, 9999],
+    "ajp":         [8009],
+    "oracle":      [1521],
+    "pop3":        [110, 995],
+    "imap":        [143, 993],
+    "telnet":      [23],
+    "rsync":       [873],
+    "mqtt":        [1883, 8883],
+    "sip":         [5060],
+    "ipp":         [631],
+    "zookeeper":   [2181],
+    "cassandra":   [9042],
+    "kafka":       [9092],
+    "neo4j":       [7474, 7687],
+    "influxdb":    [8086],
+    "solr":        [8983],
+    "consul":      [8500],
+    "vault":       [8200],
+    "msrpc":       [135],
+    "netbios-ns":  [137],
+    "ike":         [500],
+    "slp":         [427],
+    "radius":      [1812, 1813],
+    "print":       [9100, 515],
+    "flexnet":     [27000],
+    "hpc":         [6817, 9618, 8088],
+    "monitoring":  [10050, 5666, 8089],
+    "backup":      [9392, 1556],
+    "jabber":      [5222, 5269],
+    "http":        [80, 443, 8080, 8443],
+}
+
+# Regex for finding ports inside artifact filenames like:
+#   seal_https_8200.txt     → 8200
+#   jetdirect_9100_banner.bin → 9100
+#   yarn_8088_info.json     → 8088
+_PORT_IN_FILENAME = re.compile(r"_(\d{2,5})(?:_|\.)")
+
+# Regex for finding ports inside arbitrary finding text:
+#   - "http://10.0.0.5:8090/something"
+#   - "https://[::1]:8200"
+#   - "Vault reachable (https): 10.0.0.50:8200 — ..."
+#   - bare "10.0.0.5:445"
+_PORT_IN_TEXT = re.compile(
+    r"(?:"
+    r"://(?:\[[0-9a-fA-F:]+\]|[A-Za-z0-9.-]+):(\d{1,5})"  # url://host:port
+    r"|"
+    r"(?<![0-9])(?:\d{1,3}\.){3}\d{1,3}:(\d{1,5})\b"      # ipv4:port
+    r")"
+)
+# Regex for extracting an IPv4 from arbitrary text (re-attribution of
+# `(dispatcher)`-bucketed findings to real hosts).
+_IPV4_IN_TEXT = re.compile(r"(?<![0-9.])((?:\d{1,3}\.){3}\d{1,3})(?![0-9.])")
+
+# Scheme → default port mapping. Used when a finding line carries a URL
+# without an explicit port (e.g., `https://10.0.0.30/` → port 443).
+_SCHEME_DEFAULTS: list[tuple[str, int]] = [
+    ("https://",  443),
+    ("http://",   80),
+    ("ssh://",    22),
+    ("ftp://",    21),
+    ("rsync://",  873),
+    ("ldap://",   389),
+    ("ldaps://",  636),
+]
+
+
+def find_best_port(line: str, candidate_ports: set[int]) -> int | None:
+    """Resolve a finding line to the most likely port among candidates.
+
+    Resolution order:
+      1. Explicit ports in line text (regex match).
+      2. Scheme default from URL prefix (e.g., https:// → 443).
+      3. Single candidate (no ambiguity).
+      4. None → attribute to all candidates (caller's choice).
+    """
+    explicit: set[int] = set()
+    for m in _PORT_IN_TEXT.finditer(line):
+        p = int(m.group(1) or m.group(2) or 0)
+        if 1 <= p <= 65535 and p in candidate_ports:
+            explicit.add(p)
+    if explicit:
+        return min(explicit)
+    line_l = line.lower()
+    for sch, dport in _SCHEME_DEFAULTS:
+        if sch in line_l and dport in candidate_ports:
+            return dport
+    if len(candidate_ports) == 1:
+        return next(iter(candidate_ports))
+    return None
 
 # --------------------------------------------------------------- helpers
 def e(s) -> str:
@@ -125,6 +245,48 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     else:
         findings = list(rpt.walk_findings(out_dir, rules))
 
+    # ----- re-attribute (dispatcher)-bucketed findings to real hosts -----
+    # `report.walk_findings` assigns `host="(dispatcher)"` to lines scraped
+    # from `$OUTDIR/<svc>/_dispatcher.log`. The lines themselves frequently
+    # name a host (e.g. "UNAUTH: Jenkins API exposed: http://10.0.0.20:8080").
+    # Promote those to the actual host so the per-host page sees them.
+    # Collect the known-host set from per-host directories.
+    known_hosts: set[str] = set()
+    if not bulk:
+        for svc_dir in out_dir.iterdir():
+            if not svc_dir.is_dir() or svc_dir.name.startswith("_"):
+                continue
+            for host_dir in svc_dir.iterdir():
+                if host_dir.is_dir():
+                    name = host_dir.name
+                    if "_" in name and name.rsplit("_", 1)[-1].isdigit():
+                        known_hosts.add(name.rsplit("_", 1)[0])
+                    else:
+                        known_hosts.add(name)
+        # Also accept hosts that appear in _targets_*.txt files
+        for tf in out_dir.glob("_targets_*.txt"):
+            try:
+                for line in tf.read_text(errors="replace").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or ":" not in line:
+                        continue
+                    if line.startswith("["):
+                        ip = line.split("]:", 1)[0].lstrip("[")
+                    else:
+                        ip = line.rsplit(":", 1)[0]
+                    known_hosts.add(ip)
+            except Exception:
+                pass
+
+    for f in findings:
+        if f["host"] != "(dispatcher)":
+            continue
+        m = _IPV4_IN_TEXT.search(f["line"])
+        if m and m.group(1) in known_hosts:
+            f["host"] = m.group(1)
+        # If text contains a v6 in brackets we could also match, but our
+        # fixtures are v4-only and v6 in finding text is rare in practice.
+
     summary = rpt._summary(findings)
 
     # Group findings by host + service for cheap lookup
@@ -157,6 +319,126 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     events = read_run_log(out_dir)
     per_host_verdicts = rpt._per_host_verdicts(findings) if bulk else {}
 
+    # ----- port discovery (three sources, unioned) -----
+    # Map (host, service) -> set[int] of ports observed.
+    ports_per_host_svc: dict[tuple[str, str], set[int]] = defaultdict(set)
+
+    if not bulk:
+        # Source 1 — authoritative: $OUTDIR/_targets_<svc>.txt lines are
+        # exactly what auto-enum dispatched.
+        for tf in out_dir.glob("_targets_*.txt"):
+            svc = tf.name[len("_targets_"): -len(".txt")]
+            try:
+                for line in tf.read_text(errors="replace").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if ":" not in line:
+                        continue
+                    if line.startswith("["):
+                        # [v6]:port
+                        ip, _, port = line.rpartition("]:")
+                        ip = ip.lstrip("[")
+                    else:
+                        ip, _, port = line.rpartition(":")
+                    if port.isdigit():
+                        ports_per_host_svc[(ip, svc)].add(int(port))
+            except Exception:
+                pass
+
+        # Source 2 — filenames under $OUTDIR/<svc>/<ip>/*.
+        for svc_dir in out_dir.iterdir():
+            if not svc_dir.is_dir() or svc_dir.name.startswith("_"):
+                continue
+            for host_dir in svc_dir.iterdir():
+                if not host_dir.is_dir():
+                    continue
+                ip = host_dir.name.rsplit("_", 1)[0] if "_" in host_dir.name and host_dir.name.rsplit("_", 1)[-1].isdigit() else host_dir.name
+                # If the dir name already encodes <ip>_<port>, capture it
+                if "_" in host_dir.name and host_dir.name.rsplit("_", 1)[-1].isdigit():
+                    ports_per_host_svc[(ip, svc_dir.name)].add(int(host_dir.name.rsplit("_", 1)[-1]))
+                for fp in host_dir.rglob("*"):
+                    if not fp.is_file():
+                        continue
+                    for m in _PORT_IN_FILENAME.finditer(fp.name):
+                        p = int(m.group(1))
+                        if 1 <= p <= 65535:
+                            ports_per_host_svc[(ip, svc_dir.name)].add(p)
+
+    # Source 3 — finding-line text.
+    for f in findings:
+        for m in _PORT_IN_TEXT.finditer(f["line"]):
+            p = int(m.group(1) or m.group(2) or 0)
+            if 1 <= p <= 65535 and f["host"] != "(dispatcher)":
+                ports_per_host_svc[(f["host"], f["service"])].add(p)
+
+    # Last-resort defaults: if a (host, service) ended up with no port at
+    # all but we know it was probed (has artifacts or findings), inject the
+    # service's default port(s) so the inventory row isn't blank.
+    seen_pairs = set()
+    for h in services_per_host:
+        for s in services_per_host[h]:
+            seen_pairs.add((h, s))
+    for f in findings:
+        if f["host"] != "(dispatcher)":
+            seen_pairs.add((f["host"], f["service"]))
+    for (h, s) in seen_pairs:
+        if not ports_per_host_svc.get((h, s)):
+            for p in DEFAULT_PORTS.get(s, []):
+                ports_per_host_svc[(h, s)].add(p)
+
+    # ----- inventory records (host, port, service) flat list -----
+    # Each record bundles findings, evidence files, and severity rollup.
+    inventory: list[dict] = []
+    for (host, svc), ports in ports_per_host_svc.items():
+        host_svc_findings = [f for f in by_host.get(host, []) if f["service"] == svc]
+        evidence_files: list[str] = []
+        if not bulk:
+            host_dir = out_dir / svc / host
+            if host_dir.is_dir():
+                evidence_files = sorted(
+                    str(fp.relative_to(out_dir))
+                    for fp in host_dir.rglob("*")
+                    if fp.is_file()
+                )
+        # Pre-assign each finding to its best port (explicit > scheme > single
+        # candidate). Findings that can't be pinned to a single port are
+        # attributed to ALL candidate ports — better to over-report than to
+        # drop visibility.
+        findings_per_port: dict[int, list[dict]] = defaultdict(list)
+        for f in host_svc_findings:
+            best = find_best_port(f["line"], ports)
+            if best is not None:
+                findings_per_port[best].append(f)
+            else:
+                for p in ports:
+                    findings_per_port[p].append(f)
+        for port in sorted(ports):
+            row_findings = findings_per_port.get(port, [])
+            inventory.append({
+                "host": host,
+                "port": port,
+                "service": svc,
+                "n_findings": len(row_findings),
+                "max_severity": max_severity(row_findings),
+                "findings": row_findings,
+                "evidence_files": evidence_files,
+                "state": "findings" if row_findings else "probed",
+            })
+
+    # Sort inventory: host, then port number
+    def _ip_key(ip: str):
+        try:
+            return tuple(int(x) for x in ip.split("."))
+        except Exception:
+            return (999, 999, 999, 999, ip)
+    inventory.sort(key=lambda r: (_ip_key(r["host"]), r["port"], r["service"]))
+
+    # Build a per-host inventory index for fast per-host page rendering
+    inventory_by_host: dict[str, list[dict]] = defaultdict(list)
+    for row in inventory:
+        inventory_by_host[row["host"]].append(row)
+
     return {
         "out_dir": str(out_dir),
         "bulk": bulk,
@@ -169,6 +451,8 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
         "hosts_per_service": {s: sorted(v) for s, v in hosts_per_service.items()},
         "events": events,
         "per_host_verdicts": per_host_verdicts,
+        "inventory": inventory,
+        "inventory_by_host": dict(inventory_by_host),
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -309,16 +593,35 @@ def render_index(model: dict) -> str:
     n_services = len(set(list(model["by_service"].keys()) + list(model["hosts_per_service"].keys())))
     n_findings = len(findings)
     n_events = len(model['events'])
+    n_ports = len(model["inventory"])
+    n_ports_with_findings = sum(1 for r in model["inventory"] if r["state"] == "findings")
+
+    # Noisiest ports widget — top N (host, port, service) by finding count
+    noisy_rows = []
+    for r in sorted(model["inventory"], key=lambda x: -x["n_findings"])[:8]:
+        if r["n_findings"] == 0:
+            continue
+        noisy_rows.append(f"""
+        <tr>
+          <td><a href="host_{e(safe_name(r['host']))}.html">{e(r['host'])}</a></td>
+          <td class="num">{r['port']}</td>
+          <td><a href="service_{e(safe_name(r['service']))}.html">{e(r['service'])}</a></td>
+          <td>{severity_chip(r['max_severity'])}</td>
+          <td class="num">{r['n_findings']}</td>
+        </tr>""")
     body = f"""
 <section class="hero">
   <p class="hero-sub">
     <strong>{n_findings}</strong> finding{'s' if n_findings != 1 else ''} ·
-    <strong>{n_hosts_total}</strong> host{'s' if n_hosts_total != 1 else ''} probed
+    <strong>{n_hosts_total}</strong> host{'s' if n_hosts_total != 1 else ''}
     ({n_hosts_with_findings} with findings) ·
-    <strong>{n_services}</strong> service{'s' if n_services != 1 else ''} exercised.
+    <strong>{n_ports}</strong> port{'s' if n_ports != 1 else ''} probed
+    ({n_ports_with_findings} with findings) ·
+    <strong>{n_services}</strong> service{'s' if n_services != 1 else ''}.
     Source: <code class="mono">{e(model['out_dir'])}</code>.
     Generated {e(model['generated_at'])}.
   </p>
+  <p class="hero-cta"><a href="inventory.html">→ open the inventory (master port table)</a></p>
 </section>
 
 <section class="tiles">
@@ -347,13 +650,24 @@ def render_index(model: dict) -> str:
   </div>
 </section>
 
-<section class="card">
-  <h2 class="card-title">Recent findings</h2>
-  <p class="card-sub">Most-recent {min(8, len(findings))} of {len(findings)}.</p>
-  <table class="data">
-    <thead><tr><th>Severity</th><th>Finding</th><th>Host</th><th>Service</th></tr></thead>
-    <tbody>{''.join(recent_rows) if recent_rows else '<tr><td colspan="4" class="muted">no findings</td></tr>'}</tbody>
-  </table>
+<section class="grid2">
+  <div class="card">
+    <h2 class="card-title">Noisiest ports</h2>
+    <p class="card-sub">Top (host, port, service) by finding count. <a href="inventory.html">→ full inventory</a>.</p>
+    <table class="data">
+      <thead><tr><th>Host</th><th class="num">Port</th><th>Service</th><th>Max sev</th><th class="num">Findings</th></tr></thead>
+      <tbody>{''.join(noisy_rows) if noisy_rows else '<tr><td colspan="5" class="muted">no ports with findings</td></tr>'}</tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Recent findings</h2>
+    <p class="card-sub">Most-recent {min(8, len(findings))} of {len(findings)}.</p>
+    <table class="data">
+      <thead><tr><th>Severity</th><th>Finding</th><th>Host</th><th>Service</th></tr></thead>
+      <tbody>{''.join(recent_rows) if recent_rows else '<tr><td colspan="4" class="muted">no findings</td></tr>'}</tbody>
+    </table>
+  </div>
 </section>
 
 <section class="card">
@@ -363,6 +677,8 @@ def render_index(model: dict) -> str:
       <tr><td>Output directory</td><td><code class="mono">{e(model['out_dir'])}</code></td></tr>
       <tr><td>Hosts probed</td><td class="num">{n_hosts_total}</td></tr>
       <tr><td>Hosts with findings</td><td class="num">{n_hosts_with_findings}</td></tr>
+      <tr><td>Open ports indexed</td><td class="num">{n_ports}</td></tr>
+      <tr><td>Ports with findings</td><td class="num">{n_ports_with_findings}</td></tr>
       <tr><td>Services exercised</td><td class="num">{n_services}</td></tr>
       <tr><td>Findings emitted</td><td class="num">{n_findings}</td></tr>
       <tr><td>Run-log events</td><td class="num">{n_events}</td></tr>
@@ -422,29 +738,66 @@ def render_host_detail(model: dict, host: str) -> str:
     svcs = model["services_per_host"].get(host, [])
     ms = max_severity(fs)
     sev_counts = Counter(f["severity"] for f in fs)
+    inv_rows = model["inventory_by_host"].get(host, [])
 
-    # Findings grouped by severity then service
-    sections = []
-    for sev in SEVERITY_ORDER:
-        sev_findings = [f for f in fs if f["severity"] == sev]
-        if not sev_findings:
-            continue
-        rows = []
-        for f in sev_findings:
-            rows.append(f"""
-            <tr>
-              <td><code class="mono">{e(truncate(f['line'], 280))}</code></td>
-              <td>{e(f['service'])}</td>
-              <td><code class="mono small">{e(f['evidence_path'])}</code></td>
-            </tr>""")
-        sections.append(f"""
-        <div class="card">
-          <h2 class="card-title">{severity_chip(sev)} <span class="muted">×{len(sev_findings)}</span></h2>
-          <table class="data">
-            <thead><tr><th>Finding</th><th>Service</th><th>Evidence</th></tr></thead>
-            <tbody>{''.join(rows)}</tbody>
-          </table>
-        </div>""")
+    # ---- Port × Service table (the main new content) ----
+    # Each row is expandable via native <details>. Inside: full finding text
+    # + evidence file paths. No JS required. This is the "see everything for
+    # this host in one click" pattern requested by operators.
+    port_rows = []
+    for r in inv_rows:
+        sev = r["max_severity"]
+        state_chip = (
+            severity_chip(sev) if r["state"] == "findings"
+            else '<span class="chip chip-info">PROBED</span>'
+        )
+        # Detailed expand pane: findings table + evidence files
+        finding_rows_html = ""
+        if r["findings"]:
+            inner = []
+            for f in r["findings"]:
+                inner.append(f"""
+                <tr>
+                  <td>{severity_chip(f['severity'])}</td>
+                  <td><code class="mono">{e(truncate(f['line'], 320))}</code></td>
+                  <td><code class="mono small">{e(f['evidence_path'])}</code></td>
+                </tr>""")
+            finding_rows_html = f"""
+            <table class="data data-inner">
+              <thead><tr><th>Sev</th><th>Finding</th><th>Evidence</th></tr></thead>
+              <tbody>{''.join(inner)}</tbody>
+            </table>
+            """
+        else:
+            finding_rows_html = '<p class="muted">No severity-tagged findings. Dispatcher artifacts (if any) listed below.</p>'
+
+        # Evidence file list (only for this service; filter by /<svc>/<host>/ prefix)
+        ev_files = [
+            ef for ef in r["evidence_files"]
+            if f"/{r['service']}/" in ("/" + ef.replace("\\", "/")) or ef.startswith(f"{r['service']}/")
+        ]
+        ev_html = ""
+        if ev_files:
+            items = "".join(f'<li><code class="mono small">{e(ef)}</code></li>' for ef in ev_files[:50])
+            extra = f'<li class="muted">+{len(ev_files) - 50} more not shown</li>' if len(ev_files) > 50 else ''
+            ev_html = f'<details class="evidence-list"><summary>Evidence files ({len(ev_files)})</summary><ul>{items}{extra}</ul></details>'
+
+        port_rows.append(f"""
+        <tr data-port="{r['port']}" data-service="{e(r['service'])}" data-severity="{e(sev)}">
+          <td class="num">{r['port']}</td>
+          <td><a href="service_{e(safe_name(r['service']))}.html">{e(r['service'])}</a></td>
+          <td>{state_chip}</td>
+          <td class="num">{r['n_findings']}</td>
+          <td>
+            <details>
+              <summary>{'view ' + str(r['n_findings']) + ' finding' + ('s' if r['n_findings'] != 1 else '') if r['n_findings'] else 'view artifacts'}</summary>
+              <div class="expand-pane">
+                {finding_rows_html}
+                {ev_html}
+              </div>
+            </details>
+          </td>
+        </tr>""")
 
     svc_chips = " ".join(
         f'<a class="chip chip-svc" href="service_{e(safe_name(s))}.html">{e(s)}</a>'
@@ -460,17 +813,30 @@ def render_host_detail(model: dict, host: str) -> str:
   <p class="hero-sub">
     Highest severity: {severity_chip(ms)}
     · {len(fs)} finding{'s' if len(fs) != 1 else ''}
-    · {len(svcs)} service{'s' if len(svcs) != 1 else ''} exercised.
+    · {len(inv_rows)} port{'s' if len(inv_rows) != 1 else ''} across {len(svcs)} service{'s' if len(svcs) != 1 else ''}.
   </p>
   <p>{sev_summary or '<span class="muted">no findings emitted on this host</span>'}</p>
 </section>
 
 <section class="card">
-  <h2 class="card-title">Services discovered on this host</h2>
-  <p>{svc_chips or '<span class="muted">no services routed to this host</span>'}</p>
+  <h2 class="card-title">Port × Service inventory</h2>
+  <p class="card-sub">Every probed port on this host. Click a row to expand inline — no extra page load. Sortable by port or finding count.</p>
+  <table class="data sortable filterable" id="host-ports-table">
+    <thead><tr>
+      <th class="num" data-sort="num">Port</th>
+      <th data-sort="text">Service</th>
+      <th data-sort="severity">State</th>
+      <th class="num" data-sort="num">Findings</th>
+      <th>Detail</th>
+    </tr></thead>
+    <tbody>{''.join(port_rows) if port_rows else '<tr><td colspan="5" class="muted">no port data — was this host actually probed?</td></tr>'}</tbody>
+  </table>
 </section>
 
-{''.join(sections) if sections else '<div class="card"><p class="muted">No findings on this host (services may have been probed but emitted no severity-tagged lines).</p></div>'}
+<section class="card">
+  <h2 class="card-title">Quick service jump</h2>
+  <p>{svc_chips or '<span class="muted">no services routed to this host</span>'}</p>
+</section>
 """
     return render_page(
         f"Host · {host}",
@@ -582,6 +948,70 @@ def render_service_detail(model: dict, svc: str) -> str:
         "Services",
         breadcrumbs=[("Services", "services.html"), (svc, "")],
     )
+
+
+# --------------------------------------------------------------- inventory (master port table)
+def render_inventory(model: dict) -> str:
+    inv = model["inventory"]
+    rows = []
+    for r in inv:
+        # Top-finding preview (first finding line, truncated)
+        preview = ""
+        if r["findings"]:
+            preview = f'<code class="mono small">{e(truncate(r["findings"][0]["line"], 120))}</code>'
+        else:
+            preview = '<span class="muted">no severity-tagged findings — probe artifacts only</span>'
+        state_chip = (
+            f'<span class="chip chip-{e(r["max_severity"])}">{e(r["max_severity"].upper() if r["max_severity"] != "none" else "PROBED")}</span>'
+            if r["state"] == "findings"
+            else '<span class="chip chip-info">PROBED</span>'
+        )
+        rows.append(f"""
+        <tr data-host="{e(r['host'])}" data-port="{r['port']}" data-service="{e(r['service'])}" data-severity="{e(r['max_severity'])}" data-findings="{r['n_findings']}">
+          <td><a href="host_{e(safe_name(r['host']))}.html">{e(r['host'])}</a></td>
+          <td class="num">{r['port']}</td>
+          <td><a href="service_{e(safe_name(r['service']))}.html">{e(r['service'])}</a></td>
+          <td>{state_chip}</td>
+          <td class="num">{r['n_findings']}</td>
+          <td>{preview}</td>
+        </tr>""")
+    # Severity counts in the inventory
+    sev_counts: Counter = Counter(r["max_severity"] for r in inv if r["state"] == "findings")
+    sev_summary = " ".join(
+        f'<span class="chip chip-{e(s)}">{e(s.upper())}: {n}</span>'
+        for s in SEVERITY_ORDER if (n := sev_counts.get(s, 0))
+    )
+    probed_only = sum(1 for r in inv if r["state"] == "probed")
+    body = f"""
+<section class="hero">
+  <p class="hero-sub">
+    <strong>{len(inv)}</strong> open port{'s' if len(inv) != 1 else ''} across
+    <strong>{len({r['host'] for r in inv})}</strong> host{'s' if len({r['host'] for r in inv}) != 1 else ''}.
+    {sum(1 for r in inv if r['state'] == 'findings')} with findings · {probed_only} probed only.
+  </p>
+  <p>{sev_summary or '<span class="muted">no severity-tagged findings yet</span>'}</p>
+</section>
+
+<div class="card">
+  <p class="card-sub">
+    Click a column header to sort. Use the global search to filter — try
+    typing a port number, an IP, or a service name. Each row links to the
+    relevant host/service detail page.
+  </p>
+  <table class="data sortable filterable" id="inventory-table">
+    <thead><tr>
+      <th data-sort="text">Host</th>
+      <th class="num" data-sort="num">Port</th>
+      <th data-sort="text">Service</th>
+      <th data-sort="severity">State</th>
+      <th class="num" data-sort="num">Findings</th>
+      <th>Top finding</th>
+    </tr></thead>
+    <tbody>{''.join(rows) if rows else '<tr><td colspan="6" class="muted">no inventory entries — no _targets_*.txt files, no per-host artifacts, and no port-bearing finding text were detected</td></tr>'}</tbody>
+  </table>
+</div>
+"""
+    return render_page("Inventory", body, "Inventory")
 
 
 # --------------------------------------------------------------- severity landing + per-severity
@@ -743,7 +1173,20 @@ def export_data_json(model: dict) -> str:
             "counts": model["summary"]["counts"],
             "n_hosts": len(model["summary"]["hosts"]),
             "n_services": len(model["summary"]["services"]),
+            "n_ports": len(model["inventory"]),
         },
+        "inventory": [
+            {
+                "host":     r["host"],
+                "port":     r["port"],
+                "service":  r["service"],
+                "state":    r["state"],
+                "n":        r["n_findings"],
+                "sev":      r["max_severity"],
+                "page":     f"host_{safe_name(r['host'])}.html",
+            }
+            for r in model["inventory"]
+        ],
         "hosts": [
             {
                 "ip": h,
@@ -1000,6 +1443,56 @@ code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; border:
 .evt-begin td:nth-child(2) { color: var(--text); }
 .evt-end   td:nth-child(2) { color: var(--text-muted); }
 .evt-warn  { background: color-mix(in srgb, var(--sev-high) 8%, transparent); }
+
+/* expandable rows (per-host port table + evidence) */
+.hero-cta { margin-top: 6px; font-size: 13px; }
+.hero-cta a { font-weight: 600; }
+details > summary {
+  cursor: pointer; color: var(--link);
+  list-style: none;
+  user-select: none;
+}
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before {
+  content: "▸"; display: inline-block; margin-right: 6px;
+  transition: transform .12s; transform-origin: center;
+  color: var(--text-muted); font-size: 10px;
+}
+details[open] > summary::before { transform: rotate(90deg); }
+details > summary:hover { color: var(--link-hover); }
+.expand-pane {
+  margin-top: 10px; padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+.data .data-inner {
+  width: 100%; margin: 4px 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.data .data-inner th {
+  background: transparent;
+  position: static;
+  font-size: 10.5px;
+  padding: 6px 8px;
+}
+.data .data-inner td { padding: 6px 8px; border-bottom-color: var(--border-soft); }
+
+/* evidence file list */
+details.evidence-list { margin-top: 10px; }
+details.evidence-list > summary { color: var(--text-muted); font-size: 12px; }
+details.evidence-list ul {
+  margin: 8px 0 0; padding-left: 18px;
+  max-height: 240px; overflow-y: auto;
+  font-family: var(--font-mono); font-size: 11.5px;
+}
+details.evidence-list li { padding: 1px 0; }
+
+/* inventory + port tables tweaks */
+#inventory-table td:nth-child(2),
+#host-ports-table td:nth-child(1) { font-weight: 600; color: var(--text-strong); }
 """
 
 JS_TEMPLATE = r"""
@@ -1133,6 +1626,7 @@ def main() -> int:
     pages: list[tuple[str, str]] = []
     pages.append(("index.html", render_index(model)))
     pages.append(("hosts.html", render_hosts(model)))
+    pages.append(("inventory.html", render_inventory(model)))
     pages.append(("services.html", render_services(model)))
     pages.append(("severity.html", render_severity_landing(model)))
     for sev in SEVERITY_ORDER:
