@@ -17,6 +17,26 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.29.0] — 2026-05-23
+
+**Standalone multi-page HTML dashboard.** New tool `network/report-dashboard.py` consumes an `auto-enum.sh` `$OUTDIR` (or a `bulk-enum-*` tree) and emits a self-contained directory of HTML pages — no CDN, no build step, no server required. Open `index.html` in any browser, or serve briefly with `python3 -m http.server` for remote sharing.
+
+### Added
+- `network/report-dashboard.py` — stdlib-only Python generator. Reuses `network/report.py`'s `walk_findings` / `walk_findings_bulk` and severity rules as the data layer (no duplication). Embeds CSS + JS as module-level templates and writes them out to `assets/dashboard.css` / `assets/dashboard.js` at generation time.
+- Generated pages: `index.html` (severity tiles + top hosts + top services + recent findings + run summary), `hosts.html` (sortable/filterable table), `host_<ip>.html` (per-host detail, severity-grouped), `services.html`, `service_<svc>.html`, `severity.html` + `severity_<sev>.html` for each of critical/high/medium/low/info, `timeline.html` (chronological from `run.log`), `coverage.html` (hosts × services dispatch matrix with severity-coloured cells), plus `data.json` for client-side search.
+- Embedded CSS — GitHub Primer-inspired dark theme with light-mode toggle (CSS custom properties), severity-coloured chips and tiles (`color-mix` for transparency), responsive grid, sticky navbar + table headers, sortable column indicators, rotated header cells for the coverage matrix.
+- Embedded JS — sortable tables (text/numeric/severity-aware), client-side filter on every `.filterable` table via the global search box, theme toggle persisted in `localStorage`, keyboard shortcuts (`/` focuses search, `Esc` clears), and a quick-jump syntax (`>host 10.0.0` / `>svc smb` Enter) backed by `data.json`.
+- `tests/smoke.sh` — new section 10e exercises the dashboard generator: verifies all top-level pages + `assets/` + `data.json` are produced, validates `data.json` schema (`generated_at`/`out_dir`/`summary`/`hosts`/`services`), confirms critical findings render on `severity_critical.html`, and asserts the coverage matrix is generated. 4 new smoke checks (total now 284 pass).
+- Top-level `README.md` — new "Standalone dashboard (v0.29.0)" section with usage, page index, keyboard shortcuts, and the `--bulk` mode pointer.
+
+**Notes:**
+- Stdlib only — no Jinja2, no framework, no bundler. F-string templates with `html.escape()` for safety; deterministic output so smoke tests can byte-compare future renders.
+- The `(dispatcher)` pseudo-host that `report.py` synthesises for top-level `_dispatcher.log` findings is rendered as a discrete host row — operators see it labelled "(dispatcher)" with a host page that links to the severity-classified findings whose origin file was outside any per-host subdirectory.
+- IPv6 hosts are filename-safe: `safe_name()` replaces `:` and other non-alphanumerics with `-` (so `[2001:db8::5]` becomes `2001-db8--5`). The page title preserves the original literal.
+- Default theme is dark; preference persists in `localStorage`. Operators wanting light-by-default can set `data-theme="light"` on `<html>` in `index.html` or just click the toggle.
+
+---
+
 ## [v0.28.1] — 2026-05-23
 
 **Second-tier evil-server FP class: shape mimicry.** Closes the v0.22.1-noted gap *"specifically-crafted evil servers could still FP — that requires deeper protocol semantics (e.g. validating the version field format)"*. New `evil-shape` harness scenario + Vault dispatcher third-evidence regex. PATCH per CLAUDE.md §5 (hardening + test infrastructure; no interface change).

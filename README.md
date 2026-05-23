@@ -228,6 +228,36 @@ python3 ./network/report.py ./enum-results --redact
 
 `auto-enum.sh` also writes a central `run.log` capturing tool versions, per-dispatcher exit codes, and elapsed times; `--resume` skips services with a `.done` marker from a prior run.
 
+## Standalone dashboard (v0.29.0)
+
+For a polished multi-page view of the run — severity tiles, per-host detail, per-service detail, coverage matrix, timeline — generate the dashboard:
+
+```bash
+python3 ./network/report-dashboard.py --output ./dashboard ./enum-results
+# Open in any browser:
+xdg-open ./dashboard/index.html
+# Or share over the network briefly:
+( cd dashboard && python3 -m http.server 8765 )
+```
+
+The output is a self-contained directory of HTML pages — no CDN, no build step, no server required. Pages:
+
+| Page | Purpose |
+|---|---|
+| `index.html` | severity tiles + top hosts + top services + recent findings + run summary |
+| `hosts.html` | sortable table of every host (max severity, finding count, severity breakdown, services) |
+| `host_<ip>.html` | per-host detail — services discovered + findings grouped by severity |
+| `services.html` | sortable table of every dispatcher exercised |
+| `service_<svc>.html` | per-service detail — host inventory + all findings |
+| `severity.html` + `severity_<sev>.html` | filtered findings by severity tier |
+| `timeline.html` | chronological events from `run.log` |
+| `coverage.html` | dispatch matrix (hosts × services) with severity-coloured cells |
+| `data.json` | client-side search payload (consumed by the embedded JS) |
+
+Keyboard shortcuts inside the dashboard: `/` focuses the search box; `Esc` clears it; type `>host 10.0.0` then Enter to jump to a host page; `>svc smb` jumps to a service page. Dark theme by default with a toggle in the top nav.
+
+Pass `--bulk` when generating from a `bulk-enum-linux.sh`/`bulk-enum-windows.py` tree instead of an `auto-enum.sh` tree.
+
 ## Bulk local-enum across many hosts (iteration J)
 
 When you have low-privilege credentials on a 50-500 host internal network and need fast per-host privesc enumeration, `network/bulk-enum-linux.sh` pipes `linux/linenum-fast.sh` over SSH to each target in parallel. The remote enumerator **never lands on the victim's disk** — stdin-pipe means it lives in the SSH session's bash memory and is gone when the session ends. Output streams back over the same authenticated SSH channel. See [`docs/ADR-002-20MAY2026-bulk-enum-design.md`](docs/ADR-002-20MAY2026-bulk-enum-design.md) for the design rationale.
