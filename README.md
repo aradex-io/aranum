@@ -1,6 +1,12 @@
-# Pentest Enumeration Toolkit — 19MAY2026
+# aranum — Authorized Pentest Enumeration Toolkit
 
-Authorized-testing-only collection of privilege escalation enumeration scripts (Windows + Linux) and a network enumeration orchestrator that consumes nmap output and dispatches per-service authenticated enumeration.
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](./LICENSE)
+
+`aranum` is an authorized-testing-only collection of privilege-escalation enumeration scripts (Windows + Linux) and a network enumeration orchestrator that consumes nmap output and dispatches per-service authenticated enumeration.
+
+> **Authorization required.** Every script assumes the operator has written authorization to test the target. See [`CLAUDE.md`](./CLAUDE.md) §9 (Safety / OPSEC invariants) for the rules this repo enforces. Read [`LICENSE`](./LICENSE) before use — non-commercial only.
+
+Repo: <https://github.com/aradex-io/aranum>
 
 ## Layout
 

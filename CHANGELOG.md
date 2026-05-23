@@ -10,8 +10,10 @@ See `CLAUDE.md` §6 for the entry style guide.
 ## [Unreleased]
 
 ### Added
+- `LICENSE` — Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0), adopted from the `purplesploit` license text with project name rebranded to *Aranum*. Non-commercial use only; commercial use requires explicit maintainer permission.
 
 ### Changed
+- `README.md` — header rebranded to `aranum`, license badge added, new upstream repo link (`https://github.com/aradex-io/aranum`), authorization & non-commercial notice added above the layout section.
 
 ### Fixed
 
