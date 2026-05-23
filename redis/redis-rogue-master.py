@@ -84,9 +84,16 @@ def serve_one(host: str, port: int, payload: bytes, timeout: int = 60):
             buf = buf[l+2:]
         return parts
 
+    # Real Redis handshake is PING + a few REPLCONF + PSYNC = 3-5 commands.
+    # Cap at MAX_HANDSHAKE_CMDS so a buggy or hostile peer that streams
+    # garbage can't keep us looping indefinitely, but make the cap explicit
+    # rather than the magic `range(20)` that obscured intent.
+    MAX_HANDSHAKE_CMDS = 50
     try:
         # Step 2-7 — respond to handshake
-        for _ in range(20):  # bounded loop
+        cmd_count = 0
+        while cmd_count < MAX_HANDSHAKE_CMDS:
+            cmd_count += 1
             cmd_parts = consume_array()
             if not cmd_parts:
                 continue
@@ -116,6 +123,9 @@ def serve_one(host: str, port: int, payload: bytes, timeout: int = 60):
                 conn.sendall(b"+OK\r\n")
             else:
                 conn.sendall(b"+OK\r\n")
+        else:
+            print(f"[!] handshake hit MAX_HANDSHAKE_CMDS={MAX_HANDSHAKE_CMDS} without seeing PSYNC — bailing", file=sys.stderr)
+            return 3
         return 0
     finally:
         try: conn.shutdown(socket.SHUT_RDWR)

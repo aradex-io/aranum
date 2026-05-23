@@ -30,6 +30,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ### Refactored
 - `network/bulk-enum-windows.py` — removed a dead-code `if t.port == default_port and args.tls and t.port == 5986: pass` block in the targets-parsing loop. `default_port` is already set to 5986 when `--tls` is passed (lines 301-302), so the per-target check was a no-op with a misleading comment about "auto-port from --tls". Behaviour is unchanged.
+- `redis/redis-rogue-master.py` — converted the magic `for _ in range(20)` handshake loop to `while cmd_count < MAX_HANDSHAKE_CMDS` (50) with a named constant and an explicit `else` branch that surfaces a hostile/buggy peer streaming non-PSYNC commands. The previous form silently exited rc=0 if 20 commands passed without PSYNC; the new form returns rc=3 with a stderr warning so the operator knows the payload was NOT delivered.
 
 ---
 
