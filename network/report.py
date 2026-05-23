@@ -145,6 +145,14 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bUNAUTH: Proxmox version API exposed:", re.I),          "high"),
     (re.compile(r"\bHypervisor (VMware ESXi host|Proxmox VE|Nutanix Prism) detected:", re.I), "medium"),
     (re.compile(r"\bOpenStack Keystone detected:", re.I),                  "medium"),
+    # I-I — source/CI product consoles (Gerrit + Atlassian stack).
+    # MEDIUM for detection (Atlassian stack has perennial RCE history but
+    # fingerprint alone doesn't confirm exploitability); HIGH for the Jira
+    # serverInfo UNAUTH escalation (that endpoint disclosing version + base
+    # URL + deployment type without auth is the classic Atlassian recon
+    # entrypoint).
+    (re.compile(r"\bUNAUTH: Jira serverInfo exposed:", re.I),              "high"),
+    (re.compile(r"\bSource/CI (Gerrit|Atlassian Confluence|Atlassian Jira|Atlassian Bamboo) detected:", re.I), "medium"),
     (re.compile(r"\bRADIUS server reachable:", re.I),                   "low"),
     (re.compile(r"\bIKE/IPsec VPN endpoint reachable:", re.I),          "low"),
     (re.compile(r"\bIKE vendor:", re.I),                                "low"),
