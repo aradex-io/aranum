@@ -16,6 +16,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 - `README.md` — header rebranded to `aranum`, license badge added, new upstream repo link (`https://github.com/aradex-io/aranum`), authorization & non-commercial notice added above the layout section.
 
 ### Fixed
+- `deps-check.sh` — defined missing `have()` helper at the top of the script. The Tier-2a / E4 / OT branches at lines 165+ called `have kcat`, `have nbtscan`, `have impacket-rpcdump`, etc., but `have()` is defined in `network/_lib.sh` which the script never sources. Operators following the README's "first run `./deps-check.sh`" guidance saw `have: command not found` errors during the dispatcher-readiness phase. Also tightened `set -u` → `set -uo pipefail` per CLAUDE.md §8.
 
 ---
 

@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # deps-check.sh — verify enumeration tools.
-set -u
+set -uo pipefail
 
 R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; N="\033[0m"
 [ -t 1 ] || { R=""; G=""; Y=""; N=""; }
+
+# Local copy of network/_lib.sh::have — this script is invoked stand-alone
+# (e.g. before any dispatcher is sourced), so we cannot rely on _lib.sh.
+have() { command -v "$1" >/dev/null 2>&1; }
 
 check() {
     name="$1"; level="$2"; binary="${3:-$1}"
