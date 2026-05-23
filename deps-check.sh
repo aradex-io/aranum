@@ -207,6 +207,28 @@ check nmap           req
 check python3        req
 
 echo
+echo "=== T4 OT/ICS READ-SIDE PROBES (iteration T4) ==="
+# OT dispatchers are NEVER auto-routed. They live in ot/ and require both the
+# --ics-confirm flag on ot/ot-enum.sh AND the typed-confirmation prompt
+# (ICS-CONFIRMED). Tools used:
+#   - nmap NSE: modbus-discover, s7-info, enip-info, bacnet-info, opcua-info,
+#     dnp3-info — already required above; confirmed here for completeness.
+#   - python3 stdlib socket — already required above; used by ot/enum-iec104.sh
+#     for the TESTFR (act) APDU probe.
+# Anchor: docs/ADR-005-22MAY2026-ot-ics-safety-scope.md
+check nmap           req
+check python3        req
+cat <<'EOF'
+[i] T4 OT/ICS dispatchers require typed-confirmation gate (ICS-CONFIRMED).
+    Read docs/ADR-005-22MAY2026-ot-ics-safety-scope.md before invoking any
+    script in ot/. NEVER set OT_CONFIRMED=1 directly unless you have
+    confirmed engagement OT scope in writing. Use:
+
+        bash ot/ot-enum.sh --ics-confirm --targets ot-targets.txt --output ./out
+
+EOF
+
+echo
 echo "Install hints (Fedora/Arch/Debian vary):"
 cat <<'EOF'
   pipx install netexec                       # nxc

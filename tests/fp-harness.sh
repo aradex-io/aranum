@@ -157,7 +157,7 @@ done
 # ---- ENV-GATE TEST -----------------------------------------------------------
 # Verify that the three aggressive dispatchers refuse to run WITHOUT their env
 # var set, exit 0, produce no hits, and emit the gate-message reminder string.
-printf "\n${C}=====[ ENV-GATE TEST — 3 aggressive dispatchers ]=====${N}\n\n"
+printf "\n${C}=====[ ENV-GATE TEST — 3 aggressive + 7 OT dispatchers ]=====${N}\n\n"
 
 env_gate_failures=0
 declare -a ENV_GATE_CELLS=()
@@ -197,6 +197,45 @@ _run_gate_test() {
 _run_gate_test "ike"    "ENUM_RUN_IKE"    "ENUM_RUN_IKE=1"
 _run_gate_test "slp"    "ENUM_RUN_SLP"    "ENUM_RUN_SLP=1"
 _run_gate_test "radius" "ENUM_RUN_RADIUS" "ENUM_RUN_RADIUS=1"
+
+# T4 OT/ICS dispatchers — separate gate function because they live in ot/
+# (not network/) and the gate message they emit is different ("OT_CONFIRMED").
+_run_ot_gate_test() {
+    local svc="$1"
+    local tgt="$RUNDIR/gate-ot-${svc}.targets"
+    local out="$RUNDIR/gate-ot-${svc}-out"
+    local log="$RUNDIR/gate-ot-${svc}.log"
+    rm -rf "$out"
+    echo "127.0.0.1:65500" > "$tgt"   # high port — won't be probed anyway (gate fires first)
+
+    env -u OT_CONFIRMED timeout 10 bash "$REPO/ot/enum-${svc}.sh" \
+        --targets "$tgt" --output "$out" > "$log" 2>&1
+    local rc=$?
+
+    # Gate fires before any probe, so 0 hits expected and rc=2 (refused).
+    local hits
+    hits=$(grep -c $'^\033\\[1;32m\\[+\\]\033\\[0m' "$log" 2>/dev/null | tr -d '[:space:]')
+    hits="${hits:-0}"
+
+    local has_msg=0
+    grep -qi "OT dispatcher refused" "$log" 2>/dev/null && has_msg=1
+
+    if [ "$rc" -eq 2 ] && [ "$hits" -eq 0 ] && [ "$has_msg" -eq 1 ]; then
+        ok "OT gate ($svc): rc=2, 0 hits, refusal message present"
+    else
+        bad "OT gate ($svc): FAIL — rc=$rc hits=$hits gate_msg_found=$has_msg"
+        env_gate_failures=$((env_gate_failures + 1))
+        ENV_GATE_CELLS+=("ot/$svc gate: rc=$rc hits=$hits msg=$has_msg")
+    fi
+}
+
+_run_ot_gate_test "modbus"
+_run_ot_gate_test "s7"
+_run_ot_gate_test "enip"
+_run_ot_gate_test "bacnet"
+_run_ot_gate_test "opcua"
+_run_ot_gate_test "dnp3"
+_run_ot_gate_test "iec104"
 
 # ---- TP checks ---------------------------------------------------------------
 printf "\n${C}=====[ TP CHECKS ]=====${N}\n\n"
@@ -427,7 +466,7 @@ fi
 printf "\n${C}=====[ SUMMARY ]=====${N}\n"
 printf "  FP cells:           %d / %d (expected 0)\n" "$fp_failures" "$((${#DISPATCHERS[@]} * NUM_SCENARIOS))"
 printf "  HTTP product FP:    %d / 1 (expected 0)\n"  "$http_fp_failures"
-printf "  ENV gates:          %d / 3 (expected 0)\n"  "$env_gate_failures"
+printf "  ENV gates:          %d / 10 (expected 0)\n" "$env_gate_failures"
 printf "  TP regressions:     %d / 9 (expected 0)\n"  "$tp_failures"
 
 overall_rc=0
