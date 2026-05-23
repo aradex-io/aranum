@@ -350,7 +350,48 @@ echo "[!] CRITICAL: etcd v2/keys unauth" > "$B/etcd/_dispatcher.log"
 bash network/autoenum-diff.sh "$A" "$B" >/dev/null 2>&1
 [ "$?" -eq 1 ] && p "autoenum-diff.sh: exit 1 when new findings detected" \
                 || f "autoenum-diff.sh: did not exit 1 on new findings"
-rm -rf "$fake" "$A" "$B"
+rm -rf "$A" "$B"
+
+# -----------------------------------------------------------------
+# 10e. report-dashboard.py — multi-page HTML dashboard generator
+# Reuses the $fake outdir from 10d; verifies pages + assets + data.json.
+# -----------------------------------------------------------------
+dash=/tmp/e-dash
+rm -rf "$dash"
+if python3 network/report-dashboard.py --output "$dash" "$fake" >/dev/null 2>&1; then
+    if [ -f "$dash/index.html" ] && [ -f "$dash/hosts.html" ] \
+       && [ -f "$dash/services.html" ] && [ -f "$dash/severity.html" ] \
+       && [ -f "$dash/timeline.html" ] && [ -f "$dash/coverage.html" ] \
+       && [ -f "$dash/severity_critical.html" ] \
+       && [ -f "$dash/assets/dashboard.css" ] \
+       && [ -f "$dash/assets/dashboard.js" ] \
+       && [ -f "$dash/data.json" ]; then
+        p "report-dashboard.py: all top-level pages + assets + data.json written"
+    else
+        f "report-dashboard.py: missing one or more expected pages/assets"
+    fi
+    # data.json schema sanity
+    if python3 -c "import json,sys; d=json.load(open('$dash/data.json')); sys.exit(0 if all(k in d for k in ('generated_at','out_dir','summary','hosts','services')) else 1)"; then
+        p "report-dashboard.py: data.json schema (generated_at/out_dir/summary/hosts/services)"
+    else
+        f "report-dashboard.py: data.json schema missing required keys"
+    fi
+    # Critical finding from $fake should appear on severity_critical.html
+    if grep -q "UNAUTH Docker daemon" "$dash/severity_critical.html" 2>/dev/null; then
+        p "report-dashboard.py: critical finding rendered on severity_critical.html"
+    else
+        f "report-dashboard.py: critical finding NOT on severity_critical.html"
+    fi
+    # Coverage matrix should be generated
+    if grep -q "coverage-matrix" "$dash/coverage.html" 2>/dev/null; then
+        p "report-dashboard.py: coverage matrix present"
+    else
+        f "report-dashboard.py: coverage matrix missing"
+    fi
+else
+    f "report-dashboard.py: exit non-zero"
+fi
+rm -rf "$dash" "$fake"
 
 # version_floor helper present
 grep -q "VERSION FLOORS" deps-check.sh && p "deps-check.sh: version_floor section present" \
