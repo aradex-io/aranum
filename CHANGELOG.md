@@ -17,6 +17,26 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.22.1] — 2026-05-22
+
+**Cross-service FP harness expansion + Vault two-evidence fix.** No new dispatchers, no interface changes — PATCH per CLAUDE.md §5. The FP harness gained three "evil-server" scenarios (keyword-stuffed JSON, keyword-stuffed banner, vendor-header-stuffed HTTP/404) that close the v0.20.1-noted gap "specifically-crafted evil servers could still trigger FPs". The expansion caught one real FP in `enum-vault.sh`.
+
+### Fixed
+- `network/enum-vault.sh` — seal-status detection required only the literal string `"sealed"` in the response body. A keyword-stuffed JSON server (misconfigured honeypot, debug endpoint, evil-json fp-server flavor) was sufficient to FP. Tightened to require all three of `"sealed":`, `"t":<digit>`, and `"n":<digit>` (Shamir threshold/shares — unique to Vault's seal-status payload). Also gated the `/v1/sys/init` claim-init finding on the seal-status confirmation.
+
+### Added
+- `tests/fp-server.py` — three new flavors on ports `base+4` / `+5` / `+6`:
+  - `evil-json` — HTTP/200 with a JSON body name-dropping every dispatcher's keywords (sealed / neo4j_version / consul / vault / cassandra / influxdb / solr / jenkins / grafana / vmware-vcenter / oracle-tns / ipmi / ...).
+  - `evil-banner` — plain TCP banner with literal protocol words (ajp13 / Telnet / rsync / cassandra / ...) but no protocol behavior.
+  - `evil-product-hdrs` — HTTP/404 with `Server: Jenkins`, `X-Powered-By: Solr`, `X-Grafana-Version`, `Set-Cookie: vault_token` headers; canonical product paths return 404.
+- `tests/fp-harness.sh` — FP sweep extended from 22 × 4 = 88 cells to 22 × 7 = 154 cells; new dedicated HTTP product-detect FP cell runs `enum-http.sh` against `evil-product-hdrs` and asserts zero `detected`/`UNAUTH:` hits (covers the dispatcher that the per-port sweep cannot cover due to different target shape).
+
+**Notes:**
+- The two-evidence anchor for Vault (`"t":` AND `"n":` keys) holds for every Vault seal type — shamir / awskms / gcpckms / azurekv / transit / ocikms / alicloudkms / seal / recovery. Verified against Vault source-code constants for the seal-status response shape.
+- A specifically-crafted server that mimics a real Vault seal-status response (including Shamir `t`/`n` integers) could still FP — that requires deeper protocol semantics (e.g. validating the version field format against `^\d+\.\d+\.\d+`). Future harness expansion candidate. The current expansion stops at the "embedded keyword" class.
+
+---
+
 ## [v0.22.0] — 2026-05-22
 
 **Opt-in aggressive UDP probes + VMware vCenter detector (E4).** Three new dispatchers (IKE, SLP, RADIUS) covering UDP service-discovery surface with significant operational risk; disabled by default and double-gated (auto-enum flag + env var). Plus a vCenter detector folded into `enum-http.sh` C.13.
