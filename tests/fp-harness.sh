@@ -82,6 +82,7 @@ DISPATCHERS=(
     ajp oracle pop3 imap telnet rsync mqtt sip
     ipp zookeeper cassandra kafka neo4j influxdb solr consul vault msrpc netbios-ns
     ike slp radius
+    print
 )
 
 # Per-dispatcher extra env vars for the FP sweep. These must be set inline per
@@ -362,6 +363,46 @@ else
     TP_CELLS+=("Prometheus TP: 'Prometheus detected' missing")
 fi
 
+# -- JetDirect TP --
+jd_tp_port=$((TP_BASE + 15))
+info "JetDirect TP: testing against stub at 127.0.0.1:${jd_tp_port}"
+jd_tgt="$RUNDIR/jetdirect-tp.targets"
+jd_out="$RUNDIR/jetdirect-tp-out"
+jd_log="$RUNDIR/jetdirect-tp.log"
+rm -rf "$jd_out"
+echo "127.0.0.1:${jd_tp_port}" > "$jd_tgt"
+PRINT_EXTRA_JETDIRECT_PORT="$jd_tp_port" \
+    timeout 30 bash "$REPO/network/enum-print.sh" \
+    --targets "$jd_tgt" --output "$jd_out" > "$jd_log" 2>&1 || true
+if grep -q "JetDirect / PJL UNAUTH:" "$jd_log" 2>/dev/null; then
+    ok "JetDirect TP: 'JetDirect / PJL UNAUTH' hit present"
+else
+    bad "JetDirect TP: REGRESSION — expected hit not found"
+    grep -E "PJL|JetDirect|print:" "$jd_log" 2>/dev/null | head -5 || true
+    tp_failures=$((tp_failures + 1))
+    TP_CELLS+=("JetDirect TP: expected hit missing")
+fi
+
+# -- LPD TP --
+lpd_tp_port=$((TP_BASE + 16))
+info "LPD TP: testing against stub at 127.0.0.1:${lpd_tp_port}"
+lpd_tgt="$RUNDIR/lpd-tp.targets"
+lpd_out="$RUNDIR/lpd-tp-out"
+lpd_log="$RUNDIR/lpd-tp.log"
+rm -rf "$lpd_out"
+echo "127.0.0.1:${lpd_tp_port}" > "$lpd_tgt"
+PRINT_EXTRA_LPD_PORT="$lpd_tp_port" \
+    timeout 30 bash "$REPO/network/enum-print.sh" \
+    --targets "$lpd_tgt" --output "$lpd_out" > "$lpd_log" 2>&1 || true
+if grep -q "LPD reachable:" "$lpd_log" 2>/dev/null; then
+    ok "LPD TP: 'LPD reachable' hit present"
+else
+    bad "LPD TP: REGRESSION — expected hit not found"
+    grep -E "LPD|print:" "$lpd_log" 2>/dev/null | head -5 || true
+    tp_failures=$((tp_failures + 1))
+    TP_CELLS+=("LPD TP: expected hit missing")
+fi
+
 # -- vCenter TP --
 vc_tp_port=$((TP_BASE + 14))
 info "vCenter TP: testing against stub at 127.0.0.1:${vc_tp_port}"
@@ -387,7 +428,7 @@ printf "\n${C}=====[ SUMMARY ]=====${N}\n"
 printf "  FP cells:           %d / %d (expected 0)\n" "$fp_failures" "$((${#DISPATCHERS[@]} * NUM_SCENARIOS))"
 printf "  HTTP product FP:    %d / 1 (expected 0)\n"  "$http_fp_failures"
 printf "  ENV gates:          %d / 3 (expected 0)\n"  "$env_gate_failures"
-printf "  TP regressions:     %d / 7 (expected 0)\n"  "$tp_failures"
+printf "  TP regressions:     %d / 9 (expected 0)\n"  "$tp_failures"
 
 overall_rc=0
 
