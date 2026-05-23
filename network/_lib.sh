@@ -13,8 +13,14 @@ parse_common_args() {
             *) echo "unknown arg: $1"; return 1 ;;
         esac
     done
-    [ -z "$TARGETS" ] || [ -z "$OUT" ] && { echo "usage: $0 --targets <file> --output <dir>"; return 1; }
-    [ -f "$TARGETS" ] || { echo "targets file missing: $TARGETS"; return 1; }
+    if [ -z "$TARGETS" ] || [ -z "$OUT" ]; then
+        echo "usage: $0 --targets <file> --output <dir>"
+        return 1
+    fi
+    if [ ! -f "$TARGETS" ]; then
+        echo "targets file missing: $TARGETS"
+        return 1
+    fi
     mkdir -p "$OUT"
     return 0
 }
