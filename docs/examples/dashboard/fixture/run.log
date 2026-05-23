@@ -1,0 +1,7 @@
+2026-05-23 10:23:00  dispatch-begin: smb (2 targets)
+2026-05-23 10:24:15  dispatch-end:   smb rc=0 elapsed=75s
+2026-05-23 10:24:16  dispatch-begin: http (3 targets)
+2026-05-23 10:27:12  dispatch-end:   http rc=0 elapsed=176s
+2026-05-23 10:27:13  dispatch-begin: vault (1 targets)
+2026-05-23 10:27:48  dispatch-end:   vault rc=0 elapsed=35s
+2026-05-23 10:27:49  ot-untouched: 1 target(s) detected — operator must invoke ot/ot-enum.sh by hand

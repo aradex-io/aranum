@@ -1,0 +1,4 @@
+[10:23:01] smb: 2 targets -> $OUT/smb
+[+] SMB signing disabled at 10.0.0.5
+[+] UNAUTH SMB shares at 10.0.0.5 — IPC$, Users, Public, Backups
+[+] guest:guest authentication succeeded at 10.0.0.7

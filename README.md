@@ -258,6 +258,14 @@ Keyboard shortcuts inside the dashboard: `/` focuses the search box; `Esc` clear
 
 Pass `--bulk` when generating from a `bulk-enum-linux.sh`/`bulk-enum-windows.py` tree instead of an `auto-enum.sh` tree.
 
+To preview without running a live engagement, generate against the committed example fixture:
+
+```bash
+python3 network/report-dashboard.py --output docs/examples/dashboard/output docs/examples/dashboard/fixture && xdg-open docs/examples/dashboard/output/index.html
+```
+
+See [`docs/examples/dashboard/README.md`](docs/examples/dashboard/README.md) for what the fixture covers.
+
 ## Bulk local-enum across many hosts (iteration J)
 
 When you have low-privilege credentials on a 50-500 host internal network and need fast per-host privesc enumeration, `network/bulk-enum-linux.sh` pipes `linux/linenum-fast.sh` over SSH to each target in parallel. The remote enumerator **never lands on the victim's disk** — stdin-pipe means it lives in the SSH session's bash memory and is gone when the session ends. Output streams back over the same authenticated SSH channel. See [`docs/ADR-002-20MAY2026-bulk-enum-design.md`](docs/ADR-002-20MAY2026-bulk-enum-design.md) for the design rationale.

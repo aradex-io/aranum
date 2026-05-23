@@ -1,0 +1,7 @@
+[10:25:11] http: 3 targets -> $OUT/http
+[+] Jenkins detected: http://10.0.0.20:8080 — 2.452.1
+[+] UNAUTH: Jenkins API exposed: http://10.0.0.20:8080
+[+] Source/CI Atlassian Confluence detected: http://10.0.0.5:8090 — version=7.19.20
+[+] BMC HPE iLO detected: https://10.0.0.30 — version=iLO 5
+[+] Hypervisor Proxmox VE detected: https://10.0.0.30:8006 — version=8.1.4
+[+] UNAUTH: Proxmox version API exposed: https://10.0.0.30:8006

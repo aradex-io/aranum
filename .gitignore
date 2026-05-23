@@ -14,6 +14,9 @@ enum-results/
 network/enum-results/
 *.gnmap.tmp
 
+# Regenerated example outputs (fixtures are committed; generated output is not)
+docs/examples/*/output/
+
 # Build artifacts (redis module)
 redis/module/system.so
 
