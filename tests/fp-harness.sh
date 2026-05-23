@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/fp-harness.sh — FP/TP regression harness for aratool network dispatchers.
 #
-# Runs fp-server.py (4 wrong-service scenarios) and tp-server.py (rsync + telnet
+# Runs fp-server.py (7 wrong-service scenarios) and tp-server.py (rsync + telnet
 # true-positive stubs) in the background, exercises all 22 dispatchers, and
 # reports pass/fail. AJP TP is verified via the static fixture file
 # tests/fixtures/ajp-real-nmap.txt without needing a live server.
@@ -10,6 +10,13 @@
 #   - ike, slp, radius added to FP sweep (env-gated dispatchers need env var set)
 #   - ENV-GATE TEST block: verifies aggressive dispatchers refuse without env var
 #   - vCenter TP block added (stub at 19024)
+#
+# v0.22.1 additions (cross-service FP coverage):
+#   - evil-json scenario: HTTP/200 with JSON body name-dropping every dispatcher's keywords
+#   - evil-banner scenario: TCP banner with literal protocol words but no behavior
+#   - evil-product-hdrs scenario: HTTP/404 with Server: Jenkins / Grafana / Solr / Vault
+#     headers — used both in the dispatcher sweep AND in a dedicated HTTP-product-detect
+#     FP cell that runs enum-http.sh against it and asserts zero "detected" lines fire.
 #
 # Exit codes:
 #   0 = all green (zero FPs, TP markers intact)
@@ -22,8 +29,12 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$REPO/tests"
 
 # ---- ports -------------------------------------------------------------------
-FP_BASE=19000   # http-200=19000, ssh-banner=19001, accept-silent=19002, tcp-echo=19003
-TP_BASE=19010   # rsync-stub=19010, telnet-iac-stub=19011
+# fp-server: http-200=19000, ssh-banner=19001, accept-silent=19002, tcp-echo=19003,
+#            evil-json=19004, evil-banner=19005, evil-product-hdrs=19006
+# tp-server: rsync-stub=19010, telnet-iac-stub=19011, jenkins=19020, grafana=19021,
+#            prometheus=19022, vcenter=19024
+FP_BASE=19000
+TP_BASE=19010
 
 # ---- colour helpers ----------------------------------------------------------
 R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; C="\033[1;36m"; N="\033[0m"
@@ -90,18 +101,23 @@ declare -A SCENARIO_NAMES=(
     [1]="ssh-banner"
     [2]="accept-silent"
     [3]="tcp-echo"
+    [4]="evil-json"
+    [5]="evil-banner"
+    [6]="evil-product-hdrs"
 )
+NUM_SCENARIOS=7
 
 # ---- FP sweep ----------------------------------------------------------------
-printf "\n${C}=====[ FP SWEEP — 22 dispatchers × 4 wrong-service scenarios ]=====${N}\n\n"
-printf "%-15s %-15s %5s  %s\n" "dispatcher" "scenario" "hits" "first_hit"
-printf "%-15s %-15s %5s  %s\n" "----------" "--------" "----" "---------"
+printf "\n${C}=====[ FP SWEEP — %d dispatchers × %d wrong-service scenarios ]=====${N}\n\n" \
+    "${#DISPATCHERS[@]}" "$NUM_SCENARIOS"
+printf "%-15s %-18s %5s  %s\n" "dispatcher" "scenario" "hits" "first_hit"
+printf "%-15s %-18s %5s  %s\n" "----------" "--------" "----" "---------"
 
 fp_failures=0
 declare -a FP_CELLS=()
 
 for svc in "${DISPATCHERS[@]}"; do
-    for i in 0 1 2 3; do
+    for i in 0 1 2 3 4 5 6; do
         scen="${SCENARIO_NAMES[$i]}"
         port=$((FP_BASE + i))
         tgt="$RUNDIR/${svc}-${scen}.targets"
@@ -128,7 +144,7 @@ for svc in "${DISPATCHERS[@]}"; do
                 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')
         [ -z "$first" ] && first="-"
 
-        printf "%-15s %-15s %5s  %s\n" "$svc" "$scen" "$hits" "$first"
+        printf "%-15s %-18s %5s  %s\n" "$svc" "$scen" "$hits" "$first"
 
         if [ "$hits" -gt 0 ]; then
             fp_failures=$((fp_failures + 1))
@@ -250,6 +266,41 @@ else
     fi
 fi
 
+# ---- HTTP product-detect FP check (v0.22.1) ----------------------------------
+# enum-http.sh isn't in the per-port dispatcher sweep because its target shape
+# differs (alive-URLs not raw ip:port). This dedicated cell hits the
+# evil-product-hdrs flavor — HTTP/404 with Server: Jenkins / X-Powered-By: Solr /
+# X-Grafana-Version / Set-Cookie: vault_token=... headers but no real endpoints.
+# A correctly-disciplined product-detect MUST emit zero "detected" / "UNAUTH"
+# hits because all the canonical paths return 404 (no body / JSON markers).
+printf "\n${C}=====[ HTTP PRODUCT-DETECT FP CHECK — evil-product-hdrs ]=====${N}\n\n"
+http_fp_failures=0
+declare -a HTTP_FP_CELLS=()
+
+evil_port=$((FP_BASE + 6))
+info "enum-http.sh vs evil-product-hdrs at 127.0.0.1:${evil_port}"
+http_fp_tgt="$RUNDIR/http-evil.targets"
+http_fp_out="$RUNDIR/http-evil-out"
+http_fp_log="$RUNDIR/http-evil.log"
+rm -rf "$http_fp_out"
+echo "127.0.0.1:${evil_port}" > "$http_fp_tgt"
+NO_NUCLEI=1 NO_FFUF=1 RUN_NIKTO=0 NO_WHATWEB=1 \
+    timeout 60 bash "$REPO/network/enum-http.sh" \
+    --targets "$http_fp_tgt" --output "$http_fp_out" > "$http_fp_log" 2>&1 || true
+
+# Look for any "X detected" or "UNAUTH:" hit (these are the product-detect
+# emission patterns from enum-http.sh C.13).
+http_fp_hits=$(grep -cE "(detected|UNAUTH:)" "$http_fp_log" 2>/dev/null | tr -d '[:space:]')
+http_fp_hits="${http_fp_hits:-0}"
+if [ "$http_fp_hits" -eq 0 ]; then
+    ok "HTTP product-detect FP: 0 'detected'/'UNAUTH' hits against evil-product-hdrs"
+else
+    bad "HTTP product-detect FP: $http_fp_hits FP hit(s) on evil-product-hdrs — header-only matching too loose"
+    grep -E "(detected|UNAUTH:)" "$http_fp_log" 2>/dev/null | head -5 || true
+    http_fp_failures=1
+    HTTP_FP_CELLS+=("HTTP-product-detect: $http_fp_hits hits on evil-product-hdrs")
+fi
+
 # ---- product-detect TP checks (Jenkins / Grafana / Prometheus) --------------
 printf "\n${C}=====[ PRODUCT-DETECT TP CHECKS ]=====${N}\n\n"
 
@@ -333,9 +384,10 @@ fi
 
 # ---- summary -----------------------------------------------------------------
 printf "\n${C}=====[ SUMMARY ]=====${N}\n"
-printf "  FP cells:       %d / %d (expected 0)\n" "$fp_failures" "$((${#DISPATCHERS[@]} * 4))"
-printf "  ENV gates:      %d / 3 (expected 0)\n"  "$env_gate_failures"
-printf "  TP regressions: %d / 7 (expected 0)\n"  "$tp_failures"
+printf "  FP cells:           %d / %d (expected 0)\n" "$fp_failures" "$((${#DISPATCHERS[@]} * NUM_SCENARIOS))"
+printf "  HTTP product FP:    %d / 1 (expected 0)\n"  "$http_fp_failures"
+printf "  ENV gates:          %d / 3 (expected 0)\n"  "$env_gate_failures"
+printf "  TP regressions:     %d / 7 (expected 0)\n"  "$tp_failures"
 
 overall_rc=0
 
@@ -345,6 +397,14 @@ if [ "$fp_failures" -gt 0 ]; then
         printf "  ${R}FP${N}: %s\n" "$cell"
     done
     overall_rc=1
+fi
+
+if [ "$http_fp_failures" -gt 0 ]; then
+    printf "\n${R}HTTP PRODUCT-DETECT FPs:${N}\n"
+    for cell in "${HTTP_FP_CELLS[@]}"; do
+        printf "  ${R}FP${N}: %s\n" "$cell"
+    done
+    [ "$overall_rc" -eq 0 ] && overall_rc=1
 fi
 
 if [ "$env_gate_failures" -gt 0 ]; then
@@ -364,7 +424,7 @@ if [ "$tp_failures" -gt 0 ]; then
 fi
 
 if [ "$overall_rc" -eq 0 ]; then
-    printf "\n${G}ALL GREEN — 0 FPs, 0 ENV gate failures, 0 TP regressions${N}\n\n"
+    printf "\n${G}ALL GREEN — 0 FPs (incl. HTTP product-detect), 0 ENV gate failures, 0 TP regressions${N}\n\n"
 else
     printf "\n${R}HARNESS FAILED (rc=$overall_rc)${N}\n\n"
 fi
