@@ -126,6 +126,7 @@ aratool/
 | `network/enum-ike.sh` | **OPT-IN** IKE/IPsec UDP 500/4500 — IKEv1 main-mode handshake probe; vendor-ID extraction; doubly-gated aggressive-mode PSK hash harvest (`ENUM_IKE_AGGRESSIVE_MODE=1`); requires `--ike` or `--aggressive` |
 | `network/enum-slp.sh` | **OPT-IN** SLP UDP 427 — nmap NSE slp-discovery/slp-info; CVE-2023-29552 amplification surface flag; requires `--slp` or `--aggressive` |
 | `network/enum-radius.sh` | **OPT-IN** RADIUS UDP 1812/1813 — stdlib-only Access-Request probe; BlastRADIUS (CVE-2024-3596) Message-Authenticator enforcement precondition check; requires `--radius` or `--aggressive` |
+| `network/enum-print.sh` | Network print services — JetDirect/PJL (9100) + LPD (515); two-evidence-guarded; reports device model + PJL filesystem follow-up hints (I-K cluster from ROADMAP-001) |
 
 ## Jabber / XMPP (iteration H)
 

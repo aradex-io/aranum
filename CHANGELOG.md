@@ -17,6 +17,23 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.23.0] — 2026-05-22
+
+**Network print services (ROADMAP-001 I-K).** New `enum-print.sh` dispatcher covers HP JetDirect / PJL (9100) and LPD (515) — the print-server gap from ROADMAP-001 iteration I that ROADMAP-002 did not reach. Two-evidence-guarded against the v0.22.1 evil-banner / evil-json / evil-product-hdrs scenarios.
+
+### Added
+- `network/enum-print.sh` — JetDirect/PJL (9100): UEL-framed `@PJL INFO ID / PRODINFO / STATUS` probe with two-evidence guard requiring both the UEL framing bytes (`\x1b%-12345X`) AND a recognized `@PJL INFO …` block; LPD (515): RFC 1179 short-form queue probe (`\x04lp\n`) requiring a non-empty response AND one of the canonical Rank/Owner/Job column headers or the standard LPD error strings.
+- `network/nmap-parse.py` — `print` category routes ports 9100 and 515 with regex matching `^(jetdirect|hp-pdl-datastr|printer|lpd|spooler)`.
+- `network/report.py` — HIGH severity for `JetDirect / PJL UNAUTH:` (PJL filesystem dump and stored-job-name credential leak are established follow-ups); MEDIUM for `LPD reachable:` (default probe does not retrieve job content).
+- `tests/tp-server.py` — JetDirect stub on `base+15` (19025) with UEL-framed PJL response; LPD stub on `base+16` (19026) with RFC 1179 short-form queue dump.
+- `tests/fp-harness.sh` — JetDirect + LPD TP cells using `PRINT_EXTRA_JETDIRECT_PORT` / `PRINT_EXTRA_LPD_PORT` env-var test seams to point the dispatcher at non-privileged stub ports without changing production port lists.
+
+**Notes:**
+- The dispatcher uses production defaults `JETDIRECT_PORTS=(9100)` and `LPD_PORTS=(515)`. The two `PRINT_EXTRA_*_PORT` env vars are an additive test seam used only by `fp-harness.sh` — operators do not normally set them.
+- PJL filesystem dump (`@PJL FSDIRLIST`) and PRET-based deeper exploitation are out of scope for the default probe — they live in `_hints.txt` as operator follow-ups.
+
+---
+
 ## [v0.22.1] — 2026-05-22
 
 **Cross-service FP harness expansion + Vault two-evidence fix.** No new dispatchers, no interface changes — PATCH per CLAUDE.md §5. The FP harness gained three "evil-server" scenarios (keyword-stuffed JSON, keyword-stuffed banner, vendor-header-stuffed HTTP/404) that close the v0.20.1-noted gap "specifically-crafted evil servers could still trigger FPs". The expansion caught one real FP in `enum-vault.sh`.
