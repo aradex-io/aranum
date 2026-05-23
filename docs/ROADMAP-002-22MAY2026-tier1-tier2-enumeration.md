@@ -105,9 +105,13 @@ No new dispatchers, no SERVICE_MAP changes.
 
 ---
 
-## Tier 4 — ICS (deferred)
+## Tier 4 — ICS (deferred — now scoped)
 
-Modbus 502 / S7 102 / EtherNet/IP 44818 / BACnet 47808 require a separate spec doc and `--ics` flag with an explicit confirmation prompt. Tracked separately; do not include in E1–E4.
+Modbus 502 / S7 102 / EtherNet/IP 44818 / BACnet 47808 require a separate spec doc and `--ics-confirm` flag with an explicit confirmation prompt. Tracked separately; do not include in E1–E4.
+
+**Update 2026-05-22:** scope ADR and roadmap drafted:
+- [ADR-005-22MAY2026-ot-ics-safety-scope.md](ADR-005-22MAY2026-ot-ics-safety-scope.md) — safety scope, write-side prohibition, double-gating, throttle floor, no auto-routing.
+- [ROADMAP-003-22MAY2026-tier4-ics-enumeration.md](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md) — T4.0 through T4.11 work items targeting `v0.23.0`.
 
 ---
 
