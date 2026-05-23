@@ -17,6 +17,26 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.30.1] — 2026-05-23
+
+**Dashboard UX hardening.** Two operator-requested changes to the per-host workflow — no interface change, no new pages, PATCH per CLAUDE.md §5.
+
+### Changed
+- `network/report-dashboard.py` per-host page (`host_<ip>.html`) — every port-row's findings panel now opens by default (`<details open>`). Operators land on the page and immediately see what's there without clicking each row. The evidence-files sub-list stays collapsed (less noise; click to reveal).
+- `network/report-dashboard.py` hosts page (`hosts.html`) — adds an **Expand all / Collapse all** toolbar above the table, plus a per-row chevron (▸) that expands just that host's port × service table inline as a hidden detail row beneath. Default state is compact (one row per host); click the chevron for one host, or hit "Expand all" to reveal every host's port detail without leaving the page.
+- New column: **Ports** count alongside Findings count on the hosts table.
+
+### Added
+- Shared helper `_render_host_port_rows(model, host, details_open)` used by both the per-host page and the hosts-page inline-detail rows. Single source of truth for the port × service block layout.
+- CSS for the new toolbar (`.toolbar`, `.btn`), expand chevron (`.expand-btn` + rotation on `.open`), and inline detail row pane (`.hostdetail`, `.hostdetail-pane` with a coloured left border).
+- JS for the toolbar buttons and per-row toggle. The sort routine is updated to be pair-aware: when sorting the hosts table, each summary row is bundled with its immediately-following detail row so the two stay adjacent through any column sort. The global search filter also mirrors visibility of detail rows when the parent hostrow is hidden.
+
+### Notes
+- The per-host page's `<details>`-open default is purely declarative — every panel renders open. Operators who want a quieter view can click the panel summary to collapse. Browser preference for the `<details>` element does not persist across pages by design (matches operator expectation of a fresh start each navigation).
+- The hosts-page expand-all duplicates every host's port × service table into hidden detail rows. For very large engagements (1000+ hosts) this approximately doubles the page size — still well within modern browser limits, but worth knowing.
+
+---
+
 ## [v0.30.0] — 2026-05-23
 
 **Port-centric dashboard rework.** Operator feedback: "I need to be able to look through everything quickly — what port a service was found on, what's there, what's open — without going three levels down in pages." This release adds a master inventory page and rebuilds the per-host page around an expandable port × service table.
