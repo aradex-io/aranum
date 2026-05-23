@@ -17,6 +17,36 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.26.0] — 2026-05-23
+
+**ROADMAP-001 I-D BMC + I-J VPN closure.** 11 new product-detect probes folded into `enum-http.sh` C.13 covering 5 out-of-band BMC vendors and 6 SSL VPN concentrators. No new dispatcher files; no new safety controls; two-evidence discipline preserved against the v0.22.1 evil-product-hdrs FP cell.
+
+### Added
+- `network/enum-http.sh` C.13 — new product detectors:
+  - **I-D BMC consoles** (5 vendors):
+    - HPE iLO — `Server: HP-iLO-*` header OR body matches `iLO [0-9]+` / `HP Integrated Lights-Out` / `HPE Integrated Lights-Out`.
+    - Dell iDRAC — body matches `Integrated Dell Remote Access Controller` OR `"iDRAC"` JSON quotation OR `/restgui/start.html` returns 200.
+    - Supermicro IPMI — body matches `ATEN International` / `Supermicro` / `SMC BMC` AND `/cgi/login.cgi` returns 200/302/401.
+    - Lenovo XCC / IMM — body matches `Lenovo XClarity Controller` / `XClarity Controller` / `Integrated Management Module II` / `IBM Integrated Management Module`.
+    - Cisco CIMC — body matches `Cisco Integrated Management Controller` / `CIMC Login`.
+  - **I-J VPN concentrators** (6 vendors):
+    - Cisco AnyConnect / ASA SSL VPN — `/+CSCOE+/logon.html` matches `AnyConnect` / `webvpn_logon` / `cisco_logon` / `CSCOE`.
+    - Fortinet SSL VPN — `/remote/login` matches `FortiGate` / `Fortinet` / `fgt_lang` / `/sslvpn/` / `tos.cgi` (CVE-2022-42475 / CVE-2023-27997 reachability).
+    - Palo Alto GlobalProtect — `/global-protect/login.esp` matches `GlobalProtect Portal` / `globalprotect` / `Palo Alto Networks` (CVE-2024-3400 reachability).
+    - Pulse Secure / Ivanti Connect Secure — `/dana-na/auth/url_default/welcome.cgi` matches `Pulse Secure` / `Ivanti Connect Secure` / `dana-na` (CVE-2023-46805 + CVE-2024-21887 reachability).
+    - Citrix NetScaler Gateway — `/vpn/index.html` matches `Citrix Gateway` / `NetScaler Gateway` / `NetScaler ADC` / `/logon/LogonPoint/` (CVE-2023-3519 / CVE-2023-4966 era).
+    - SonicWall SMA / NetExtender — `/cgi-bin/welcome` matches `SonicWall` / `NetExtender` / `sma1000` / `sma100` (CVE-2024-40766 era).
+- `network/report.py` — severity rules:
+  - MEDIUM: `BMC HPE iLO|Dell iDRAC|Supermicro IPMI|Lenovo XCC/IMM|Cisco CIMC detected:` (detection alone is engagement-meaningful given default-cred history, no UNAUTH evidence so not HIGH).
+  - HIGH: `VPN Cisco AnyConnect/ASA SSL VPN|Fortinet SSL VPN|Palo Alto GlobalProtect|Pulse/Ivanti Connect Secure|Citrix NetScaler Gateway|SonicWall SMA/NetExtender detected:` (each vendor has ≥1 pre-auth CVE in 2023–2024 — fingerprint alone is high-yield).
+- `docs/ROADMAP-001-19MAY2026-thoroughness-execution.md` — reconciliation table updated to mark I-D, I-J shipped; Overall-status table gets new rows for v0.25.0 (I-C/I-F/I-G/I-H batch) and v0.26.0 (I-D/I-J). Closure summary at the bottom of iteration I documents remaining residual gaps (I-B / I-E partial / I-I partial) and notes none of them are gated by an ADR.
+
+**Notes:**
+- The evil-product-hdrs FP cell still passes 0 hits. Two-evidence discipline holds across all 11 new probes — each requires a vendor-specific body marker or vendor-specific resource-path response, not just header keywords. A keyword-stuffed `Server: HP-iLO` / `Server: Cisco` / `Server: FortiGate` header alone will not trigger any detector.
+- VPN-vendor severity is HIGH because the fingerprint alone correlates 1:1 with a pre-auth CVE that has been weaponized in the last 24 months. BMC severity is MEDIUM because the relevant attacks (default creds, ipmiseed) are post-auth or out-of-band and require correlation with the existing IPMI 623/udp dispatcher.
+
+---
+
 ## [v0.25.0] — 2026-05-23
 
 **ROADMAP-001 I-C / I-F / I-G / I-H cluster closure.** Four new `network/` dispatchers covering FlexNet license servers, HPC schedulers, monitoring/lab-data services, and backup infrastructure detection. None require new safety controls beyond CLAUDE.md §9 invariants — all are read-side, detection-grade probes.
