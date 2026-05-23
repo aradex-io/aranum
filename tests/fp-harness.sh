@@ -83,6 +83,7 @@ DISPATCHERS=(
     ipp zookeeper cassandra kafka neo4j influxdb solr consul vault msrpc netbios-ns
     ike slp radius
     print
+    flexnet hpc monitoring backup
 )
 
 # Per-dispatcher extra env vars for the FP sweep. These must be set inline per

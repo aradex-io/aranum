@@ -140,6 +140,29 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     # the default probe does not retrieve queue jobs unless a queue name hits.
     (re.compile(r"\bJetDirect / PJL UNAUTH:", re.I),                   "high"),
     (re.compile(r"\bLPD reachable:", re.I),                            "medium"),
+    # I-C — FlexNet/FLEXlm license-server (engineering/science lab characteristic).
+    # HIGH because lmstat-disclosed user list + product list is intelligence-grade.
+    (re.compile(r"\bFlexNet UNAUTH lmstat disclosure:", re.I),         "high"),
+    (re.compile(r"\bFlexNet/FLEXlm license server reachable:", re.I),  "medium"),
+    # I-F — HPC schedulers. HIGH on YARN UNAUTH (apps inventory + scheduler config
+    # are intelligence-grade); LOW on Slurm/HTCondor banner-only reachability.
+    (re.compile(r"\bYARN UNAUTH app inventory:", re.I),                "high"),
+    (re.compile(r"\bYARN ResourceManager UNAUTH:", re.I),              "high"),
+    (re.compile(r"\bHTCondor collector reachable:", re.I),             "low"),
+    (re.compile(r"\bSlurm scheduler reachable:", re.I),                "low"),
+    # I-G — monitoring (Zabbix + NRPE + Splunk). HIGH on Zabbix agent UNAUTH and
+    # Splunk mgmt API UNAUTH (both leak system identity + version); MEDIUM on
+    # Zabbix server / NRPE reachability without obvious leak.
+    (re.compile(r"\bZabbix agent UNAUTH metric query:", re.I),         "high"),
+    (re.compile(r"\bSplunk mgmt API UNAUTH:", re.I),                   "high"),
+    (re.compile(r"\bZabbix server reachable:", re.I),                  "medium"),
+    (re.compile(r"\bNagios NRPE reachable:", re.I),                    "medium"),
+    # I-H — backup infrastructure. HIGH on every detection because backup is
+    # the highest-value lateral target — the detection itself is engagement-
+    # meaningful even before any exploit.
+    (re.compile(r"\bVeeam B&R REST detected:", re.I),                  "high"),
+    (re.compile(r"\bCommVault detected:", re.I),                       "high"),
+    (re.compile(r"\bVeritas NetBackup detected:", re.I),               "high"),
     # T4 — OT/ICS read-side identification (Modbus/S7/EnIP/BACnet/OPC-UA/DNP3/IEC-104).
     # Per ADR-005 D6: situational-awareness output, no CVE-lookup. LOW by default
     # (matches the docstring's "informational banners, version fingerprints" tier).

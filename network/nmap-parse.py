@@ -163,6 +163,18 @@ SERVICE_MAP = {
     "zookeeper":   ({2181, 2182},          r"^zookeeper"),
     # I-K (low-risk iteration-I cluster) — network print services
     "print":      ({9100, 515},             r"^(jetdirect|hp-pdl-datastr|printer|lpd|spooler)"),
+    # I-C — FlexNet Publisher / FLEXlm license servers (engineering/science)
+    "flexnet":    ({27000, 27001, 27002, 27003, 27004, 27005, 27006, 27007, 27008, 27009},
+                   r"^(flexlm|lm-x|lmgrd)"),
+    # I-F — HPC schedulers (Slurm slurmctld + slurmd, HTCondor collector, YARN RM)
+    "hpc":        ({6817, 6818, 9618, 8088},
+                   r"^(slurmctld|slurmd|condor|yarn|hadoop|resourcemanager)"),
+    # I-G — monitoring / lab-data (Zabbix agent + server, NRPE, Splunk mgmt)
+    "monitoring": ({10050, 10051, 5666, 8089},
+                   r"^(zabbix|nrpe|nagios|splunk|splunkd)"),
+    # I-H — backup infrastructure detection (Veeam REST, CommVault, NetBackup)
+    "backup":     ({9392, 8400, 81, 1556},
+                   r"^(veeam|commvault|netbackup|vnetd|pbx_exchange|bpcd)"),
     # T4 — OT/ICS sentinel category. Routes the OT ports so they appear in
     # surface-area inventory, but auto-enum.sh does NOT dispatch to any
     # ot/ script — operators must invoke ot/ot-enum.sh --ics-confirm by hand
