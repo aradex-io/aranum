@@ -317,6 +317,8 @@ rm -rf "$fake"
 mkdir -p "$fake/docker" "$fake/http/10.0.0.7_80"
 echo "[!] CRITICAL: UNAUTH Docker daemon at http://10.0.0.5:2375" > "$fake/docker/_dispatcher.log"
 echo "EXPOSED: http://10.0.0.7/.git/HEAD (HTTP 200)" > "$fake/http/10.0.0.7_80/exposed.txt"
+echo "10.0.0.5:2375" > "$fake/_targets_docker.txt"
+echo "10.0.0.7:80"   > "$fake/_targets_http.txt"
 
 # report.py
 if python3 network/report.py "$fake" --label smoke >/dev/null 2>&1; then
@@ -360,6 +362,7 @@ dash=/tmp/e-dash
 rm -rf "$dash"
 if python3 network/report-dashboard.py --output "$dash" "$fake" >/dev/null 2>&1; then
     if [ -f "$dash/index.html" ] && [ -f "$dash/hosts.html" ] \
+       && [ -f "$dash/inventory.html" ] \
        && [ -f "$dash/services.html" ] && [ -f "$dash/severity.html" ] \
        && [ -f "$dash/timeline.html" ] && [ -f "$dash/coverage.html" ] \
        && [ -f "$dash/severity_critical.html" ] \
@@ -369,6 +372,13 @@ if python3 network/report-dashboard.py --output "$dash" "$fake" >/dev/null 2>&1;
         p "report-dashboard.py: all top-level pages + assets + data.json written"
     else
         f "report-dashboard.py: missing one or more expected pages/assets"
+    fi
+    # Inventory has master port table with host/port/service triples
+    if grep -q 'data-port=' "$dash/inventory.html" 2>/dev/null \
+       && grep -q '"n_ports"' "$dash/data.json" 2>/dev/null; then
+        p "report-dashboard.py: inventory page has port rows + n_ports in data.json"
+    else
+        f "report-dashboard.py: inventory page missing port rows or data.json schema"
     fi
     # data.json schema sanity
     if python3 -c "import json,sys; d=json.load(open('$dash/data.json')); sys.exit(0 if all(k in d for k in ('generated_at','out_dir','summary','hosts','services')) else 1)"; then
