@@ -28,6 +28,9 @@ See `CLAUDE.md` §6 for the entry style guide.
 ### Changed
 - `jabber/openfire-cve-2023-32315.py cleanup` — returns rc=78 (sysexits.h `EX_CONFIG`) instead of rc=1 when hitting the documented scaffold path. rc=1 conflated "tool tried cleanup and the target rejected it" with "this code path is intentionally not implemented yet — use the manual procedure in jabber/README.md §Manual cleanup". Wrapper scripts can now branch on rc=78 to fall through to the manual procedure without treating it as a hard failure.
 
+### Refactored
+- `network/bulk-enum-windows.py` — removed a dead-code `if t.port == default_port and args.tls and t.port == 5986: pass` block in the targets-parsing loop. `default_port` is already set to 5986 when `--tls` is passed (lines 301-302), so the per-target check was a no-op with a misleading comment about "auto-port from --tls". Behaviour is unchanged.
+
 ---
 
 ## [v0.30.1] — 2026-05-23

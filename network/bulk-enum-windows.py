@@ -326,15 +326,15 @@ def main() -> int:
                      f"tls={args.tls} port={args.port} script={script_path.name}")
 
     # --- parse targets ---
+    # default_port already accounts for --tls (set to 5986 if --tls else 5985
+    # at lines 301-302 above), so parse_spec inherits the correct fallback.
+    # Per-target ports in the targets file override it.
     targets: list[Target] = []
     default_port = args.port
     for line in targets_path.read_text().splitlines():
         t = parse_spec(line, args.user or os.environ.get("USER", ""), default_port)
         if t is None:
             continue
-        # auto-port from --tls if the target file didn't override it
-        if t.port == default_port and args.tls and t.port == 5986:
-            pass  # already set
         targets.append(t)
     if not targets:
         err("no host entries in targets file (after stripping comments / blanks)")
