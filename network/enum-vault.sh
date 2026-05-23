@@ -26,22 +26,28 @@ while read -r target; do
     # Try both http and https — operators sometimes terminate TLS upstream
     for scheme in http https; do
         base="${scheme}://${ip}:${port}"
+        vault_confirmed=0
 
         # ---------- seal-status ----------
         curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
             "$base/v1/sys/seal-status" \
             > "$OUT/$ip/seal_${scheme}_${port}.txt" 2>&1 || true
 
-        if grep -q '"sealed"' "$OUT/$ip/seal_${scheme}_${port}.txt" 2>/dev/null; then
-            sealed=$(grep -oE '"sealed"\s*:\s*(true|false)' \
-                "$OUT/$ip/seal_${scheme}_${port}.txt" | head -1 \
-                | grep -oE 'true|false')
-            version=$(grep -oE '"version"\s*:\s*"[^"]*"' \
-                "$OUT/$ip/seal_${scheme}_${port}.txt" | head -1 \
-                | grep -oE '"[^"]*"$' | tr -d '"')
-            cluster=$(grep -oE '"cluster_name"\s*:\s*"[^"]*"' \
-                "$OUT/$ip/seal_${scheme}_${port}.txt" | head -1 \
-                | grep -oE '"[^"]*"$' | tr -d '"')
+        # Two-evidence discipline: a real Vault seal-status response carries
+        # `"sealed":` AND `"t":\d+` AND `"n":\d+` (Shamir threshold / shares).
+        # The `t` and `n` keys do not appear in random keyword-stuffed JSON;
+        # `"sealed":` alone matches anything that happens to mention sealing.
+        seal_file="$OUT/$ip/seal_${scheme}_${port}.txt"
+        if grep -q '"sealed"\s*:' "$seal_file" 2>/dev/null \
+           && grep -qE '"t"\s*:\s*[0-9]+' "$seal_file" 2>/dev/null \
+           && grep -qE '"n"\s*:\s*[0-9]+' "$seal_file" 2>/dev/null; then
+            vault_confirmed=1
+            sealed=$(grep -oE '"sealed"\s*:\s*(true|false)' "$seal_file" \
+                | head -1 | grep -oE 'true|false')
+            version=$(grep -oE '"version"\s*:\s*"[^"]*"' "$seal_file" \
+                | head -1 | grep -oE '"[^"]*"$' | tr -d '"')
+            cluster=$(grep -oE '"cluster_name"\s*:\s*"[^"]*"' "$seal_file" \
+                | head -1 | grep -oE '"[^"]*"$' | tr -d '"')
             hit "Vault reachable ($scheme): $ip:$port — sealed=${sealed} version=${version} cluster=${cluster}"
         fi
 
@@ -51,13 +57,17 @@ while read -r target; do
             > "$OUT/$ip/health_${scheme}_${port}.txt" 2>&1 || true
 
         # ---------- init state ----------
-        curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
-            "$base/v1/sys/init" \
-            > "$OUT/$ip/init_${scheme}_${port}.txt" 2>&1 || true
+        # Only probe init if seal-status confirmed this is Vault — otherwise
+        # `"initialized":false` on a keyword-stuffed JSON server would FP.
+        if [ "$vault_confirmed" = 1 ]; then
+            curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+                "$base/v1/sys/init" \
+                > "$OUT/$ip/init_${scheme}_${port}.txt" 2>&1 || true
 
-        if grep -q '"initialized"\s*:\s*false' \
-            "$OUT/$ip/init_${scheme}_${port}.txt" 2>/dev/null; then
-            hit "Vault NOT INITIALIZED (claim-init opportunity): $ip:$port"
+            if grep -qE '"initialized"\s*:\s*false' \
+                "$OUT/$ip/init_${scheme}_${port}.txt" 2>/dev/null; then
+                hit "Vault NOT INITIALIZED (claim-init opportunity): $ip:$port"
+            fi
         fi
 
     done
