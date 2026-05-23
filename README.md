@@ -15,6 +15,7 @@ aratool/
 ├── smtp/           # SMTP enumeration + relay / smuggling tests
 ├── creds/          # Default-credential sweep
 ├── jabber/         # XMPP/Jabber enum + OpenFire CVE-2023-32315 helper
+├── ot/             # Tier 4 — OT/ICS read-side ID (gated; never auto-routed)
 ├── docs/           # CLAUDE.md governance, ADRs, REVIEW + ROADMAP
 └── deps-check.sh   # Verify required tools on attacker box
 ```
@@ -127,6 +128,25 @@ aratool/
 | `network/enum-slp.sh` | **OPT-IN** SLP UDP 427 — nmap NSE slp-discovery/slp-info; CVE-2023-29552 amplification surface flag; requires `--slp` or `--aggressive` |
 | `network/enum-radius.sh` | **OPT-IN** RADIUS UDP 1812/1813 — stdlib-only Access-Request probe; BlastRADIUS (CVE-2024-3596) Message-Authenticator enforcement precondition check; requires `--radius` or `--aggressive` |
 | `network/enum-print.sh` | Network print services — JetDirect/PJL (9100) + LPD (515); two-evidence-guarded; reports device model + PJL filesystem follow-up hints (I-K cluster from ROADMAP-001) |
+
+### Tier 4 — OT/ICS read-side identification (`ot/`)
+
+**Auto-enum NEVER routes to these.** They live in `ot/` and require both
+`--ics-confirm` and a typed `ICS-CONFIRMED` prompt. Read
+[`ot/README.md`](ot/README.md) and
+[`docs/ADR-005-22MAY2026-ot-ics-safety-scope.md`](docs/ADR-005-22MAY2026-ot-ics-safety-scope.md)
+before invoking. Write-side function codes are hard-prohibited — no override.
+
+| Script | Protocol / Port | Probe |
+|---|---|---|
+| `ot/ot-enum.sh` | orchestrator | Typed-confirmation gate; routes targets to per-proto dispatchers; throttle floor 500ms; max-parallel ceiling 4 |
+| `ot/enum-modbus.sh` | Modbus TCP 502 | FC 17 (Report Slave ID) via `nmap modbus-discover aggressive=false` |
+| `ot/enum-s7.sh` | Siemens S7comm 102 | Read SZL via `nmap s7-info` (COTP CR + Job 0x29) |
+| `ot/enum-enip.sh` | EtherNet/IP 44818 | List Identity (0x0063) via `nmap enip-info` |
+| `ot/enum-bacnet.sh` | BACnet/IP 47808/udp | Who-Is broadcast via `nmap bacnet-info` |
+| `ot/enum-opcua.sh` | OPC-UA 4840 | GetEndpoints (no session) via `nmap opcua-info` |
+| `ot/enum-dnp3.sh` | DNP3 20000 | link-status request via `nmap dnp3-info` |
+| `ot/enum-iec104.sh` | IEC 60870-5-104 2404 | TESTFR (act) APDU via stdlib socket |
 
 ## Jabber / XMPP (iteration H)
 

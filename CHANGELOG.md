@@ -17,6 +17,36 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.24.0] — 2026-05-23
+
+**Tier 4 OT/ICS read-side identification (T4 / ROADMAP-003).** New `ot/` directory with orchestrator + 7 read-side dispatchers covering Modbus, Siemens S7, EtherNet/IP, BACnet, OPC-UA, DNP3, and IEC 60870-5-104. Scope and safety controls land per [`ADR-005`](docs/ADR-005-22MAY2026-ot-ics-safety-scope.md): hard write-side prohibition, double-gated typed confirmation, 500 ms throttle floor, no auto-routing.
+
+### Added
+- `ot/_lib.sh` — OT-specific safety helpers: `ot_require_confirmed` (refuses with rc=2 unless `OT_CONFIRMED=1`), `ot_throttle_sleep` (500 ms non-overridable floor), `ot_confirm_prompt` (typed `ICS-CONFIRMED` gate), `ot_clamp_parallel` (4-host ceiling), `ot_split_target` (`ip:port/proto` form).
+- `ot/ot-enum.sh` — orchestrator. Requires `--ics-confirm` flag AND the typed `ICS-CONFIRMED` prompt. Groups targets by `proto` and dispatches to the matching `ot/enum-*.sh`. Exports `OT_CONFIRMED=1` only after a successful prompt. No auto-routing from `nmap-parse.py`.
+- `ot/enum-modbus.sh` — Modbus TCP 502 read-side ID via `nmap modbus-discover` with `aggressive=false` (FC 17 / FC 43 read-only). Two-evidence: `mbap|modbus` service fingerprint AND a `Vendor:`/`Product code:`/`MajorMinorRevision:` disclosure line.
+- `ot/enum-s7.sh` — Siemens S7comm 102 via `nmap s7-info` (SZL ID 0x11/0x1c). Two-evidence: `s7-info` NSE output AND a SZL-derived field (Module/Basic Firmware/Plant Identification/etc.).
+- `ot/enum-enip.sh` — EtherNet/IP 44818 (TCP+UDP) via `nmap enip-info` (List Identity 0x0063). Two-evidence: `enip-info` NSE output AND a Vendor/Product Name/Serial Number field.
+- `ot/enum-bacnet.sh` — BACnet/IP 47808/udp via `nmap bacnet-info` (Who-Is broadcast). Two-evidence: `bacnet-info` NSE output AND a Vendor Name/Model/Firmware/Location field.
+- `ot/enum-opcua.sh` — OPC-UA 4840 via `nmap opcua-info` (GetEndpoints, no session). Two-evidence: `opcua-info` NSE output AND an EndpointUrl/ProductUri/SecurityPolicyUri field. `None`-policy advertisement emitted as a separate LOW-severity finding always accompanied by the full policy list.
+- `ot/enum-dnp3.sh` — DNP3 20000 via `nmap dnp3-info` (link-status, function 9). Two-evidence: `dnp3-info` NSE output AND a Source/Destination/Master/Outstation field.
+- `ot/enum-iec104.sh` — IEC 60870-5-104 2404 via stdlib socket (TESTFR (act) APDU, exactly 6 bytes outbound, 3 s timeout). Two-evidence: `rc=0` AND response starts with `0x68 0x04` (start byte + APCI length). `680483xxxxxx` is parsed as TESTFR confirmation; `6804xxxx...` framing-present.
+- `network/nmap-parse.py` — `ot-untouched` sentinel category routes ports 502/102/44818/47808/4840/20000/2404 for surface-area inventory. **There is no corresponding `enum-ot-untouched.sh`** — the routing is intentionally a dead end.
+- `network/auto-enum.sh` — special-case for `ot-untouched`: prints a hint pointing to ADR-005 + ROADMAP-003 + `ot/ot-enum.sh --ics-confirm` and counts the targets in the run log, then returns without probing.
+- `network/report.py` — LOW severity rules for `OT-ID …` lines and for the OPC-UA `None`-policy advertisement (per ADR-005 D6: situational awareness, no CVE-lookup).
+- `tests/fp-harness.sh` — 7 new OT env-gate cells verifying each `ot/enum-*.sh` refuses without `OT_CONFIRMED=1` (rc=2, 0 hits, refusal message present). ENV-GATE TEST block now runs 10 dispatchers (3 aggressive + 7 OT).
+- `deps-check.sh` — T4 OT/ICS section reasserts `nmap` (NSE scripts) and `python3` (stdlib socket) as required; emits a runtime note pointing to ADR-005 and the `ot-enum.sh --ics-confirm` entrypoint.
+- `ot/README.md` — opens with the ADR-005 safety section verbatim; dispatcher index; "if any of the above is unclear, do not run these tools" close.
+- Top-level `README.md` — adds `ot/` row to layout tree; new "Tier 4 — OT/ICS read-side identification" subsection in the dispatcher table.
+
+**Notes:**
+- All 7 OT dispatchers are nmap-NSE-driven except `enum-iec104.sh`, which uses an inline python3 stdlib-socket probe because nmap has no first-party IEC-104 NSE script. The probe is exactly 6 bytes outbound — no protocol state is left on the device beyond a single TESTFR exchange.
+- The `ot-untouched` sentinel category in `nmap-parse.py` is the load-bearing mechanism that keeps `auto-enum.sh` from ever invoking an OT dispatcher. Removing it (or adding a fallback `enum-ot-untouched.sh`) would break ADR-005 D1.
+- Per ADR-005 D6, no CRITICAL or HIGH severity rules ship for OT findings. Future iterations may add MEDIUM for combined evidence (BACnet device with no security advertised AND firmware-rev disclosed); CVE-lookup feeds remain explicitly out of scope.
+- The throttle floor (`OT_THROTTLE_FLOOR_MS=500`) ignores `ENUM_THROTTLE=aggressive`. This is intentional and load-bearing per ADR-005 D4.
+
+---
+
 ## [v0.23.0] — 2026-05-22
 
 **Network print services (ROADMAP-001 I-K).** New `enum-print.sh` dispatcher covers HP JetDirect / PJL (9100) and LPD (515) — the print-server gap from ROADMAP-001 iteration I that ROADMAP-002 did not reach. Two-evidence-guarded against the v0.22.1 evil-banner / evil-json / evil-product-hdrs scenarios.
