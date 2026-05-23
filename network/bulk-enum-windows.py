@@ -245,6 +245,17 @@ def _run_log(out_dir: Path, msg: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
+        epilog=(
+            "TRANSPORT-VALIDATION CAVEAT (ADR-003):\n"
+            "  The WinRM transport (pywinrm against live Windows 5985/5986) is\n"
+            "  NOT exercised in this codebase's CI — no domain-joined Windows\n"
+            "  host is available. Mock-pywinrm unit tests cover target parsing,\n"
+            "  IPv6 bracketing, output layout, arg validation, --dry-run, and\n"
+            "  --throttle precedence, but the actual transport is verified by\n"
+            "  the operator's first real run against a known-good Windows VM.\n"
+            "  Treat the first run as engagement prep, not the engagement.\n"
+            "  See: docs/ADR-003-20MAY2026-windows-bulk-enum-design.md"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--targets", required=True,
                     help="one host or user@host[:port] per line; '#' comments OK")

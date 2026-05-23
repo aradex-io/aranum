@@ -31,6 +31,11 @@ redis/module/system.so
 # Local secrets / engagement notes — never commit
 *.pat
 *.glpat
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
 creds.local
 *.local
 notes/
