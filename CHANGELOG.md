@@ -17,6 +17,39 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.25.0] — 2026-05-23
+
+**ROADMAP-001 I-C / I-F / I-G / I-H cluster closure.** Four new `network/` dispatchers covering FlexNet license servers, HPC schedulers, monitoring/lab-data services, and backup infrastructure detection. None require new safety controls beyond CLAUDE.md §9 invariants — all are read-side, detection-grade probes.
+
+### Added
+- `network/enum-flexnet.sh` (I-C) — FlexNet Publisher / FLEXlm license-server enumeration on 27000–27009. Two-evidence: banner must contain `lmgrd`/`FLEXlm`/`FLEXnet`/`5279`/`License server status` OR start with the legacy 0x2A protocol byte. If `lmutil` is available locally, runs `lmstat -a -c PORT@HOST` and reports feature count + active-user count + first 5 licensed product names. Characteristic of MATLAB/Cadence/Synopsys/Ansys/COMSOL/Mentor hosts.
+- `network/enum-hpc.sh` (I-F) — HPC scheduler enumeration:
+  - Slurm 6817 / 6818 — nmap banner probe; reachability + role disclosure (slurmctld vs slurmd) only.
+  - HTCondor 9618 — TCP connect + banner; matches `DC_*` / `CONDOR` / `shared_port` markers.
+  - YARN 8088 — `curl /ws/v1/cluster/info`; two-evidence requires `"clusterInfo"` JSON key AND one of `hadoopVersion` / `resourceManagerVersion` / `state` / `startedOn`. On UNAUTH detect, also pulls `/ws/v1/cluster/apps?limit=20` for app inventory.
+- `network/enum-monitoring.sh` (I-G) — Zabbix + NRPE + Splunk:
+  - Zabbix agent 10050 — stdlib-python framed ZBXD request for `agent.ping`/`agent.version`/`system.uname`/`agent.hostname`; two-evidence requires ZBXD framing AND at least one non-`ZBX_NOTSUPPORTED` value.
+  - Zabbix server 10051 — nmap `zabbix-info` NSE if available.
+  - Nagios NRPE 5666 — stdlib-python v2 `_NRPE_CHECK` probe with proper CRC32; two-evidence requires `rc=0` AND printable response matching `CHECK_NRPE` / `NRPE v…` / `Command not allowed` / `Could not read`.
+  - Splunk mgmt API 8089 — `curl /services/info`; two-evidence requires Atom-feed XML envelope AND at least one of `version` / `build` / `licenseSignature` / `serverName` `<s:key>` element.
+- `network/enum-backup.sh` (I-H) — Backup-infrastructure detection (DETECT-ONLY at this tier):
+  - Veeam B&R REST 9392 — `curl /api/v1/serverInfo`; two-evidence requires either `Server: Veeam` / `X-RestSvcSessionId` header OR `vbrVersion`/`patchLevel`/`serverName`/`name` JSON keys.
+  - CommVault 8400 / 81 — `curl /SearchSvc/CVWebService.svc/`; matches `CVWebService`/`CommVault`/`CVSearchSvc`/`Commvault Systems`.
+  - Veritas NetBackup 1556 — nmap banner; fingerprint match on `vnetd` / `pbx_exchange` / `bpcd`.
+- `network/nmap-parse.py` — 4 new SERVICE_MAP categories: `flexnet`, `hpc`, `monitoring`, `backup`.
+- `network/report.py` — severity rules:
+  - HIGH: `FlexNet UNAUTH lmstat disclosure:`, `YARN UNAUTH app inventory:`, `YARN ResourceManager UNAUTH:`, `Zabbix agent UNAUTH metric query:`, `Splunk mgmt API UNAUTH:`, `Veeam B&R REST detected:`, `CommVault detected:`, `Veritas NetBackup detected:` (all 3 backup detections are HIGH because the detection itself is engagement-meaningful for a high-value lateral target).
+  - MEDIUM: `FlexNet/FLEXlm license server reachable:`, `Zabbix server reachable:`, `Nagios NRPE reachable:`.
+  - LOW: `HTCondor collector reachable:`, `Slurm scheduler reachable:` (banner-only reachability).
+- `tests/fp-harness.sh` — FP sweep grows to 27 dispatchers × 7 scenarios = 189 cells, all 0 hits.
+
+**Notes:**
+- Backup infrastructure detection emits HIGH severity even without exploit evidence. Rationale: backup servers hold credentials for every system they back up, and reaching them from a normal user VLAN is itself a segmentation finding regardless of patch posture. The `_hints.txt` warns operators to confirm engagement scope explicitly covers the backup tier before any follow-up.
+- The NRPE probe sends a properly-CRC-checksummed v2 packet for `_NRPE_CHECK`. Modern hardened deployments compiled without `--enable-easy-args` will reject the probe — that is a feature, not a bug; CRC=0 acceptance is itself a hardening-state signal.
+- The Zabbix-agent probe deliberately tests 4 read-side keys (`agent.ping`/`agent.version`/`system.uname`/`agent.hostname`) and requires the agent to answer at least one without `ZBX_NOTSUPPORTED`. This catches both legacy "wildcard accept" agents and modern agents with a permissive key list.
+
+---
+
 ## [v0.24.0] — 2026-05-23
 
 **Tier 4 OT/ICS read-side identification (T4 / ROADMAP-003).** New `ot/` directory with orchestrator + 7 read-side dispatchers covering Modbus, Siemens S7, EtherNet/IP, BACnet, OPC-UA, DNP3, and IEC 60870-5-104. Scope and safety controls land per [`ADR-005`](docs/ADR-005-22MAY2026-ot-ics-safety-scope.md): hard write-side prohibition, double-gated typed confirmation, 500 ms throttle floor, no auto-routing.

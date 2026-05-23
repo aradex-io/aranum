@@ -128,6 +128,10 @@ aratool/
 | `network/enum-slp.sh` | **OPT-IN** SLP UDP 427 — nmap NSE slp-discovery/slp-info; CVE-2023-29552 amplification surface flag; requires `--slp` or `--aggressive` |
 | `network/enum-radius.sh` | **OPT-IN** RADIUS UDP 1812/1813 — stdlib-only Access-Request probe; BlastRADIUS (CVE-2024-3596) Message-Authenticator enforcement precondition check; requires `--radius` or `--aggressive` |
 | `network/enum-print.sh` | Network print services — JetDirect/PJL (9100) + LPD (515); two-evidence-guarded; reports device model + PJL filesystem follow-up hints (I-K cluster from ROADMAP-001) |
+| `network/enum-flexnet.sh` | FlexNet Publisher / FLEXlm license servers (27000–27009) — banner detection + `lmutil lmstat -a` when available; characteristic of MATLAB/Cadence/Synopsys/Ansys/COMSOL/Mentor hosts (I-C) |
+| `network/enum-hpc.sh` | HPC schedulers — Slurm slurmctld/slurmd (6817/6818), HTCondor collector (9618), YARN ResourceManager (8088); read-side only — no job submission (I-F) |
+| `network/enum-monitoring.sh` | Monitoring / lab-data — Zabbix agent (10050) + server (10051), Nagios NRPE (5666), Splunk mgmt API (8089); read-side metric queries + version fingerprints (I-G) |
+| `network/enum-backup.sh` | Backup infrastructure detection — Veeam B&R REST (9392), CommVault (8400/81), Veritas NetBackup (1556); detection-only — pre-auth CVE links in _hints.txt (I-H) |
 
 ### Tier 4 — OT/ICS read-side identification (`ot/`)
 
