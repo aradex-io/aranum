@@ -104,6 +104,48 @@ def evil_banner_handler(c):
     except Exception: pass
     finally: c.close()
 
+def evil_shape_handler(c):
+    """Second-tier shape-mimicry FP class (the v0.22.1 noted gap).
+
+    Returns a Vault-shape JSON response with all the correct keys
+    (sealed, t, n, type, initialized, progress, version, cluster_*,
+    storage_type, migration, recovery_seal) but the `version` field
+    value is a literal "NOT_A_REAL_VAULT_VERSION" — a bogus string
+    that doesn't match Vault's semver format.
+
+    This shape-mimics a real Vault seal-status response well enough
+    to defeat the v0.22.1 t/n two-evidence check. Defenses against
+    this class must validate field *content* (semver regex), not
+    just field *presence*.
+
+    All paths other than /v1/sys/seal-status return 404. YARN
+    and Splunk shape-mimicry hardening is deferred (would require
+    test-seam env vars on port-gated dispatchers — see enum-print.sh
+    PRINT_EXTRA_*_PORT precedent)."""
+    _VAULT_BAD_SHAPE = (
+        b'{"type":"shamir","initialized":true,"sealed":false,'
+        b'"t":3,"n":5,"progress":0,"nonce":"",'
+        b'"version":"NOT_A_REAL_VAULT_VERSION",'
+        b'"build_date":"NOPE","migration":false,'
+        b'"cluster_name":"NOPE","cluster_id":"NOPE",'
+        b'"recovery_seal":false,"storage_type":"NOPE"}'
+    )
+    try:
+        req = c.recv(4096)
+        first_line = req.split(b"\r\n", 1)[0] if req else b""
+        if b"/v1/sys/seal-status" in first_line:
+            c.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: " + str(len(_VAULT_BAD_SHAPE)).encode() + b"\r\n"
+                b"\r\n" + _VAULT_BAD_SHAPE
+            )
+        else:
+            c.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+    except Exception: pass
+    finally: c.close()
+
+
 def evil_product_headers_handler(c):
     """HTTP/200 with Server / X-Powered-By / Set-Cookie headers claiming to
     be a product, but no product-specific endpoint behavior. Targets the
@@ -145,7 +187,7 @@ def serve(port, handler, name):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FP test server — wrong-protocol scenarios")
     parser.add_argument("--port-base", type=int, default=19000,
-                        help="Base port (default 19000). Seven consecutive ports are used.")
+                        help="Base port (default 19000). Eight consecutive ports are used.")
     args = parser.parse_args()
     base = args.port_base
 
@@ -158,6 +200,8 @@ if __name__ == "__main__":
         (base + 4, evil_json_handler,            "evil-json"),
         (base + 5, evil_banner_handler,          "evil-banner"),
         (base + 6, evil_product_headers_handler, "evil-product-hdrs"),
+        # evil-shape — v0.28.1 second-tier FP class (shape mimicry)
+        (base + 7, evil_shape_handler,           "evil-shape"),
     ]
     for port, h, name in flavors:
         threading.Thread(target=serve, args=(port, h, name), daemon=True).start()

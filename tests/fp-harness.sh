@@ -18,6 +18,13 @@
 #     headers — used both in the dispatcher sweep AND in a dedicated HTTP-product-detect
 #     FP cell that runs enum-http.sh against it and asserts zero "detected" lines fire.
 #
+# v0.28.1 additions (second-tier shape-mimicry FP class — noted in v0.22.1 Notes):
+#   - evil-shape scenario: HTTP server that returns shape-mimicked product responses
+#     with bogus field content (Vault seal-status shape with "version":"NOT_A_REAL_VAULT
+#     _VERSION" but correct sealed/t/n/type fields). Defends against the FP class where
+#     an adversary mimics response shape but content is bogus. Caught by enum-vault.sh's
+#     v0.28.1 version-regex third-evidence check.
+#
 # Exit codes:
 #   0 = all green (zero FPs, TP markers intact)
 #   1 = one or more FPs detected
@@ -30,7 +37,8 @@ SCRIPT_DIR="$REPO/tests"
 
 # ---- ports -------------------------------------------------------------------
 # fp-server: http-200=19000, ssh-banner=19001, accept-silent=19002, tcp-echo=19003,
-#            evil-json=19004, evil-banner=19005, evil-product-hdrs=19006
+#            evil-json=19004, evil-banner=19005, evil-product-hdrs=19006,
+#            evil-shape=19007 (v0.28.1 second-tier shape-mimicry FP class)
 # tp-server: rsync-stub=19010, telnet-iac-stub=19011, jenkins=19020, grafana=19021,
 #            prometheus=19022, vcenter=19024
 FP_BASE=19000
@@ -106,8 +114,9 @@ declare -A SCENARIO_NAMES=(
     [4]="evil-json"
     [5]="evil-banner"
     [6]="evil-product-hdrs"
+    [7]="evil-shape"
 )
-NUM_SCENARIOS=7
+NUM_SCENARIOS=8
 
 # ---- FP sweep ----------------------------------------------------------------
 printf "\n${C}=====[ FP SWEEP — %d dispatchers × %d wrong-service scenarios ]=====${N}\n\n" \
@@ -119,7 +128,7 @@ fp_failures=0
 declare -a FP_CELLS=()
 
 for svc in "${DISPATCHERS[@]}"; do
-    for i in 0 1 2 3 4 5 6; do
+    for i in 0 1 2 3 4 5 6 7; do
         scen="${SCENARIO_NAMES[$i]}"
         port=$((FP_BASE + i))
         tgt="$RUNDIR/${svc}-${scen}.targets"
