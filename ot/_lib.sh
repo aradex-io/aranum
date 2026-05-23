@@ -53,7 +53,22 @@ ot_throttle_sleep() {
 
 # Prompt the operator for the literal string "ICS-CONFIRMED". Anything
 # else exits rc=2. Called by the orchestrator before dispatching.
+#
+# Stdin must be a TTY — piped/redirected confirmation (e.g.
+# `echo ICS-CONFIRMED | ot-enum.sh --ics-confirm ...`) defeats the
+# point of "a human deliberately typed this" and is refused. The escape
+# hatch for legitimately-scripted operators is documented in ADR-005 D3:
+# set OT_CONFIRMED=1 yourself only after written engagement authorization
+# explicitly covers OT scope, then invoke a single ot/enum-*.sh dispatcher
+# directly (bypassing this orchestrator entirely).
 ot_confirm_prompt() {
+    if ! [ -t 0 ]; then
+        err "OT confirmation prompt requires a TTY on stdin — piped/redirected"
+        err "input is refused. See ADR-005 D3 for the scripted-invocation escape"
+        err "hatch (set OT_CONFIRMED=1 yourself + invoke a dispatcher directly,"
+        err "only after written engagement authorization covers OT scope)."
+        exit 2
+    fi
     cat >&2 <<'EOF'
 
 ================================================================================
