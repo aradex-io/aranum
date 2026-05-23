@@ -17,6 +17,24 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.28.0] — 2026-05-23
+
+**ROADMAP-001 I-I source/CI partial-gap closure.** 4 new product-detect blocks folded into `enum-http.sh` C.13 (blocks 16–19) covering Gerrit and the Atlassian stack — Jenkins was shipped in E3 (`v0.21.0`); these complete the I-I cluster. No new dispatchers; same two-evidence discipline; evil-product-hdrs FP cell preserved at 0 hits.
+
+### Added
+- `network/enum-http.sh` block 16 — Gerrit. Probes `/config/server/version`; two-evidence requires the literal XSSI guard prefix `)]}'` (Gerrit's canonical anti-XSSI marker — unique to Gerrit REST endpoints) AND a quoted semver-like version string in the body. Extracts version after stripping the prefix.
+- `network/enum-http.sh` block 17 — Atlassian Confluence. Two routes: (a) header `X-Confluence-Request-Time` on `/` AND body contains `Confluence`; OR (b) `/server-info.action` returns `<version>X.Y.Z</version>`. Either path is sufficient; whichever fires first emits.
+- `network/enum-http.sh` block 18 — Atlassian Jira. Probes `/rest/api/2/serverInfo`; two-evidence requires ALL THREE of `"baseUrl":` + `"versionNumbers":` + `"deploymentType":` (closed schema unique to Jira). Emits `Source/CI Atlassian Jira detected:` PLUS `UNAUTH: Jira serverInfo exposed:` — this endpoint is unauth-by-design on most Jira installs.
+- `network/enum-http.sh` block 19 — Atlassian Bamboo. Probes `/rest/api/latest/info`; two-evidence requires `Bamboo` literal AND (`<version>X.Y.Z</version>` OR `"version":"X.Y.Z"`) AND (`<buildDate>` OR `"buildDate":`). XML / JSON content-negotiation tolerated.
+- `network/report.py` severity rules: HIGH on `UNAUTH: Jira serverInfo exposed:` (the canonical Atlassian recon entrypoint); MEDIUM on the 4 `Source/CI X detected:` lines.
+
+**Notes:**
+- Confluence and Bamboo have a long history of OGNL-injection RCE chains (CVE-2022-26134, CVE-2023-22515). The MEDIUM detection severity is *deliberate* — fingerprint alone doesn't confirm exploitability, and per ADR-005 D6 we don't ship CVE-lookup feeds. Operators can cross-reference version against vendor advisories.
+- Jira's `/rest/api/2/serverInfo` being unauth is the historical default; modern Jira Cloud / hardened Jira Data Center installs may require auth on this path. When unauth, the detection AND the UNAUTH-escalation finding both fire; when auth-gated, neither fires (the JSON shape gate doesn't match a 401 response body).
+- Together with the v0.21.0 Jenkins detector (E3), this completes the I-I cluster's high-priority targets. Gerrit's SSH 29418 port surface remains uncovered — separate dispatcher would be needed; deferred as low-yield (Gerrit fingerprint via the HTTP path covers most engagements).
+
+---
+
 ## [v0.27.0] — 2026-05-23
 
 **ROADMAP-001 I-E hypervisor partial-gap closure.** 4 new product-detect blocks folded into `enum-http.sh` C.13 (blocks 12–15) covering hypervisor and orchestration consoles that the earlier vCenter detector (E4) did not reach. No new dispatchers; same two-evidence discipline; evil-product-hdrs FP cell preserved at 0 hits.
