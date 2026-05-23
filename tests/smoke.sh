@@ -264,6 +264,63 @@ for svc in postgres mysql mongo elastic docker kubernetes ipmi \
     rm -rf "$out_dir"
 done
 
+# -----------------------------------------------------------------
+section "10b.2. Remaining dispatchers — empty-targets smoke (Phase 7 expansion)"
+# -----------------------------------------------------------------
+# Every enum-*.sh dispatcher must accept --targets/--output and exit 0 on an
+# empty targets file. _hints.txt is required for the post-Iteration-B fleet
+# (Tier-2a, I-cluster, J-cluster). It's absent for the legacy Tier-1 set
+# (ftp/dns/snmp/smb/ldap/ssh/...) that pre-dates the convention, AND for the
+# dispatchers that early-return when a prerequisite system tool is missing
+# (activemq → java, ajp → nmap NSE ajp scripts, mqtt → mosquitto_sub,
+# oracle → tnscmd10g, sip → svmap/nmap NSE sip scripts). The latter group's
+# _hints.txt is gated on the tool being installed, so we can't assert it
+# unconditionally in a portable smoke harness.
+HINTS_REQUIRED="backup cassandra consul flexnet hpc influxdb ipp \
+                kafka monitoring neo4j netbios-ns pop3 imap print \
+                solr telnet vault zookeeper"
+HINTS_OPTIONAL="dns ftp kerberos ldap rdp smb smtp snmp ssh unknown winrm http https \
+                activemq ajp mqtt oracle sip rsync"
+# Env-gated dispatchers (E4 opt-in aggressive UDP) refuse without ENUM_RUN_X=1;
+# exercise them WITHOUT the env gate to confirm the refusal path is rc=0
+# (per CLAUDE.md §9 — opt-in default-off).
+GATED="ike slp radius"
+for svc in $HINTS_REQUIRED; do
+    out_dir=/tmp/b2-smoke-$svc
+    rm -rf "$out_dir"
+    if timeout 15 bash network/enum-$svc.sh --targets /tmp/empty.txt --output "$out_dir" >/dev/null 2>&1; then
+        if [ -f "$out_dir/_hints.txt" ]; then
+            p "enum-$svc.sh: empty-targets smoke + _hints.txt produced"
+        else
+            f "enum-$svc.sh: no _hints.txt produced"
+        fi
+    else
+        f "enum-$svc.sh: smoke exit non-zero"
+    fi
+    rm -rf "$out_dir"
+done
+for svc in $HINTS_OPTIONAL; do
+    out_dir=/tmp/b2-smoke-$svc
+    rm -rf "$out_dir"
+    if timeout 15 bash network/enum-$svc.sh --targets /tmp/empty.txt --output "$out_dir" >/dev/null 2>&1; then
+        p "enum-$svc.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)"
+    else
+        f "enum-$svc.sh: smoke exit non-zero"
+    fi
+    rm -rf "$out_dir"
+done
+for svc in $GATED; do
+    out_dir=/tmp/b2-smoke-$svc
+    rm -rf "$out_dir"
+    # WITHOUT env gate — must refuse cleanly rc=0 (informational refusal, not error).
+    if timeout 10 bash network/enum-$svc.sh --targets /tmp/empty.txt --output "$out_dir" >/dev/null 2>&1; then
+        p "enum-$svc.sh: refuses without ENUM_RUN_$(echo "$svc" | tr a-z A-Z)=1 (CLAUDE.md §9 invariant)"
+    else
+        f "enum-$svc.sh: refusal path returned non-zero rc"
+    fi
+    rm -rf "$out_dir"
+done
+
 # Routing test for new iteration-B categories
 cat > /tmp/test_route_b.xml <<'EOF'
 <?xml version="1.0"?>
