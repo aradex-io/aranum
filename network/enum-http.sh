@@ -563,6 +563,117 @@ elif [ -s "$LIVE_URLS" ]; then
 
         throttle_sleep
 
+        # --- 10. I-D BMC vendor fingerprinting ---
+        # Out-of-band management consoles. Each detector requires a vendor-
+        # specific marker in body AND a confirming header pattern, OR an
+        # exact resource path that only that vendor serves.
+        bmc_root_hdr="$OUT/prod_bmc_root_hdr_${safe}.txt"
+        bmc_root_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$bmc_root_hdr" \
+            "${url}/" 2>/dev/null)
+
+        # HPE iLO: Server: HP-iLO-Server or body contains "iLO Management Engine" /
+        # /redfish/v1/ with HP Integrated Lights-Out signature.
+        if grep -qiE '^server:[[:space:]]*hp[-_]?ilo' "$bmc_root_hdr" 2>/dev/null \
+           || echo "$bmc_root_body" | grep -qiE '(iLO [0-9]+|HP Integrated Lights-Out|HPE Integrated Lights-Out)'; then
+            ilo_version=$(grep -oiE 'iLO ?[0-9]+' "$bmc_root_hdr" "$bmc_root_body" 2>/dev/null | head -1 || true)
+            hit "BMC HPE iLO detected: ${url} — version=${ilo_version:-?}"
+        fi
+
+        # Dell iDRAC: body contains "iDRAC" + "Integrated Dell Remote Access Controller"
+        # OR resource path /restgui/start.html (iDRAC 9+) returns 200.
+        if echo "$bmc_root_body" | grep -qE 'Integrated Dell Remote Access Controller' \
+           || echo "$bmc_root_body" | grep -qE '"iDRAC[0-9]?"' \
+           || curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --connect-timeout 3 --max-time 6 \
+               -o /dev/null -w '%{http_code}' "${url}/restgui/start.html" 2>/dev/null | grep -q '^200$'; then
+            hit "BMC Dell iDRAC detected: ${url}"
+        fi
+
+        # Supermicro IPMI/BMC: body contains "ATEN International" (the OEM that
+        # produces Supermicro's IPMI firmware) AND specific JS asset paths.
+        if echo "$bmc_root_body" | grep -qiE '(ATEN International|Supermicro|SMC[ _]?BMC|/cgi/login\.cgi)' \
+           && curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --connect-timeout 3 --max-time 6 \
+               -o /dev/null -w '%{http_code}' "${url}/cgi/login.cgi" 2>/dev/null | grep -qE '^(200|302|401)$'; then
+            hit "BMC Supermicro IPMI detected: ${url}"
+        fi
+
+        # Lenovo XCC/IMM: body contains "Lenovo XClarity Controller" OR
+        # "Integrated Management Module" with a Lenovo-specific marker.
+        if echo "$bmc_root_body" | grep -qE '(Lenovo XClarity Controller|XClarity Controller|Integrated Management Module II|IBM[[:space:]]+Integrated[[:space:]]+Management[[:space:]]+Module)'; then
+            hit "BMC Lenovo XCC/IMM detected: ${url}"
+        fi
+
+        # Cisco CIMC: body contains "Cisco Integrated Management Controller"
+        # AND /software/ or /flex/ asset path returns 200.
+        if echo "$bmc_root_body" | grep -qE '(Cisco Integrated Management Controller|CIMC[[:space:]]+Login)'; then
+            hit "BMC Cisco CIMC detected: ${url}"
+        fi
+
+        throttle_sleep
+
+        # --- 11. I-J VPN concentrator fingerprinting ---
+        # Vendor SSL VPN portals — login pages with vendor-specific body markers.
+        # All detection-only; no credential probing.
+
+        # Cisco AnyConnect / ASA SSL VPN: /+CSCOE+/logon.html or
+        # /+CSCOU+/* assets. Body contains "AnyConnect Secure Mobility Client"
+        # or +webvpn+ markers.
+        cisco_anyconnect=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/+CSCOE+/logon.html" 2>/dev/null)
+        if echo "$cisco_anyconnect" | grep -qE '(AnyConnect|webvpn_logon|cisco_logon|CSCOE)'; then
+            hit "VPN Cisco AnyConnect/ASA SSL VPN detected: ${url}"
+        fi
+
+        # Fortinet SSL VPN: /remote/login or /sslvpn/portal — body contains
+        # "FortiGate" or "Fortinet" or the canonical login JS path
+        # /remote/fgt_lang. CVE-2022-42475 / CVE-2023-27997 reachability.
+        fortinet=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/remote/login" 2>/dev/null)
+        if echo "$fortinet" | grep -qE '(FortiGate|Fortinet|fgt_lang|/sslvpn/|tos\.cgi)'; then
+            hit "VPN Fortinet SSL VPN detected: ${url}"
+        fi
+
+        # Palo Alto GlobalProtect: /global-protect/login.esp returns the
+        # canonical portal page. CVE-2024-3400 reachability.
+        palo=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/global-protect/login.esp" 2>/dev/null)
+        if echo "$palo" | grep -qE '(GlobalProtect Portal|globalprotect|Palo Alto Networks)'; then
+            hit "VPN Palo Alto GlobalProtect detected: ${url}"
+        fi
+
+        # Pulse Secure / Ivanti Connect Secure: /dana-na/auth/url_default/welcome.cgi
+        # CVE-2023-46805 + CVE-2024-21887 reachability.
+        pulse=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/dana-na/auth/url_default/welcome.cgi" 2>/dev/null)
+        if echo "$pulse" | grep -qE '(Pulse Secure|Ivanti Connect Secure|dana-na|/dana/)'; then
+            hit "VPN Pulse/Ivanti Connect Secure detected: ${url}"
+        fi
+
+        # Citrix NetScaler Gateway: /vpn/index.html — body contains
+        # "Citrix Gateway" or "NetScaler". CVE-2023-3519 / CVE-2023-4966 era.
+        citrix=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/vpn/index.html" 2>/dev/null)
+        if echo "$citrix" | grep -qE '(Citrix Gateway|NetScaler Gateway|NetScaler ADC|/logon/LogonPoint/)'; then
+            hit "VPN Citrix NetScaler Gateway detected: ${url}"
+        fi
+
+        # SonicWall SMA / NetExtender: /__api__/v1 or /cgi-bin/welcome with
+        # canonical SonicWall banner. CVE-2024-40766 era.
+        sonicwall=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/cgi-bin/welcome" 2>/dev/null)
+        if echo "$sonicwall" | grep -qE '(SonicWall|NetExtender|sonicwall_swl|sma1000|sma100)'; then
+            hit "VPN SonicWall SMA/NetExtender detected: ${url}"
+        fi
+
+        throttle_sleep
+
     done < "$LIVE_URLS"
 fi
 
