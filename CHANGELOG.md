@@ -30,6 +30,16 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ### Refactored
 - `network/_lib.sh::parse_common_args` — rewrote the chained `[ -z A ] || [ -z B ] && { ...; }` guards as explicit `if … fi` blocks. The chained form parses correctly today (POSIX shell evaluates `(test||test) && action`) but the precedence is non-obvious; the explicit form makes the validation contract readable at a glance. All four contract paths verified (unknown arg, missing flags, missing file, happy).
+
+### Chore
+- `Makefile lint` — extended shellcheck coverage to `linux/*.sh`, `ot/*.sh`, and `graphql/examples/*.sh`, which were previously not linted at all. Added `-e SC2046` (word-splitting from command substitution) because the dispatcher fleet intentionally relies on the `$(curl_proxy_arg)` / `$(curl_ua)` / `$(throttle_nmap_args)` helpers in `network/_lib.sh` emitting 0-or-2 args via word-splitting; a focused exclusion is preferable to silencing the rule globally elsewhere. The proper array-based refactor of those helpers is tracked separately and planned for v0.32.0.
+- Cleaned up five SC2034 unused-var warnings that the expanded lint surfaced:
+  - `network/enum-http.sh`: dropped the unused `ks_status` HTTP-status capture in the Keystone detector (the body check is shape-based, not status-based).
+  - `network/enum-radius.sh`: BlastRADIUS precondition probe discards stdout to `/dev/null` instead of into the unused `blast_code`; `blast_rc` is the load-bearing value.
+  - `tests/fp-harness.sh`: dropped the unused `Y` colour var and the dead `ajp_tp_pass=1` set in the AJP TP block.
+  - `ot/_lib.sh`: marked `OT_THROTTLE_FLOOR_MS`, `OT_MAX_PARALLEL_DEFAULT`, `OT_MAX_PARALLEL_HARD` as `export` so shellcheck recognises the cross-file consumption from `ot/ot-enum.sh` and the per-proto dispatchers.
+- Cleaned up four warnings the new `linux/*.sh` and `ot/*.sh` lint surfaced:
+  - `linux/linenum-fast.sh`: added a `*)` default branch to the `getopts` `case` (SC2220), and the Baron-Samedit / CVE-2019-14287 case branch now uses bash's `;;&` fall-through so both warnings can fire on overlapping sudo versions (SC2221/SC2222). Also tightened `set -u` → `set -uo pipefail` per CLAUDE.md §8.
 - `network/bulk-enum-windows.py` — removed a dead-code `if t.port == default_port and args.tls and t.port == 5986: pass` block in the targets-parsing loop. `default_port` is already set to 5986 when `--tls` is passed (lines 301-302), so the per-target check was a no-op with a misleading comment about "auto-port from --tls". Behaviour is unchanged.
 - `redis/redis-rogue-master.py` — converted the magic `for _ in range(20)` handshake loop to `while cmd_count < MAX_HANDSHAKE_CMDS` (50) with a named constant and an explicit `else` branch that surfaces a hostile/buggy peer streaming non-PSYNC commands. The previous form silently exited rc=0 if 20 commands passed without PSYNC; the new form returns rc=3 with a stderr warning so the operator knows the payload was NOT delivered.
 - `activemq/activemq-cve-2023-46604.py` — `--xml-file` write now uses `with open(...) as fp:` instead of a leaked-file-handle `open(args.xml_file, "w").write(cmd_xml)`. The previous form relied on CPython refcount-driven close timing; on an exception between `open()` and the implicit close, the partial XML would persist with the fd still attached to the process (and on PyPy it might never flush at all).

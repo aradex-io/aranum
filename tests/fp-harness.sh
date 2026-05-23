@@ -45,7 +45,7 @@ FP_BASE=19000
 TP_BASE=19010
 
 # ---- colour helpers ----------------------------------------------------------
-R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; C="\033[1;36m"; N="\033[0m"
+R="\033[1;31m"; G="\033[1;32m"; C="\033[1;36m"; N="\033[0m"
 ok()   { printf "${G}[+]${N} %s\n" "$*"; }
 bad()  { printf "${R}[-]${N} %s\n" "$*"; }
 info() { printf "${C}[i]${N} %s\n" "$*"; }
@@ -295,7 +295,6 @@ fi
 # -- AJP TP (fixture-based, no live server needed) --
 info "AJP TP: mini integration test against fixture tests/fixtures/ajp-real-nmap.txt"
 ajp_fixture="$REPO/tests/fixtures/ajp-real-nmap.txt"
-ajp_tp_pass=0
 
 if [ ! -f "$ajp_fixture" ]; then
     bad "AJP TP: fixture file missing: $ajp_fixture"
@@ -308,7 +307,6 @@ else
     grep -qE '^\| ajp-(headers|methods|auth|brute):' "$ajp_fixture" 2>/dev/null && ajp_fp2=1
     if [ "$ajp_fp1" = 1 ] && [ "$ajp_fp2" = 1 ]; then
         ok "AJP TP: fixture passes both guards (ajp13 fingerprint + script result present)"
-        ajp_tp_pass=1
     else
         bad "AJP TP: REGRESSION — fixture failed guard check (is_ajp=$ajp_fp1 has_script=$ajp_fp2)"
         tp_failures=$((tp_failures + 1))

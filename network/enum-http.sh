@@ -742,10 +742,7 @@ elif [ -s "$LIVE_URLS" ]; then
         ks_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
             --connect-timeout 4 --max-time 8 \
             -D "$ks_hdr" \
-            -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/v3" 2>/dev/null)
-        ks_status=$(echo "$ks_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
-        ks_body=$(echo "$ks_body" | sed '/---HTTP-STATUS:/d')
         if echo "$ks_body" | grep -q '"version":{' \
            && echo "$ks_body" | grep -qE '"status":"(stable|beta|deprecated)"' \
            && echo "$ks_body" | grep -q '"rel":"self"'; then

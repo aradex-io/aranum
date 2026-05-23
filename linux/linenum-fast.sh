@@ -3,7 +3,7 @@
 # Quiet by default; pass -v for verbose ls listings.
 # Usage: ./linenum-fast.sh [-v] [-o outfile]
 
-set -u
+set -uo pipefail
 VERBOSE=0
 OUT=""
 while getopts "vo:h" opt; do
@@ -11,6 +11,7 @@ while getopts "vo:h" opt; do
     v) VERBOSE=1 ;;
     o) OUT="$OPTARG" ;;
     h) echo "Usage: $0 [-v] [-o outfile]"; exit 0 ;;
+    *) echo "Usage: $0 [-v] [-o outfile]" >&2; exit 2 ;;
   esac
 done
 
@@ -68,9 +69,12 @@ done
 hdr "SUDO"
 sudo -V 2>/dev/null | head -1
 SUDO_VER=$(sudo -V 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+# Baron Samedit (CVE-2021-3156) — patched in 1.9.5p2 — fall through to the
+# CVE-2019-14287 hint as well so both flags fire on pre-1.8.28 hosts. `;;&`
+# is the bash "fall through to test the next pattern" terminator.
 case "$SUDO_VER" in
   1.8.2|1.8.3*|1.8.4*|1.8.5*|1.8.6*|1.8.7*|1.8.8*|1.8.9*|1.8.10*|1.8.11*|1.8.12*|1.8.13*|1.8.14*|1.8.15*|1.8.16*|1.8.17*|1.8.18*|1.8.19*|1.8.20*|1.8.21*|1.8.22*|1.8.23*|1.8.24*|1.8.25*|1.8.26*|1.8.27*|1.8.28*|1.8.29*|1.8.30*|1.8.31*|1.9.0|1.9.1|1.9.2|1.9.3|1.9.4|1.9.5*)
-    warn "sudo $SUDO_VER — possibly CVE-2021-3156 (Baron Samedit)" ;;
+    warn "sudo $SUDO_VER — possibly CVE-2021-3156 (Baron Samedit)" ;;&
   1.8.[0-9]|1.8.1[0-9]|1.8.2[0-9])
     warn "sudo $SUDO_VER — also check CVE-2019-14287 (sudo -u#-1)" ;;
 esac

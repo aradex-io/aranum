@@ -187,7 +187,7 @@ while read -r target; do
             # If the server responds (instead of silently dropping), it does NOT
             # enforce Message-Authenticator on Access-Request — precondition met.
             log "radius: BlastRADIUS (CVE-2024-3596) precondition check for $ip:$port"
-            blast_code=$(python3 "$RADIUS_PROBE" "$ip" "$port" "$blast_bin" --blast 2>/dev/null)
+            python3 "$RADIUS_PROBE" "$ip" "$port" "$blast_bin" --blast >/dev/null 2>&1
             blast_rc=$?
             if [ "$blast_rc" = "0" ]; then
                 hit "RADIUS BlastRADIUS (CVE-2024-3596) precondition: $ip:$port lacks Message-Authenticator enforcement"

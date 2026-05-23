@@ -25,9 +25,12 @@ _OT_LIB_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --------------- OT safety primitives -------------------------------------
 
 # Hard floor — non-overridable.
-OT_THROTTLE_FLOOR_MS=500
-OT_MAX_PARALLEL_DEFAULT=2
-OT_MAX_PARALLEL_HARD=4
+# Exported because ot/ot-enum.sh and the per-proto dispatchers consume them
+# after sourcing this file (shellcheck SC2034 doesn't follow `source` so the
+# bare assignment would falsely flag them as unused).
+export OT_THROTTLE_FLOOR_MS=500
+export OT_MAX_PARALLEL_DEFAULT=2
+export OT_MAX_PARALLEL_HARD=4
 
 # Each dispatcher must call this immediately after sourcing.
 # Refuses to proceed unless $OT_CONFIRMED=1 is in the env.
