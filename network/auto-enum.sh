@@ -257,6 +257,26 @@ declare -a FAILED_SERVICES=()
 
 run_dispatcher() {
     local svc="$1"
+    # T4 — OT/ICS sentinel category. Auto-enum NEVER dispatches to ot/
+    # scripts; the operator must invoke ot/ot-enum.sh --ics-confirm by hand.
+    # We surface the hint inline so the surface-area enumeration captures
+    # the OT presence without firing a single probe.
+    if [ "$svc" = "ot-untouched" ]; then
+        local target_file="$OUTDIR/_targets_ot-untouched.txt"
+        python3 "$PARSER" "$INPUT" --service "$svc" 2>/dev/null | sort -u > "$target_file" || true
+        local n; n=$(wc -l < "$target_file" 2>/dev/null || echo 0)
+        if [ "${n:-0}" -gt 0 ]; then
+            echo "[!] OT/ICS ports detected on $n target(s) — auto-enum WILL NOT probe these."
+            echo "    See docs/ADR-005-22MAY2026-ot-ics-safety-scope.md."
+            echo "    To enumerate: ot/ot-enum.sh --ics-confirm --targets <file>"
+            echo "    See docs/ROADMAP-003-22MAY2026-tier4-ics-enumeration.md."
+            run_log "ot-untouched: $n target(s) detected — operator must invoke ot/ot-enum.sh by hand"
+        fi
+        rm -f "$target_file"
+        RUN_SKIP+=1
+        return
+    fi
+
     local script="$SCRIPT_DIR/enum-${svc}.sh"
     if [ ! -f "$script" ]; then
         echo "[-] no dispatcher for $svc (looked for $script)"

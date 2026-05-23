@@ -163,6 +163,14 @@ SERVICE_MAP = {
     "zookeeper":   ({2181, 2182},          r"^zookeeper"),
     # I-K (low-risk iteration-I cluster) — network print services
     "print":      ({9100, 515},             r"^(jetdirect|hp-pdl-datastr|printer|lpd|spooler)"),
+    # T4 — OT/ICS sentinel category. Routes the OT ports so they appear in
+    # surface-area inventory, but auto-enum.sh does NOT dispatch to any
+    # ot/ script — operators must invoke ot/ot-enum.sh --ics-confirm by hand
+    # (ADR-005 D1). The category name `ot-untouched` is intentional: the
+    # auto-enum dispatcher loop has no `enum-ot-untouched.sh`, so a port that
+    # matches will fall through to the "no dispatcher" path with a hint.
+    "ot-untouched": ({502, 102, 44818, 47808, 4840, 20000, 2404},
+                     r"^(modbus|mbap|iso-tsap|ethernet-ip|bacnet|opcua|opc-ua|dnp3|iec-104)"),
     # Iteration E4 — opt-in aggressive UDP services. These categories route but
     # auto-enum.sh strips them from the auto-derived service list by default;
     # enable with --ike / --slp / --radius / --aggressive. Each dispatcher also
