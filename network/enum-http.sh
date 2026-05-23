@@ -743,6 +743,84 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
         throttle_sleep
 
+        # --- 16. Gerrit ---
+        # /config/server/version returns the version. Gerrit prefixes every
+        # JSON response with the literal XSSI guard `)]}'` followed by newline.
+        # Two-evidence: that prefix must be present AND the body must contain a
+        # quoted version-like string. The XSSI prefix is unique to Gerrit's
+        # REST-style endpoints — no other product ships it.
+        ger_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/config/server/version" 2>/dev/null)
+        if echo "$ger_body" | head -c 5 | grep -q ")]}'" \
+           && echo "$ger_body" | grep -qE '"[0-9]+\.[0-9]+(\.[0-9]+)?(-[A-Za-z0-9.-]+)?"'; then
+            ger_ver=$(echo "$ger_body" | grep -oE '"[0-9]+\.[0-9]+(\.[0-9]+)?[A-Za-z0-9.-]*"' | head -1 | tr -d '"')
+            hit "Source/CI Gerrit detected: ${url} — version=${ger_ver:-?}"
+        fi
+        throttle_sleep
+
+        # --- 17. Atlassian Confluence ---
+        # Two routes: header X-Confluence-Request-Time on /; OR /server-info.action
+        # returning <version>X.Y.Z</version>.
+        conf_root_hdr="$OUT/prod_confluence_root_hdr_${safe}.txt"
+        conf_root_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            -D "$conf_root_hdr" \
+            "${url}/" 2>/dev/null)
+        conf_is=0
+        if grep -qiE '^x-confluence-request-time:' "$conf_root_hdr" 2>/dev/null \
+           && echo "$conf_root_body" | grep -qi "Confluence"; then
+            conf_is=1
+        fi
+        conf_ver=""
+        if [ "$conf_is" = 0 ]; then
+            conf_si_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+                --connect-timeout 4 --max-time 8 \
+                "${url}/server-info.action" 2>/dev/null)
+            if echo "$conf_si_body" | grep -qE '<version>[0-9]+\.[0-9]+'; then
+                conf_is=1
+                conf_ver=$(echo "$conf_si_body" | grep -oE '<version>[^<]+' | head -1 | sed 's/<version>//')
+            fi
+        fi
+        if [ "$conf_is" = 1 ]; then
+            hit "Source/CI Atlassian Confluence detected: ${url} — version=${conf_ver:-?}"
+        fi
+        throttle_sleep
+
+        # --- 18. Atlassian Jira ---
+        # /rest/api/2/serverInfo is unauth on most Jira installs by design.
+        # Two-evidence: response must contain ALL THREE of "baseUrl":, "versionNumbers":, "deploymentType":
+        # The closed schema is unique to Jira's serverInfo endpoint.
+        jira_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/rest/api/2/serverInfo" 2>/dev/null)
+        if echo "$jira_body" | grep -q '"baseUrl":' \
+           && echo "$jira_body" | grep -q '"versionNumbers":' \
+           && echo "$jira_body" | grep -q '"deploymentType":'; then
+            jira_ver=$(echo "$jira_body" | grep -oE '"version":"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Source/CI Atlassian Jira detected: ${url} — version=${jira_ver:-?}"
+            hit "UNAUTH: Jira serverInfo exposed: ${url}"
+        fi
+        throttle_sleep
+
+        # --- 19. Atlassian Bamboo ---
+        # /rest/api/latest/info returns XML or JSON depending on Accept header.
+        # Two-evidence: response contains literal "Bamboo" AND either
+        # <version>X.Y.Z</version> OR "version":"X.Y.Z" AND
+        # <buildDate> OR "buildDate":
+        bam_body=$(curl -ks -A "$(curl_ua)" $(curl_proxy_arg) \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/rest/api/latest/info" 2>/dev/null)
+        if echo "$bam_body" | grep -q "Bamboo" \
+           && (echo "$bam_body" | grep -qE '<version>[0-9]+\.[0-9]+' \
+               || echo "$bam_body" | grep -qE '"version":"[0-9]+\.[0-9]+') \
+           && (echo "$bam_body" | grep -q '<buildDate>' \
+               || echo "$bam_body" | grep -q '"buildDate":'); then
+            bam_ver=$(echo "$bam_body" | grep -oE '<version>[^<]+|"version":"[^"]+' | head -1 | sed 's/<version>//;s/"version":"//')
+            hit "Source/CI Atlassian Bamboo detected: ${url} — version=${bam_ver:-?}"
+        fi
+        throttle_sleep
+
     done < "$LIVE_URLS"
 fi
 
