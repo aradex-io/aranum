@@ -706,26 +706,62 @@ def render_hosts(model: dict) -> str:
             for s in SEVERITY_ORDER if (n := sev_counts.get(s, 0))
         )
         svcs = services_per_host.get(host, [])
+        host_key = safe_name(host)
+        n_ports = len(model["inventory_by_host"].get(host, []))
+        # Summary row (always visible) + inline detail row (hidden by default;
+        # toggled per-row by the chevron OR globally by the toolbar buttons).
         rows.append(f"""
-        <tr data-host="{e(host)}" data-severity="{e(ms)}" data-findings="{len(fs)}">
-          <td><a href="host_{e(safe_name(host))}.html">{e(host)}</a></td>
+        <tr class="hostrow" data-host="{e(host)}" data-severity="{e(ms)}" data-findings="{len(fs)}" data-detail-id="d-{e(host_key)}">
+          <td>
+            <button class="expand-btn" type="button" data-toggle="d-{e(host_key)}" aria-label="Toggle detail">▸</button>
+            <a href="host_{e(host_key)}.html">{e(host)}</a>
+          </td>
           <td>{severity_chip(ms)}</td>
           <td class="num">{len(fs)}</td>
+          <td class="num">{n_ports}</td>
           <td>{sev_chips or '<span class="muted">—</span>'}</td>
           <td>{e(', '.join(svcs)) or '<span class="muted">—</span>'}</td>
+        </tr>
+        <tr class="hostdetail" id="d-{e(host_key)}" hidden>
+          <td colspan="6">
+            <div class="hostdetail-pane">
+              <div class="hostdetail-head">
+                <strong>{e(host)}</strong>
+                <span class="muted">· {n_ports} port{'s' if n_ports != 1 else ''} · {len(fs)} finding{'s' if len(fs) != 1 else ''}</span>
+                <a class="hostdetail-link" href="host_{e(host_key)}.html">open full page →</a>
+              </div>
+              <table class="data data-inner">
+                <thead><tr>
+                  <th class="num">Port</th>
+                  <th>Service</th>
+                  <th>State</th>
+                  <th class="num">Findings</th>
+                  <th>Detail</th>
+                </tr></thead>
+                <tbody>{_render_host_port_rows(model, host, details_open=True) or '<tr><td colspan="5" class="muted">no port data</td></tr>'}</tbody>
+              </table>
+            </div>
+          </td>
         </tr>""")
     body = f"""
 <div class="card">
-  <p class="card-sub">{len(all_hosts)} host{'s' if len(all_hosts) != 1 else ''} discovered. Click a column header to sort. Use the global search to filter.</p>
-  <table class="data sortable filterable" id="hosts-table">
+  <div class="toolbar">
+    <div class="toolbar-info">{len(all_hosts)} host{'s' if len(all_hosts) != 1 else ''} discovered. Click a column header to sort, ▸ on any row to expand inline, or use the toolbar to expand them all.</div>
+    <div class="toolbar-actions">
+      <button class="btn" type="button" id="expand-all-hosts">Expand all</button>
+      <button class="btn" type="button" id="collapse-all-hosts">Collapse all</button>
+    </div>
+  </div>
+  <table class="data sortable filterable hosts-with-detail" id="hosts-table">
     <thead><tr>
       <th data-sort="text">Host</th>
       <th data-sort="severity">Max sev</th>
       <th class="num" data-sort="num">Findings</th>
+      <th class="num" data-sort="num">Ports</th>
       <th>Severity breakdown</th>
       <th data-sort="text">Services</th>
     </tr></thead>
-    <tbody>{''.join(rows) if rows else '<tr><td colspan="5" class="muted">no hosts</td></tr>'}</tbody>
+    <tbody>{''.join(rows) if rows else '<tr><td colspan="6" class="muted">no hosts</td></tr>'}</tbody>
   </table>
 </div>
 """
@@ -733,26 +769,23 @@ def render_hosts(model: dict) -> str:
 
 
 # --------------------------------------------------------------- per-host
-def render_host_detail(model: dict, host: str) -> str:
-    fs = model["by_host"].get(host, [])
-    svcs = model["services_per_host"].get(host, [])
-    ms = max_severity(fs)
-    sev_counts = Counter(f["severity"] for f in fs)
-    inv_rows = model["inventory_by_host"].get(host, [])
+def _render_host_port_rows(model: dict, host: str, details_open: bool = True) -> str:
+    """Return the `<tr>` blocks for a host's port × service table.
 
-    # ---- Port × Service table (the main new content) ----
-    # Each row is expandable via native <details>. Inside: full finding text
-    # + evidence file paths. No JS required. This is the "see everything for
-    # this host in one click" pattern requested by operators.
-    port_rows = []
+    Shared between the per-host detail page and the hosts-page inline-expand
+    view. `details_open=True` expands the findings panel inside each row by
+    default; the evidence-files sublist always stays collapsed (less noise).
+    """
+    inv_rows = model["inventory_by_host"].get(host, [])
+    out: list[str] = []
+    open_attr = " open" if details_open else ""
     for r in inv_rows:
         sev = r["max_severity"]
         state_chip = (
             severity_chip(sev) if r["state"] == "findings"
             else '<span class="chip chip-info">PROBED</span>'
         )
-        # Detailed expand pane: findings table + evidence files
-        finding_rows_html = ""
+        # Findings panel
         if r["findings"]:
             inner = []
             for f in r["findings"]:
@@ -770,8 +803,7 @@ def render_host_detail(model: dict, host: str) -> str:
             """
         else:
             finding_rows_html = '<p class="muted">No severity-tagged findings. Dispatcher artifacts (if any) listed below.</p>'
-
-        # Evidence file list (only for this service; filter by /<svc>/<host>/ prefix)
+        # Evidence file list (filtered to this service's tree)
         ev_files = [
             ef for ef in r["evidence_files"]
             if f"/{r['service']}/" in ("/" + ef.replace("\\", "/")) or ef.startswith(f"{r['service']}/")
@@ -782,15 +814,19 @@ def render_host_detail(model: dict, host: str) -> str:
             extra = f'<li class="muted">+{len(ev_files) - 50} more not shown</li>' if len(ev_files) > 50 else ''
             ev_html = f'<details class="evidence-list"><summary>Evidence files ({len(ev_files)})</summary><ul>{items}{extra}</ul></details>'
 
-        port_rows.append(f"""
+        summary_label = (
+            f"{r['n_findings']} finding{'s' if r['n_findings'] != 1 else ''}"
+            if r['n_findings'] else "artifacts only"
+        )
+        out.append(f"""
         <tr data-port="{r['port']}" data-service="{e(r['service'])}" data-severity="{e(sev)}">
           <td class="num">{r['port']}</td>
           <td><a href="service_{e(safe_name(r['service']))}.html">{e(r['service'])}</a></td>
           <td>{state_chip}</td>
           <td class="num">{r['n_findings']}</td>
           <td>
-            <details>
-              <summary>{'view ' + str(r['n_findings']) + ' finding' + ('s' if r['n_findings'] != 1 else '') if r['n_findings'] else 'view artifacts'}</summary>
+            <details{open_attr}>
+              <summary>{summary_label}</summary>
               <div class="expand-pane">
                 {finding_rows_html}
                 {ev_html}
@@ -798,6 +834,18 @@ def render_host_detail(model: dict, host: str) -> str:
             </details>
           </td>
         </tr>""")
+    return "".join(out)
+
+
+def render_host_detail(model: dict, host: str) -> str:
+    fs = model["by_host"].get(host, [])
+    svcs = model["services_per_host"].get(host, [])
+    ms = max_severity(fs)
+    sev_counts = Counter(f["severity"] for f in fs)
+    inv_rows = model["inventory_by_host"].get(host, [])
+
+    # Port × Service table — findings open by default per operator feedback.
+    port_rows = _render_host_port_rows(model, host, details_open=True)
 
     svc_chips = " ".join(
         f'<a class="chip chip-svc" href="service_{e(safe_name(s))}.html">{e(s)}</a>'
@@ -829,7 +877,7 @@ def render_host_detail(model: dict, host: str) -> str:
       <th class="num" data-sort="num">Findings</th>
       <th>Detail</th>
     </tr></thead>
-    <tbody>{''.join(port_rows) if port_rows else '<tr><td colspan="5" class="muted">no port data — was this host actually probed?</td></tr>'}</tbody>
+    <tbody>{port_rows if port_rows else '<tr><td colspan="5" class="muted">no port data — was this host actually probed?</td></tr>'}</tbody>
   </table>
 </section>
 
@@ -1493,6 +1541,40 @@ details.evidence-list li { padding: 1px 0; }
 /* inventory + port tables tweaks */
 #inventory-table td:nth-child(2),
 #host-ports-table td:nth-child(1) { font-weight: 600; color: var(--text-strong); }
+
+/* hosts page: expand-all toolbar + inline-detail rows */
+.toolbar {
+  display: flex; align-items: center; gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.toolbar-info { color: var(--text-muted); font-size: 12.5px; flex: 1; min-width: 240px; }
+.toolbar-actions { display: flex; gap: 6px; }
+.btn {
+  background: var(--bg-elev-2); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 12px; border-radius: 6px;
+  font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: background .12s, border-color .12s;
+}
+.btn:hover { background: var(--bg-elev); border-color: var(--text-muted); }
+.btn.active { background: var(--link); color: #ffffff; border-color: var(--link); }
+.expand-btn {
+  background: transparent; border: 1px solid var(--border-soft);
+  color: var(--text-muted); width: 22px; height: 22px; line-height: 1;
+  border-radius: 4px; cursor: pointer; font-size: 12px;
+  margin-right: 8px; transition: transform .12s, color .12s, border-color .12s;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.expand-btn:hover { color: var(--text); border-color: var(--text-muted); }
+.expand-btn.open { transform: rotate(90deg); color: var(--link); border-color: var(--link); }
+
+.hostdetail > td { padding: 0; background: var(--bg); }
+.hostdetail-pane { padding: 14px 18px 16px; border-left: 3px solid var(--link); background: var(--bg); }
+.hostdetail-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.hostdetail-head strong { color: var(--text-strong); }
+.hostdetail-link { margin-left: auto; font-size: 12px; }
+.hosts-with-detail tbody tr.hostrow:hover td { background: var(--bg-elev-2); cursor: default; }
+.hosts-with-detail tbody tr.hostdetail:hover td { background: var(--bg); }
 """
 
 JS_TEMPLATE = r"""
@@ -1556,7 +1638,9 @@ JS_TEMPLATE = r"""
   }
 
   // ---- sortable tables ----
-  const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  // For tables with paired hostrow/hostdetail rows (hosts page), sort pairs
+  // so detail rows stay attached to their parent after sorting.
+  const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4, none: 5 };
   document.querySelectorAll("table.sortable").forEach(table => {
     const ths = table.querySelectorAll("thead th[data-sort]");
     ths.forEach((th, colIdx) => {
@@ -1566,10 +1650,20 @@ JS_TEMPLATE = r"""
         ths.forEach(o => o.classList.remove("asc", "desc"));
         th.classList.add(asc ? "asc" : "desc");
         const tbody = table.querySelector("tbody");
-        const rows = Array.from(tbody.querySelectorAll("tr"));
+        // Build sort units: if a row has class "hostrow", pair it with its
+        // immediately-following "hostdetail" sibling.
+        const allRows = Array.from(tbody.querySelectorAll("tr"));
+        const units = [];
+        for (let i = 0; i < allRows.length; i++) {
+          const r = allRows[i];
+          if (r.classList.contains("hostdetail")) continue; // attached to prior
+          const detail = (allRows[i + 1] && allRows[i + 1].classList.contains("hostdetail"))
+              ? allRows[i + 1] : null;
+          units.push({ head: r, detail });
+        }
         const cmp = (a, b) => {
-          let va = a.children[colIdx]?.textContent.trim() || "";
-          let vb = b.children[colIdx]?.textContent.trim() || "";
+          let va = a.head.children[colIdx]?.textContent.trim() || "";
+          let vb = b.head.children[colIdx]?.textContent.trim() || "";
           if (mode === "num") {
             return (parseFloat(va) || 0) - (parseFloat(vb) || 0);
           }
@@ -1578,12 +1672,64 @@ JS_TEMPLATE = r"""
           }
           return va.localeCompare(vb, undefined, { numeric: true });
         };
-        rows.sort(cmp);
-        if (!asc) rows.reverse();
-        rows.forEach(r => tbody.appendChild(r));
+        units.sort(cmp);
+        if (!asc) units.reverse();
+        units.forEach(u => { tbody.appendChild(u.head); if (u.detail) tbody.appendChild(u.detail); });
       });
     });
   });
+
+  // ---- hosts page: expand-all / collapse-all toolbar ----
+  const toggleDetail = (btn, force) => {
+    const id = btn.getAttribute("data-toggle");
+    const detail = document.getElementById(id);
+    if (!detail) return;
+    const willOpen = (force === undefined) ? detail.hasAttribute("hidden") : force;
+    if (willOpen) {
+      detail.removeAttribute("hidden");
+      btn.classList.add("open");
+    } else {
+      detail.setAttribute("hidden", "");
+      btn.classList.remove("open");
+    }
+  };
+  document.querySelectorAll(".expand-btn[data-toggle]").forEach(btn => {
+    btn.addEventListener("click", () => toggleDetail(btn));
+  });
+  const expandAll = document.getElementById("expand-all-hosts");
+  const collapseAll = document.getElementById("collapse-all-hosts");
+  if (expandAll) {
+    expandAll.addEventListener("click", () => {
+      document.querySelectorAll(".expand-btn[data-toggle]").forEach(b => toggleDetail(b, true));
+      expandAll.classList.add("active");
+      collapseAll && collapseAll.classList.remove("active");
+    });
+  }
+  if (collapseAll) {
+    collapseAll.addEventListener("click", () => {
+      document.querySelectorAll(".expand-btn[data-toggle]").forEach(b => toggleDetail(b, false));
+      collapseAll.classList.add("active");
+      expandAll && expandAll.classList.remove("active");
+    });
+  }
+
+  // ---- filter awareness: when a hostrow is hidden by search, also hide its detail row ----
+  if (search) {
+    search.addEventListener("input", () => {
+      document.querySelectorAll(".hostrow").forEach(tr => {
+        const id = tr.getAttribute("data-detail-id");
+        if (!id) return;
+        const detail = document.getElementById(id);
+        if (!detail) return;
+        // Mirror visibility — but don't override expanded state when row visible
+        if (tr.style.display === "none") {
+          detail.style.display = "none";
+        } else {
+          detail.style.display = "";
+        }
+      });
+    });
+  }
 
   // ---- highlight active row on hover for tables ---- (CSS already does this)
 
