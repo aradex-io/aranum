@@ -4,7 +4,7 @@
 **Author:** plan-on-Opus / execute-on-Sonnet (CLAUDE.md §2)
 **Iteration:** T4 (deferred slot from [ROADMAP-002](ROADMAP-002-22MAY2026-tier1-tier2-enumeration.md) §Tier 4)
 **Scope anchor:** [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md)
-**Target tag:** `v0.23.0`
+**Target tag:** `v0.24.0`
 
 ---
 
@@ -18,7 +18,7 @@
 
 | Iteration | Theme | Effort | Status | Tag |
 |---|---|---|---|---|
-| **T4** | OT/ICS read-side identification probes (7 protocols, no write-side, double-gated, throttle floor) | ~2 days | ⬜ ADR-005 accepted; implementation pending | `v0.23.0` |
+| **T4** | OT/ICS read-side identification probes (7 protocols, no write-side, double-gated, throttle floor) | ~2 days | ⬜ ADR-005 accepted; implementation pending | `v0.24.0` |
 
 ---
 
@@ -175,7 +175,7 @@ This roadmap turns ADR-005's decisions into a concrete v0.23.0 work plan.
 | **Files** | `ot/README.md`, top-level `README.md`, `CHANGELOG.md` |
 | **Plan** | (1) `ot/README.md` — opens with ADR-005 safety section verbatim, then the dispatcher index, then a "how-to" that ends with "if any of the above is unclear, do not run these tools." (2) Top-level `README.md` — add an `ot/` row to the layout tree, with a warning callout that auto-routing is disabled. (3) `CHANGELOG.md` — roll `[Unreleased]` → `[v0.23.0]` with the T4 deliverables. |
 | **Commit** | `docs(ot): README + top-level layout + CHANGELOG roll for v0.23.0` |
-| **Tag** | `v0.23.0` annotated. |
+| **Tag** | `v0.24.0` annotated. |
 
 ---
 

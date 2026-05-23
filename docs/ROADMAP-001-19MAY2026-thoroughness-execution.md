@@ -26,7 +26,8 @@ Filename per CLAUDE.md §7 dated-naming convention.
 | **D1** | **AD remote depth + Windows local AD scripts** *(REVIEW-001 §2.2-§2.7; scoped via [ADR-004](ADR-004-20MAY2026-ad-depth-tool-deps.md))* | ~2 days | ✅ done 2026-05-20 | `v0.17.0` |
 | **D2** | **Linux CVE checks + creds enhancements** *(REVIEW-001 §2.8/§2.9)* | ~1 day | ✅ done 2026-05-20 | `v0.18.0` |
 | **I (partial)** | **Internal-pentest protocol expansion** *(added 2026-05-19)* — absorbed into ROADMAP-002 E1–E4 | ~3 days | 🟦 partial (see [reconciliation table](#iteration-i-reconciliation-table-2026-05-22)) | `v0.19.0`–`v0.22.0` |
-| **T4** | **OT / ICS read-side identification** *(deferred from I-A; scoped via [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md) + [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md))* | ~2 days | ⬜ pending impl | `v0.23.0` |
+| **I-K** | **Network print services** (JetDirect 9100 + LPD 515) — first I-* cluster shipped post-reconciliation | ~0.5 day | ✅ done 2026-05-22 | `v0.23.0` |
+| **T4** | **OT / ICS read-side identification** *(deferred from I-A; scoped via [ADR-005](ADR-005-22MAY2026-ot-ics-safety-scope.md) + [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md))* | ~2 days | ⬜ pending impl | `v0.24.0` |
 
 **Note on version mapping** (corrected 2026-05-19): the original roadmap aspired to map iteration A→v0.2.0, B→v0.3.0, etc. Reality: iteration H was prioritized ahead of B–G and shipped as v0.9.0, after which semver's monotonic-increase requirement means subsequent iterations occupy `v0.10.0+`. The iteration identity is preserved in commit messages and CHANGELOG sections; the version-to-iteration mapping is no longer 1:1 with the alphabetical letter.
 

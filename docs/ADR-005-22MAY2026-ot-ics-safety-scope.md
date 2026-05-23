@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Accepted (2026-05-22) |
 | **Iteration** | T4 (Tier 4 ICS — deferred slot from [ROADMAP-002](ROADMAP-002-22MAY2026-tier1-tier2-enumeration.md) §Tier 4) |
-| **Tag** | `v0.23.0` (planned) |
+| **Tag** | `v0.24.0` (planned — v0.23.0 was consumed by enum-print.sh / I-K) |
 | **Supersedes** | none |
 | **Related** | [ROADMAP-002](ROADMAP-002-22MAY2026-tier1-tier2-enumeration.md), [ROADMAP-003](ROADMAP-003-22MAY2026-tier4-ics-enumeration.md), CLAUDE.md §9 |
 
