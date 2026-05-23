@@ -131,6 +131,14 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bVMware vCenter SDK reachable:", re.I),              "high"),
     (re.compile(r"\bSLP open service registry:", re.I),                 "medium"),
     (re.compile(r"\bVMware vCenter UI:", re.I),                         "medium"),
+    # I-D — BMC vendor consoles (out-of-band management). MEDIUM by default
+    # because detection alone is engagement-meaningful (default-cred history),
+    # but no UNAUTH evidence so not HIGH.
+    (re.compile(r"\bBMC (HPE iLO|Dell iDRAC|Supermicro IPMI|Lenovo XCC/IMM|Cisco CIMC) detected:", re.I), "medium"),
+    # I-J — VPN concentrator detection. HIGH because every supported vendor has
+    # had at least one pre-auth CVE in 2023-2024 (CVE-2024-3400, -42475, -3519,
+    # -46805/-21887, -40766) — fingerprint alone is high-yield.
+    (re.compile(r"\bVPN (Cisco AnyConnect/ASA SSL VPN|Fortinet SSL VPN|Palo Alto GlobalProtect|Pulse/Ivanti Connect Secure|Citrix NetScaler Gateway|SonicWall SMA/NetExtender) detected:", re.I), "high"),
     (re.compile(r"\bRADIUS server reachable:", re.I),                   "low"),
     (re.compile(r"\bIKE/IPsec VPN endpoint reachable:", re.I),          "low"),
     (re.compile(r"\bIKE vendor:", re.I),                                "low"),
