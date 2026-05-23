@@ -17,6 +17,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ### Fixed
 - `deps-check.sh` — defined missing `have()` helper at the top of the script. The Tier-2a / E4 / OT branches at lines 165+ called `have kcat`, `have nbtscan`, `have impacket-rpcdump`, etc., but `have()` is defined in `network/_lib.sh` which the script never sources. Operators following the README's "first run `./deps-check.sh`" guidance saw `have: command not found` errors during the dispatcher-readiness phase. Also tightened `set -u` → `set -uo pipefail` per CLAUDE.md §8.
+- `tests/smoke.sh` — derived `REPO` from the script's own location instead of the hardcoded `/home/jay/Documents/cyber/dev/aratool` path that previously broke `make smoke` (and therefore `make test` and the CI `make smoke` step) on every machine except one developer's box. Harness now runs in any checkout location.
 
 ---
 

@@ -3,7 +3,10 @@
 # No external lab targets — purely syntax / smoke / fixture / security-regression.
 
 set -uo pipefail
-REPO=/home/jay/Documents/cyber/dev/aratool
+# Derive the repo root from this script's location so the harness runs in any
+# checkout (CI, fresh clones, contributors' machines). The prior hardcoded
+# /home/jay/... path broke `make smoke` outside one developer's box.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO" || exit 2
 
 R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; C="\033[1;36m"; N="\033[0m"
