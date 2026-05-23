@@ -4,6 +4,9 @@
     Flags tasks running as SYSTEM / Administrators / NETWORK SERVICE whose
     action invokes a writable script or executable.
 #>
+[CmdletBinding()]
+param()
+
 $ident = [Security.Principal.WindowsIdentity]::GetCurrent()
 
 function Test-CanWriteFile($p) {

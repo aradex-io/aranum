@@ -2,6 +2,9 @@
 .SYNOPSIS
     Interpret current token privileges and call out exploitable ones.
 #>
+[CmdletBinding()]
+param()
+
 $exploitable = @{
     'SeImpersonatePrivilege'        = 'Potato family: JuicyPotato/PrintSpoofer/RoguePotato/GodPotato -> SYSTEM'
     'SeAssignPrimaryTokenPrivilege' = 'Potato family (same as SeImpersonate)'

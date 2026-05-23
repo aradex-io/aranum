@@ -7,6 +7,9 @@
       2. Service binary permissions allow Modify/Write                  -> overwrite binary
       3. Service registry key permissions allow FullControl/Write       -> set ImagePath
 #>
+[CmdletBinding()]
+param()
+
 function Get-CurrentSids {
     $ident = [Security.Principal.WindowsIdentity]::GetCurrent()
     $sids = @($ident.User.Value)

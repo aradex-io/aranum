@@ -2,6 +2,9 @@
 .SYNOPSIS
     Hunt for stored credentials reachable from current user context.
 #>
+[CmdletBinding()]
+param()
+
 function Section($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
 
 Section "cmdkey /list (saved RDP/network creds)"

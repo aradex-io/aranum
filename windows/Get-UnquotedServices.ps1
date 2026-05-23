@@ -7,6 +7,9 @@
     then the real binary. If any preceding directory is writable, planting
     an executable there gets it invoked under the service account.
 #>
+[CmdletBinding()]
+param()
+
 $ident = [Security.Principal.WindowsIdentity]::GetCurrent()
 
 function Test-Writable($path) {
