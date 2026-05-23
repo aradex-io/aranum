@@ -17,6 +17,23 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.27.0] — 2026-05-23
+
+**ROADMAP-001 I-E hypervisor partial-gap closure.** 4 new product-detect blocks folded into `enum-http.sh` C.13 (blocks 12–15) covering hypervisor and orchestration consoles that the earlier vCenter detector (E4) did not reach. No new dispatchers; same two-evidence discipline; evil-product-hdrs FP cell preserved at 0 hits.
+
+### Added
+- `network/enum-http.sh` block 12 — VMware ESXi host (vs vCenter). Probes `/ui/`; distinguishes from already-shipped vCenter by title containing `VMware Host Client` (vCenter is `vSphere Client`). Detection-only.
+- `network/enum-http.sh` block 13 — Proxmox VE. Probes `/api2/json/version`; two-evidence requires HTTP 200 AND JSON envelope `"data":` AND all three of `"release":` + `"version":` + `"repoid":` keys. Emits `Hypervisor Proxmox VE detected:` PLUS `UNAUTH: Proxmox version API exposed:` (the endpoint returning data without an `Authorization` header is itself an unauth signal on newer installs).
+- `network/enum-http.sh` block 14 — Nutanix Prism. Probes `/console/` capturing headers with `-D`; two-evidence requires `Set-Cookie: NTNX_IGW_SESSION` header AND body containing `Nutanix` or `Prism`.
+- `network/enum-http.sh` block 15 — OpenStack Keystone. Probes `/v3`; two-evidence requires JSON envelope `"version":{` AND `"status":"stable"|"beta"|"deprecated"` AND `"rel":"self"` (the canonical Keystone API-discovery shape). Emits version id from `"id":"v3.x"`.
+- `network/report.py` severity rules: HIGH on `UNAUTH: Proxmox version API exposed:` (the unauth `/api2/json/version` is the recon entrypoint); MEDIUM on the four `Hypervisor X detected:` / `OpenStack Keystone detected:` lines (parity with BMC detection severity).
+
+**Notes:**
+- Default cred history for Nutanix Prism is `admin/Nutanix/4u` — surface to operator through whatever auth-testing tool they choose (`enum-http.sh` does not spray, by design).
+- The ESXi vs vCenter distinction is load-bearing: the `vSphere Client` title means vCenter (orchestrator) and triggers the existing block 9 detector; the `VMware Host Client` title means an individual ESXi hypervisor host (typically managed by vCenter, but reachable on its own when port-scanned at 443). Both detectors can fire on the same target if the operator scans both the vCenter VM and the underlying ESXi hosts.
+
+---
+
 ## [v0.26.0] — 2026-05-23
 
 **ROADMAP-001 I-D BMC + I-J VPN closure.** 11 new product-detect probes folded into `enum-http.sh` C.13 covering 5 out-of-band BMC vendors and 6 SSL VPN concentrators. No new dispatcher files; no new safety controls; two-evidence discipline preserved against the v0.22.1 evil-product-hdrs FP cell.
