@@ -161,6 +161,8 @@ SERVICE_MAP = {
     "solr":        ({8983, 8984},          r"a^"),  # fingerprints as http
     "vault":       ({8200, 8201},          r"a^"),  # fingerprints as http/https
     "zookeeper":   ({2181, 2182},          r"^zookeeper"),
+    # I-K (low-risk iteration-I cluster) — network print services
+    "print":      ({9100, 515},             r"^(jetdirect|hp-pdl-datastr|printer|lpd|spooler)"),
     # Iteration E4 — opt-in aggressive UDP services. These categories route but
     # auto-enum.sh strips them from the auto-derived service list by default;
     # enable with --ike / --slp / --radius / --aggressive. Each dispatcher also
