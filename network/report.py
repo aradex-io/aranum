@@ -140,6 +140,15 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     # the default probe does not retrieve queue jobs unless a queue name hits.
     (re.compile(r"\bJetDirect / PJL UNAUTH:", re.I),                   "high"),
     (re.compile(r"\bLPD reachable:", re.I),                            "medium"),
+    # T4 — OT/ICS read-side identification (Modbus/S7/EnIP/BACnet/OPC-UA/DNP3/IEC-104).
+    # Per ADR-005 D6: situational-awareness output, no CVE-lookup. LOW by default
+    # (matches the docstring's "informational banners, version fingerprints" tier).
+    # OPC-UA `None`-policy advertisement is intentionally also LOW — many servers
+    # advertise None on the discovery endpoint only; correlating that with the
+    # actual session security requires operator interpretation. NO CRITICAL rules
+    # at T4 — write-side is hard-prohibited (ADR-005 D2).
+    (re.compile(r"\bOPC-UA endpoint advertises 'None' security policy:", re.I), "low"),
+    (re.compile(r"\bOT-ID (Modbus|S7|EtherNet/IP|BACnet|OPC-UA|DNP3|IEC-104)\b", re.I), "low"),
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
 
