@@ -33,7 +33,7 @@ function Test-CanWrite($path) {
 }
 
 Write-Host "=== Modifiable service binaries ===" -ForegroundColor Cyan
-Get-WmiObject win32_service | ForEach-Object {
+Get-CimInstance Win32_Service | ForEach-Object {
     $exe = ($_.PathName -replace '^"([^"]+)".*','$1') -replace '^([^\s]+).*','$1'
     if ($exe -and (Test-Path $exe)) {
         $r = Test-CanWrite $exe

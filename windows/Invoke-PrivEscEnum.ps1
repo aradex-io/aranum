@@ -85,7 +85,7 @@ foreach ($p in $useful) {
 # ---------- 3. SERVICES ----------
 Section "SERVICES — UNQUOTED & WRITABLE"
 Sub "Unquoted service paths with spaces"
-Get-WmiObject win32_service | ForEach-Object {
+Get-CimInstance Win32_Service | ForEach-Object {
     $p = $_.PathName
     if ($p -and $p -notmatch '^"' -and $p -match ' ' -and $p -notmatch '^[A-Za-z]:\\Windows\\') {
         Hit "$($_.Name) -> $p (StartMode=$($_.StartMode), State=$($_.State))"
@@ -93,7 +93,7 @@ Get-WmiObject win32_service | ForEach-Object {
 }
 
 Sub "Service binary write-check (current user)"
-$svcs = Get-WmiObject win32_service | Where-Object { $_.PathName }
+$svcs = Get-CimInstance Win32_Service | Where-Object { $_.PathName }
 foreach ($s in $svcs) {
     $exe = ($s.PathName -replace '^"([^"]+)".*','$1') -replace '^([^\s]+).*','$1'
     if (Test-Path $exe -ErrorAction SilentlyContinue) {

@@ -22,7 +22,7 @@ function Test-Writable($path) {
     } catch { return $false }
 }
 
-Get-WmiObject win32_service | ForEach-Object {
+Get-CimInstance Win32_Service | ForEach-Object {
     $p = $_.PathName
     if (-not $p) { return }
     if ($p -match '^"') { return }                                # already quoted
