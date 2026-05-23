@@ -17,6 +17,36 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ---
 
+## [v0.30.0] — 2026-05-23
+
+**Port-centric dashboard rework.** Operator feedback: "I need to be able to look through everything quickly — what port a service was found on, what's there, what's open — without going three levels down in pages." This release adds a master inventory page and rebuilds the per-host page around an expandable port × service table.
+
+### Added
+- `network/report-dashboard.py` — new master page `inventory.html` (top nav: Hosts → **Inventory** → Services). Wide flat table of every `(host, port, service)` triple in the engagement, with columns: Host · Port · Service · State · Findings count · Top-finding preview. Sortable, filterable via the global search box. Severity-state chip on every row (chip is `PROBED` for ports with no severity-tagged findings, otherwise the max severity colour). One scroll surfaces the entire engagement.
+- Per-host page (`host_<ip>.html`) rebuilt — leads with a **Port × Service table**: every probed port on that host shown as one row, with a native `<details>`-element expander that opens an inline pane containing the full findings table + a collapsible list of evidence file paths. No JS, no extra page load — one click reveals everything for that port.
+- Dashboard `index.html` — new "Noisiest ports" widget (top-N by finding count) and a "Ports probed / Ports with findings" row in the run summary. Hero subtitle now includes the port total. A `→ open the inventory` CTA links straight from the hero.
+
+### Changed
+- `data.json` — new `inventory[]` array with `host`/`port`/`service`/`state`/`n`/`sev`/`page` per entry, and a `n_ports` field under `summary`. Used by the embedded JS quick-jump and by external tooling.
+- `docs/examples/dashboard/fixture/` — added `_targets_<svc>.txt` files (`smb`, `http`, `vault`) matching the real `auto-enum.sh` output convention so the inventory has authoritative port data to render.
+
+### Fixed
+- `network/report-dashboard.py` — re-attribution of `(dispatcher)`-bucketed findings to real hosts when the finding-line text contains an IPv4 belonging to a known engagement host. Previously, lines like `UNAUTH: Jenkins API exposed: http://10.0.0.20:8080` were attributed to a synthetic `(dispatcher)` host because they appeared in `_dispatcher.log` rather than under `$OUT/<svc>/<ip>/`. The re-attribution pass uses the union of per-host artifact directories and `_targets_*.txt` IPs as the known-host set.
+
+### Port-discovery sources (in resolution order)
+1. **`$OUTDIR/_targets_<svc>.txt`** — authoritative; exactly what `auto-enum.sh` dispatched.
+2. **Per-host artifact filenames** — regex `_(\d{2,5})(?:_|\.)` matches `seal_https_8200.txt`, `jetdirect_9100_*`, `yarn_8088_info.json`, etc.
+3. **Finding-line text** — explicit `host:port` or `://host:port` URLs.
+4. **Scheme defaults** — when a line has `https://10.0.0.30/` with no port, it attributes to 443. Maps for `http`/`https`/`ssh`/`ftp`/`rsync`/`ldap`/`ldaps`.
+5. **Service defaults** (`DEFAULT_PORTS` table, 55+ services) — last resort so an inventory row isn't blank even when none of the above produced a port.
+
+### Notes
+- The two existing dashboard pages from v0.29.0 (`coverage.html`, severity-filtered pages) remain — they're useful for severity-first workflows. The new pages are additions and a per-host rewrite, not a replacement.
+- Inventory size scales as `Σ_hosts (ports_per_host)`. At 1000 hosts × 5 ports = 5000 rows the static page is still fluid in modern browsers; no pagination is added (operator feedback can iterate on this).
+- Smoke section 10e adds one new check: `inventory.html` carries `data-port=` rows AND `data.json` has the `n_ports` summary field. Total 285 smoke pass.
+
+---
+
 ## [v0.29.0] — 2026-05-23
 
 **Standalone multi-page HTML dashboard.** New tool `network/report-dashboard.py` consumes an `auto-enum.sh` `$OUTDIR` (or a `bulk-enum-*` tree) and emits a self-contained directory of HTML pages — no CDN, no build step, no server required. Open `index.html` in any browser, or serve briefly with `python3 -m http.server` for remote sharing.

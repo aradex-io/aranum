@@ -244,9 +244,10 @@ The output is a self-contained directory of HTML pages — no CDN, no build step
 
 | Page | Purpose |
 |---|---|
-| `index.html` | severity tiles + top hosts + top services + recent findings + run summary |
+| `index.html` | severity tiles + top hosts + top services + **noisiest ports** + recent findings + run summary |
 | `hosts.html` | sortable table of every host (max severity, finding count, severity breakdown, services) |
-| `host_<ip>.html` | per-host detail — services discovered + findings grouped by severity |
+| `host_<ip>.html` | per-host **port × service** table — every probed port on the host with click-to-expand findings + evidence files inline (no extra page load) |
+| `inventory.html` | **master port table** — every `(host, port, service)` row in the engagement, sortable + searchable, with severity state and top-finding preview |
 | `services.html` | sortable table of every dispatcher exercised |
 | `service_<svc>.html` | per-service detail — host inventory + all findings |
 | `severity.html` + `severity_<sev>.html` | filtered findings by severity tier |
