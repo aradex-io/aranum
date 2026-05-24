@@ -10,6 +10,8 @@ See `CLAUDE.md` §6 for the entry style guide.
 ## [Unreleased]
 
 ### Added
+- `network/enum-artifact.sh`, `network/enum-platform.sh`, `network/enum-storage.sh` — read-side dispatchers for artifact/container registries, Kubernetes-adjacent control planes, and storage fabrics/object stores.
+- `network/nmap-parse.py` categories `artifact`, `platform`, and `storage`, plus service metadata/planner priorities for those high-value operator pivots.
 - `network/plan.py`, `network/service-metadata.json`, `network/engagement-profiles.json` — operator-centric planner that turns nmap output into prioritized `plan.json`, `queue.jsonl`, and `guidance.json` artifacts without changing scan behavior. Metadata covers every `nmap-parse.py` service category and every `network/enum-*.sh` dispatcher.
 - `network/aranum.py` — unified wrapper CLI for planner, auto-enum, reports, dashboard, merge, queue viewing, and bulk Linux/Windows enum workflows.
 - `network/merge-results.py` — merge multiple `findings.json` exports into one findings file with deduplication and evidence-path rewriting.
@@ -17,9 +19,11 @@ See `CLAUDE.md` §6 for the entry style guide.
 - `tests/test_planner.py`, `tests/test_queue.py`, `tests/test_structured_findings.py`, `tests/test_unified_cli.py`, `tests/test_merge_results.py` — coverage for planner metadata, queue sharding, structured finding fields, wrapper CLI, and merged reports.
 
 ### Changed
+- `network/enum-http.sh` — expanded product detection for Nexus, Artifactory, Harbor, Docker Registry, Argo CD, Rancher, Portainer, Nomad, MinIO, Ceph/RADOSGW, Rubrik, Cohesity, PowerProtect, TeamCity, GitHub Enterprise, and Azure DevOps. Probes remain marker-gated and read-only.
+- `network/enum-backup.sh` — expanded backup coverage to Avamar/PowerProtect legacy ports and Rubrik/Cohesity/PowerProtect API fingerprints.
 - `network/auto-enum.sh` — added optional planner integration flags: `--profile`, `--phase`, `--plan-only`, `--queue`, and `--skip-low-priority`. Default execution remains the original service-bucket dispatcher flow when these flags are omitted.
 - `network/report.py` — `findings.json` now includes schema-v2 structured fields (`finding_id`, `title`, `confidence`, `priority`, `tags`, `next_actions`, `triage_status`) while preserving existing legacy fields.
-- `README.md` — documented planner/queue workflow, unified CLI, planner metadata files, and dashboard inbox/guidance pages.
+- `README.md` — documented planner/queue workflow, unified CLI, planner metadata files, dashboard inbox/guidance pages, and why aranum's HTTP product phase goes beyond `nmap -sC`.
 
 ### Enhanced
 

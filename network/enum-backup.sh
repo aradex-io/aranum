@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# enum-backup.sh — backup-infrastructure detection (Veeam, CommVault, NetBackup).
+# enum-backup.sh — backup-infrastructure detection.
 #
 # Backup servers are exceptionally high-value lateral targets: they hold
 # credentials for every system they back up, and their pre-auth attack
@@ -13,6 +13,8 @@
 #   8400    CommVault REST                       (HTTP/S)
 #   81      CommVault Web Service (legacy)       (HTTP)
 #   1556    Veritas NetBackup CORBA              (TCP)
+#   7778/9  Dell Avamar / PowerProtect legacy    (TCP)
+#   8543    Rubrik / Cohesity / PowerProtect API  (HTTPS)
 
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -117,8 +119,53 @@ while read -r target; do
             fi
             ;;
 
+        7778|7779)
+            # ---------- Dell Avamar / PowerProtect legacy ----------
+            av_file="$OUT/$ip/avamar_${port}.txt"
+            if have nc; then
+                timeout 5 nc -nv -w 4 "$ip" "$port" > "$av_file" 2>&1 || true
+                if grep -qiE '(avamar|mcserver|gsan|connected|open)' "$av_file" 2>/dev/null; then
+                    hit "Dell Avamar / PowerProtect legacy service reachable: $ip:$port"
+                fi
+            else
+                miss "nc missing — skipping avamar/powerprotect legacy probe"
+            fi
+            ;;
+
+        8543)
+            # ---------- Rubrik / Cohesity / PowerProtect web APIs ----------
+            have curl || { miss "curl missing — skipping backup API probe"; continue; }
+            api_file="$OUT/$ip/backup_api_${port}.txt"
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
+                -D "$api_file.headers" \
+                "https://${ip}:${port}/api/v1/cluster/me" \
+                > "$api_file.body" 2>&1 || true
+
+            if grep -qiE '(rubrik|brik|cdm)' "$api_file.headers" "$api_file.body" 2>/dev/null; then
+                hit "Rubrik backup API detected: $ip:$port"
+            fi
+
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
+                -D "$api_file.cohesity.headers" \
+                "https://${ip}:${port}/irisservices/api/v1/public/cluster" \
+                > "$api_file.cohesity.body" 2>&1 || true
+            if grep -qiE '(cohesity|clusterIncarnationId|clusterSoftwareVersion)' \
+                "$api_file.cohesity.headers" "$api_file.cohesity.body" 2>/dev/null; then
+                hit "Cohesity backup API detected: $ip:$port"
+            fi
+
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
+                -D "$api_file.ppdm.headers" \
+                "https://${ip}:${port}/api/v2/about" \
+                > "$api_file.ppdm.body" 2>&1 || true
+            if grep -qiE '(PowerProtect|PPDM|Data Manager)' \
+                "$api_file.ppdm.headers" "$api_file.ppdm.body" 2>/dev/null; then
+                hit "Dell PowerProtect Data Manager API detected: $ip:$port"
+            fi
+            ;;
+
         *)
-            log "backup: unsupported port $ip:$port (expected 9392/8400/81/1556)"
+            log "backup: unsupported port $ip:$port (expected 9392/8400/81/1556/7778/7779/8543)"
             ;;
     esac
 
@@ -148,6 +195,13 @@ Backup infrastructure follow-ups (DETECT-ONLY here):
       patched but legacy environments still vulnerable.
     * Operator credentials are stored under
       /usr/openv/var/global/serverlist on master servers.
+
+  Rubrik / Cohesity / Dell PowerProtect:
+    * Review appliance reachability from user VLANs as a segmentation finding.
+    * API access frequently implies snapshot, restore, credential vault, or
+      cloud target control. Confirm backup-tier scope before deeper testing.
+    * For Avamar / PowerProtect legacy ports, do not attach agents or initiate
+      backup/restore workflows from this toolkit.
 
   Defensive note: backup infrastructure should be on a dedicated
   management VLAN with no inbound from user networks. Reaching any of

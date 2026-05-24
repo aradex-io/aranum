@@ -94,7 +94,7 @@ Each subsystem ships its own README documenting the per-tool surface — `active
 | `network/enum-winrm.sh` | `nxc winrm`, command exec test, evil-winrm spray |
 | `network/enum-rdp.sh` | `nxc rdp`, `rdp-sec-check`, NLA detection |
 | `network/enum-mssql.sh` | `nxc mssql`, `mssqlclient.py`, xp_cmdshell check |
-| `network/enum-http.sh` | `whatweb`, `httpx`, `nuclei`, `ffuf` (light wordlist), `nikto` (optional); **C.13 product-fingerprint phase** fans 28+ product-specific probes per live URL — IT products (Tomcat Manager, Jenkins incl. Groovy console RCE check, GitLab, SonarQube, Grafana, Prometheus, Hadoop NameNode, Spark UI, VMware vCenter), **5 BMC vendors** (HPE iLO, Dell iDRAC, Supermicro, Lenovo XCC/IMM, Cisco CIMC — I-D), **6 VPN concentrators** (Cisco AnyConnect/ASA, Fortinet, Palo GlobalProtect, Pulse/Ivanti, Citrix NetScaler, SonicWall — I-J), **4 hypervisor consoles** (VMware ESXi host, Proxmox VE, Nutanix Prism, OpenStack Keystone — I-E), and **4 source/CI products** (Gerrit, Atlassian Confluence, Jira, Bamboo — I-I); each detector requires a product-specific marker (header pattern, JSON key, or exact body string) before emitting a hit; skippable via `NO_PRODUCT_DETECT=1` |
+| `network/enum-http.sh` | `whatweb`, `httpx`, `nuclei`, `ffuf` (light wordlist), `nikto` (optional); **C.13 product-fingerprint phase** fans 40+ product-specific probes per live URL — IT products, BMC, VPN, hypervisor/private-cloud, source/CI, artifact registries, platform control planes, storage, and backup APIs; each detector requires a product-specific marker (header pattern, JSON key, or exact body string) before emitting a hit; skippable via `NO_PRODUCT_DETECT=1` |
 | `network/enum-ssh.sh` | `ssh-audit`, banner, `nxc ssh` cred spray, key auth probe |
 | `network/enum-ftp.sh` | Anonymous, `nxc ftp` cred spray |
 | `network/enum-snmp.sh` | `onesixtyone` + `snmpwalk` with common communities |
@@ -144,7 +144,10 @@ Each subsystem ships its own README documenting the per-tool surface — `active
 | `network/enum-flexnet.sh` | FlexNet Publisher / FLEXlm license servers (27000–27009) — banner detection + `lmutil lmstat -a` when available; characteristic of MATLAB/Cadence/Synopsys/Ansys/COMSOL/Mentor hosts (I-C) |
 | `network/enum-hpc.sh` | HPC schedulers — Slurm slurmctld/slurmd (6817/6818), HTCondor collector (9618), YARN ResourceManager (8088); read-side only — no job submission (I-F) |
 | `network/enum-monitoring.sh` | Monitoring / lab-data — Zabbix agent (10050) + server (10051), Nagios NRPE (5666), Splunk mgmt API (8089); read-side metric queries + version fingerprints (I-G) |
-| `network/enum-backup.sh` | Backup infrastructure detection — Veeam B&R REST (9392), CommVault (8400/81), Veritas NetBackup (1556); detection-only — pre-auth CVE links in _hints.txt (I-H) |
+| `network/enum-backup.sh` | Backup infrastructure detection — Veeam B&R REST (9392), CommVault (8400/81), Veritas NetBackup (1556), Avamar/PowerProtect (7778/7779), Rubrik/Cohesity/PowerProtect APIs (8543); detection-only — pre-auth CVE links in _hints.txt (I-H) |
+| `network/enum-artifact.sh` | Artifact/package/container registries — Docker Registry v2, Nexus, Artifactory, Harbor; read-side status/catalog probes only; no pulls/downloads/writes |
+| `network/enum-platform.sh` | Platform control planes — Nomad, Portainer, Rancher, Argo CD; read-side version/inventory probes only; no job submission or cluster mutation |
+| `network/enum-storage.sh` | Storage fabric/object-store exposure — iSCSI, Ceph/RADOSGW, Gluster, MinIO; read-side discovery only; no mounts, object downloads, or attaches |
 
 ### Tier 4 — OT/ICS read-side identification (`ot/`)
 
@@ -299,6 +302,22 @@ The output is a self-contained directory of HTML pages — no CDN, no build step
 Keyboard shortcuts inside the dashboard: `/` focuses the search box; `Esc` clears it; type `>host 10.0.0` then Enter to jump to a host page; `>svc smb` jumps to a service page. Dark theme by default with a toggle in the top nav.
 
 Pass `--bulk` when generating from a `bulk-enum-linux.sh`/`bulk-enum-windows.py` tree instead of an `auto-enum.sh` tree.
+
+### Nmap defaults vs aranum depth
+
+`nmap -sC` is not enough for random HTTP services. It runs NSE `default`
+scripts, not every product script, and those scripts only run against ports
+nmap scanned and identified well enough. Use a broad port scan plus service
+version detection first, then feed XML to aranum:
+
+```bash
+nmap -Pn -p- --min-rate 5000 -oA tcp-all <target-or-cidr>
+nmap -Pn -sV -sC -p <open-port-list> -oX scan.xml <target-or-cidr>
+python3 ./network/aranum.py plan --input scan.xml --output ./enum-results --profile quick
+```
+
+`enum-http.sh` deliberately retries HTTP and HTTPS on unknown ports and runs
+product-specific marker-gated probes that `-sC` will not cover by default.
 
 To preview without running a live engagement, generate against the committed example fixture:
 

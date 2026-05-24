@@ -173,8 +173,17 @@ SERVICE_MAP = {
     "monitoring": ({10050, 10051, 5666, 8089},
                    r"^(zabbix|nrpe|nagios|splunk|splunkd)"),
     # I-H — backup infrastructure detection (Veeam REST, CommVault, NetBackup)
-    "backup":     ({9392, 8400, 81, 1556},
-                   r"^(veeam|commvault|netbackup|vnetd|pbx_exchange|bpcd)"),
+    "backup":     ({9392, 8400, 81, 1556, 7778, 7779, 8543},
+                   r"^(veeam|commvault|netbackup|vnetd|pbx_exchange|bpcd|avamar|cohesity|rubrik)"),
+    # Operator-centric expansion — artifact/container registries, platform
+    # control planes, and storage fabrics. HTTP product detection catches
+    # these on random ports; these categories prioritize common fixed ports.
+    "artifact":   ({5000, 8081, 8082, 8083},
+                   r"^(docker-registry|registry|nexus|artifactory|harbor)"),
+    "platform":   ({4646, 9443},
+                   r"^(nomad|portainer|rancher|argocd|argo-cd)"),
+    "storage":    ({3260, 3300, 6789, 7480, 9000, 9001, 24007},
+                   r"^(iscsi|ceph|radosgw|gluster|glusterd|minio)"),
     # T4 — OT/ICS sentinel category. Routes the OT ports so they appear in
     # surface-area inventory, but auto-enum.sh does NOT dispatch to any
     # ot/ script — operators must invoke ot/ot-enum.sh --ics-confirm by hand

@@ -276,9 +276,9 @@ section "10b.2. Remaining dispatchers — empty-targets smoke (Phase 7 expansion
 # oracle → tnscmd10g, sip → svmap/nmap NSE sip scripts). The latter group's
 # _hints.txt is gated on the tool being installed, so we can't assert it
 # unconditionally in a portable smoke harness.
-HINTS_REQUIRED="backup cassandra consul flexnet hpc influxdb ipp \
-                kafka monitoring neo4j netbios-ns pop3 imap print \
-                solr telnet vault zookeeper"
+HINTS_REQUIRED="artifact backup cassandra consul flexnet hpc influxdb ipp \
+                kafka monitoring neo4j netbios-ns platform pop3 imap print \
+                solr storage telnet vault zookeeper"
 HINTS_OPTIONAL="dns ftp kerberos ldap rdp smb smtp snmp ssh unknown winrm http https \
                 activemq ajp mqtt oracle sip rsync"
 # Env-gated dispatchers (E4 opt-in aggressive UDP) refuse without ENUM_RUN_X=1;

@@ -68,6 +68,8 @@ class TestServiceMap(unittest.TestCase):
         "msrpc", "netbios-ns", "neo4j", "solr", "vault", "zookeeper",
         # Iteration E4 — opt-in aggressive UDP services
         "ike", "slp", "radius",
+        # Operator-centric expansion
+        "artifact", "platform", "storage",
     }
 
     def test_every_required_category_present(self):
@@ -205,8 +207,8 @@ class TestCLI(unittest.TestCase):
         rc, out, err = _run_cli(str(FIXTURES / "all-services.xml"), "--json")
         self.assertEqual(rc, 0, f"stderr: {err}")
         d = json.loads(out)
-        # all-services.xml has 13 hosts and 32 open ports across them
-        self.assertEqual(d["summary"]["hosts"], 13)
+        # all-services.xml has 14 hosts and 35 open ports across them
+        self.assertEqual(d["summary"]["hosts"], 14)
         self.assertEqual(d["summary"]["open_ports"], len(d["entries"]))
 
 

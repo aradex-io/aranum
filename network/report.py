@@ -333,6 +333,17 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     # entrypoint).
     (re.compile(r"\bUNAUTH: Jira serverInfo exposed:", re.I),              "high"),
     (re.compile(r"\bSource/CI (Gerrit|Atlassian Confluence|Atlassian Jira|Atlassian Bamboo) detected:", re.I), "medium"),
+    # Operator-centric expansion — artifact registries, platform control planes,
+    # storage fabrics, backup appliances, and additional source/CI products.
+    (re.compile(r"\bArtifact Docker Registry UNAUTH catalog surface:", re.I), "high"),
+    (re.compile(r"\bArtifact (Docker Registry|Sonatype Nexus|JFrog Artifactory|Harbor registry) detected:", re.I), "medium"),
+    (re.compile(r"\bPlatform Nomad UNAUTH job inventory:", re.I),           "high"),
+    (re.compile(r"\bPlatform (HashiCorp Nomad|Portainer|Rancher|Argo CD) detected:", re.I), "medium"),
+    (re.compile(r"\bStorage iSCSI target exposed:", re.I),                  "high"),
+    (re.compile(r"\bStorage (MinIO|Ceph/RADOSGW object gateway|Ceph monitor|Gluster management) (?:detected|reachable):", re.I), "medium"),
+    (re.compile(r"\bBackup (Rubrik|Cohesity|Dell PowerProtect Data Manager) API detected:", re.I), "high"),
+    (re.compile(r"\bDell Avamar / PowerProtect legacy service reachable:", re.I), "high"),
+    (re.compile(r"\bSource/CI (TeamCity|GitHub Enterprise|Azure DevOps Server) detected:", re.I), "medium"),
     (re.compile(r"\bRADIUS server reachable:", re.I),                   "low"),
     (re.compile(r"\bIKE/IPsec VPN endpoint reachable:", re.I),          "low"),
     (re.compile(r"\bIKE vendor:", re.I),                                "low"),

@@ -25,9 +25,10 @@ REPO = Path(__file__).resolve().parent.parent
 # Dispatchers that wrote _hints.txt unconditionally as of v0.30.1, even with
 # zero targets. (Mirrors smoke.sh §10b.2 HINTS_REQUIRED.)
 HINTS_REQUIRED = [
-    "backup", "cassandra", "consul", "flexnet", "hpc", "influxdb", "ipp",
-    "kafka", "monitoring", "neo4j", "netbios-ns", "pop3", "imap", "print",
-    "solr", "telnet", "vault", "zookeeper",
+    "artifact", "backup", "cassandra", "consul", "flexnet", "hpc",
+    "influxdb", "ipp", "kafka", "monitoring", "neo4j", "netbios-ns",
+    "platform", "pop3", "imap", "print", "solr", "storage", "telnet",
+    "vault", "zookeeper",
 ]
 
 # Dispatchers that do NOT emit _hints.txt — either pre-convention (Tier-1)

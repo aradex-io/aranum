@@ -831,6 +831,163 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
         throttle_sleep
 
+        # --- 20. Artifact / registry products ---
+        # These are supply-chain control points. Detection is marker-gated; no
+        # image pulls, package downloads, repository writes, or token probes.
+        reg_hdr="$OUT/prod_registry_hdr_${safe}.txt"
+        reg_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            -D "$reg_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/v2/" 2>/dev/null)
+        reg_status=$(echo "$reg_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        if grep -qi '^docker-distribution-api-version:' "$reg_hdr" 2>/dev/null; then
+            if [ "$reg_status" = "200" ]; then
+                hit "Artifact Docker Registry UNAUTH catalog surface: ${url}"
+            else
+                hit "Artifact Docker Registry detected: ${url} — status=${reg_status:-?}"
+            fi
+        fi
+
+        nexus_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/service/rest/v1/status" 2>/dev/null)
+        if echo "$nexus_body" | grep -q '"version"' \
+           && echo "$nexus_body" | grep -q '"edition"'; then
+            nexus_ver=$(echo "$nexus_body" | grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Artifact Sonatype Nexus detected: ${url} — version=${nexus_ver:-?}"
+        fi
+
+        art_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/artifactory/api/system/version" 2>/dev/null)
+        if echo "$art_body" | grep -q '"version"' \
+           && echo "$art_body" | grep -q '"revision"'; then
+            art_ver=$(echo "$art_body" | grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Artifact JFrog Artifactory detected: ${url} — version=${art_ver:-?}"
+        fi
+
+        harbor_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/api/v2.0/systeminfo" 2>/dev/null)
+        if echo "$harbor_body" | grep -q '"harbor_version"'; then
+            harbor_ver=$(echo "$harbor_body" | grep -oE '"harbor_version"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Artifact Harbor registry detected: ${url} — version=${harbor_ver:-?}"
+        fi
+        throttle_sleep
+
+        # --- 21. Platform / Kubernetes-adjacent admin planes ---
+        argocd_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/api/version" 2>/dev/null)
+        if echo "$argocd_body" | grep -q '"Version"' \
+           && echo "$argocd_body" | grep -q '"GitCommit"'; then
+            argo_ver=$(echo "$argocd_body" | grep -oE '"Version"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Platform Argo CD detected: ${url} — version=${argo_ver:-?}"
+        fi
+
+        rancher_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/v3/settings/server-version" 2>/dev/null)
+        if echo "$rancher_body" | grep -q '"name"[[:space:]]*:[[:space:]]*"server-version"' \
+           && echo "$rancher_body" | grep -q '"value"'; then
+            rancher_ver=$(echo "$rancher_body" | grep -oE '"value"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Platform Rancher detected: ${url} — version=${rancher_ver:-?}"
+        fi
+
+        portainer_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/api/status" 2>/dev/null)
+        if echo "$portainer_body" | grep -q '"Version"' \
+           && echo "$portainer_body" | grep -q '"InstanceID"'; then
+            portainer_ver=$(echo "$portainer_body" | grep -oE '"Version"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
+            hit "Platform Portainer detected: ${url} — version=${portainer_ver:-?}"
+        fi
+
+        nomad_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/v1/status/leader" 2>/dev/null)
+        if echo "$nomad_body" | grep -qE '^"[^"]+:[0-9]+"$'; then
+            hit "Platform HashiCorp Nomad detected: ${url}"
+            nomad_jobs=$(curl -ks "${CURL_ARGS[@]}" \
+                --connect-timeout 4 --max-time 8 \
+                "${url}/v1/jobs" 2>/dev/null)
+            if echo "$nomad_jobs" | grep -q '"ID"'; then
+                hit "Platform Nomad UNAUTH job inventory: ${url}"
+            fi
+        fi
+        throttle_sleep
+
+        # --- 22. Storage and backup web admin planes ---
+        minio_hdr="$OUT/prod_minio_hdr_${safe}.txt"
+        minio_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            -D "$minio_hdr" \
+            -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/minio/health/live" 2>/dev/null)
+        minio_status=$(echo "$minio_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        if [ "$minio_status" = "200" ] || grep -qiE '(x-minio|MinIO)' "$minio_hdr" 2>/dev/null; then
+            hit "Storage MinIO detected: ${url}"
+        fi
+
+        ceph_hdr="$OUT/prod_ceph_hdr_${safe}.txt"
+        ceph_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            -D "$ceph_hdr" \
+            "${url}/" 2>/dev/null)
+        if grep -qiE '(x-amz-request-id|x-rgw-object-type|ceph|radosgw)' "$ceph_hdr" <(echo "$ceph_body") 2>/dev/null; then
+            hit "Storage Ceph/RADOSGW object gateway detected: ${url}"
+        fi
+
+        rubrik_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/api/v1/cluster/me" 2>/dev/null)
+        if echo "$rubrik_body" | grep -qiE '(rubrik|brik|CDMVersion|clusterUuid)'; then
+            hit "Backup Rubrik API detected: ${url}"
+        fi
+
+        cohesity_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/irisservices/api/v1/public/cluster" 2>/dev/null)
+        if echo "$cohesity_body" | grep -qiE '(cohesity|clusterIncarnationId|clusterSoftwareVersion)'; then
+            hit "Backup Cohesity API detected: ${url}"
+        fi
+
+        ppdm_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/api/v2/about" 2>/dev/null)
+        if echo "$ppdm_body" | grep -qiE '(PowerProtect|PPDM|Data Manager)'; then
+            hit "Backup Dell PowerProtect Data Manager API detected: ${url}"
+        fi
+        throttle_sleep
+
+        # --- 23. Additional source / CI platforms ---
+        teamcity_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/app/rest/server" 2>/dev/null)
+        if echo "$teamcity_body" | grep -qE '<server[^>]+version=' \
+           && echo "$teamcity_body" | grep -qE 'buildNumber='; then
+            teamcity_ver=$(echo "$teamcity_body" | grep -oE 'version="[^"]+"' | head -1 | cut -d'"' -f2)
+            hit "Source/CI TeamCity detected: ${url} — version=${teamcity_ver:-?}"
+        fi
+
+        ghe_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/site/status" 2>/dev/null)
+        if echo "$ghe_body" | grep -q '"github"' \
+           && echo "$ghe_body" | grep -qE '"status"|"version"'; then
+            hit "Source/CI GitHub Enterprise detected: ${url}"
+        fi
+
+        ado_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout 4 --max-time 8 \
+            "${url}/_apis/connectionData" 2>/dev/null)
+        if echo "$ado_body" | grep -q '"authenticatedUser"' \
+           && echo "$ado_body" | grep -q '"instanceId"'; then
+            hit "Source/CI Azure DevOps Server detected: ${url}"
+        fi
+        throttle_sleep
+
     done < "$LIVE_URLS"
 fi
 
@@ -843,6 +1000,10 @@ iteration-C HTTP follow-ups:
   * JWTs found — see _jwts.txt. alg=none = forge any token; HS* = brute-secret.
   * Cert SANs aggregated into _all_sans.txt. To virtual-host fuzz:
       ffuf -u http://<target-ip>/ -H "Host: FUZZ" -w _all_sans.txt -fs <baseline-size>
+  * Product-detect probes are marker-gated and read-only. Deep follow-up for
+    registries/storage/platforms must not pull images, download blobs, trigger
+    CI builds, submit jobs, restore backups, or modify cluster state without
+    explicit engagement scope.
 EOF
 # If _hints.txt didn't exist, create it minimal so the appender above isn't lost
 [ ! -f "$OUT/_hints.txt" ] && echo "see iteration-C blocks in dispatcher output" > "$OUT/_hints.txt"

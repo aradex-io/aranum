@@ -115,4 +115,12 @@
       <port protocol="tcp" portid="23"><state state="open"/><service name="telnet"/></port>
     </ports>
   </host>
+  <host>
+    <status state="up"/><address addr="10.0.0.14" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="5000"><state state="open"/><service name="docker-registry"/></port>
+      <port protocol="tcp" portid="4646"><state state="open"/><service name="nomad"/></port>
+      <port protocol="tcp" portid="9000"><state state="open"/><service name="minio"/></port>
+    </ports>
+  </host>
 </nmaprun>
