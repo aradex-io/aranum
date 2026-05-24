@@ -47,6 +47,8 @@ SEVERITY_RANK = {s: i for i, s in enumerate(SEVERITY_ORDER)}
 
 NAV_ITEMS = [
     ("Dashboard", "index.html"),
+    ("Inbox",     "inbox.html"),
+    ("Guidance",  "guidance.html"),
     ("Hosts",     "hosts.html"),
     ("Inventory", "inventory.html"),
     ("Services",  "services.html"),
@@ -136,6 +138,7 @@ _PORT_IN_TEXT = re.compile(
 # Regex for extracting an IPv4 from arbitrary text (re-attribution of
 # `(dispatcher)`-bucketed findings to real hosts).
 _IPV4_IN_TEXT = re.compile(r"(?<![0-9.])((?:\d{1,3}\.){3}\d{1,3})(?![0-9.])")
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 # Scheme → default port mapping. Used when a finding line carries a URL
 # without an explicit port (e.g., `https://10.0.0.30/` → port 443).
@@ -214,6 +217,71 @@ def max_severity(findings: list[dict]) -> str:
     return min((f["severity"] for f in findings), key=lambda s: SEVERITY_RANK.get(s, 99))
 
 
+def finding_priority(f: dict) -> int:
+    """Return operator priority for a finding, deriving a stable fallback for
+    legacy report.py findings that predate structured priority fields."""
+    if isinstance(f.get("priority"), int):
+        return f["priority"]
+    if isinstance(f.get("priority"), str):
+        pri = f["priority"].upper().strip()
+        if pri in {"P0", "P1", "P2", "P3"}:
+            return {"P0": 950, "P1": 800, "P2": 600, "P3": 350}[pri]
+        if pri.isdigit():
+            return int(pri)
+    sev_base = {"critical": 900, "high": 750, "medium": 550, "low": 300, "info": 100}
+    service_bonus = {
+        "smb": 60, "ldap": 60, "kerberos": 60, "winrm": 50, "mssql": 45,
+        "docker": 80, "kubernetes": 80, "etcd": 80, "vault": 70,
+        "backup": 70, "ipmi": 60, "http": 20, "https": 20,
+    }
+    return min(999, sev_base.get(f.get("severity", "info"), 100) + service_bonus.get(f.get("service", ""), 0))
+
+
+def finding_title(f: dict) -> str:
+    if f.get("title"):
+        return str(f["title"])
+    line = _ANSI_RE.sub("", str(f.get("line", ""))).strip()
+    return truncate(line, 110) or "Finding"
+
+
+def finding_confidence(f: dict) -> str:
+    return str(f.get("confidence") or "medium")
+
+
+def finding_status(f: dict) -> str:
+    return str(f.get("triage_status") or "new")
+
+
+def finding_next_action(f: dict) -> str:
+    actions = f.get("next_actions")
+    if isinstance(actions, list) and actions:
+        return str(actions[0])
+    return "Review evidence and validate impact"
+
+
+def build_inbox(findings: list[dict]) -> list[dict]:
+    rank = {"new": 0, "needs-validation": 1, "accepted": 2, "suppressed": 3}
+    confidence_rank = {"high": 0, "medium": 1, "low": 2}
+    rows = []
+    for f in findings:
+        row = dict(f)
+        row["priority"] = finding_priority(f)
+        row["title"] = finding_title(f)
+        row["confidence"] = finding_confidence(f)
+        row["triage_status"] = finding_status(f)
+        row["next_action"] = finding_next_action(f)
+        rows.append(row)
+    rows.sort(key=lambda r: (
+        rank.get(r["triage_status"], 9),
+        -int(r["priority"]),
+        SEVERITY_RANK.get(r.get("severity", "info"), 99),
+        confidence_rank.get(r["confidence"], 9),
+        r.get("host", ""),
+        r.get("service", ""),
+    ))
+    return rows
+
+
 # --------------------------------------------------------------- run-log scrape
 _RUNLOG_LINE = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})\s+(?P<msg>.*)$")
 
@@ -234,6 +302,34 @@ def read_run_log(out_dir: Path) -> list[dict]:
         elif last is not None:
             last["msg"] += " " + line.strip()
     return events
+
+
+def read_guidance(out_dir: Path) -> list[dict]:
+    """Load optional planner guidance. The planner writes guidance.json at the
+    auto-enum output root; dashboards generated from older runs simply get an
+    empty guidance page."""
+    gp = out_dir / "guidance.json"
+    if not gp.is_file():
+        return []
+    try:
+        obj = json.loads(gp.read_text(errors="replace"))
+    except Exception:
+        return [{
+            "id": "guidance:parse-error",
+            "priority": 0,
+            "type": "dashboard-warning",
+            "title": "guidance.json could not be parsed",
+            "reason": f"Invalid JSON in {gp.name}",
+            "recommended_next": "Regenerate the planner guidance",
+            "evidence": [str(gp)],
+        }]
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict):
+        for key in ("guidance", "items", "recommendations"):
+            if isinstance(obj.get(key), list):
+                return obj[key]
+    return []
 
 
 # --------------------------------------------------------------- aggregation
@@ -453,6 +549,8 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
         "per_host_verdicts": per_host_verdicts,
         "inventory": inventory,
         "inventory_by_host": dict(inventory_by_host),
+        "inbox": build_inbox(findings),
+        "guidance": read_guidance(out_dir),
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -1062,6 +1160,97 @@ def render_inventory(model: dict) -> str:
     return render_page("Inventory", body, "Inventory")
 
 
+# --------------------------------------------------------------- inbox + guidance
+def render_inbox(model: dict) -> str:
+    inbox = model.get("inbox", [])
+    rows = []
+    for f in inbox:
+        host = f.get("host", "")
+        svc = f.get("service", "")
+        rows.append(f"""
+        <tr data-host="{e(host)}" data-service="{e(svc)}" data-status="{e(f.get('triage_status', 'new'))}">
+          <td><span class="status status-{e(f.get('triage_status', 'new'))}">{e(f.get('triage_status', 'new'))}</span></td>
+          <td class="num priority">{e(f.get('priority', 0))}</td>
+          <td>{severity_chip(f.get('severity', 'info'))}</td>
+          <td>{e(f.get('confidence', 'medium'))}</td>
+          <td><a href="host_{e(safe_name(host))}.html">{e(host)}</a></td>
+          <td class="num">{e(f.get('port', '') or '')}</td>
+          <td><a href="service_{e(safe_name(svc))}.html">{e(svc)}</a></td>
+          <td><strong>{e(f.get('title', 'Finding'))}</strong><br><code class="mono small">{e(truncate(f.get('line', ''), 180))}</code></td>
+          <td>{e(f.get('next_action', 'Review evidence and validate impact'))}</td>
+          <td><code class="mono small">{e(f.get('evidence_path', ''))}</code></td>
+        </tr>""")
+    body = f"""
+<section class="hero">
+  <p class="hero-sub">
+    Operator inbox sorted by triage status, priority, severity, confidence, then target.
+    Priority is supplied by structured findings when present and derived from severity/service otherwise.
+  </p>
+</section>
+
+<section class="card">
+  <table class="data sortable filterable" id="inbox-table">
+    <thead><tr>
+      <th data-sort="text">Status</th>
+      <th class="num" data-sort="num">Priority</th>
+      <th data-sort="severity">Severity</th>
+      <th data-sort="text">Confidence</th>
+      <th data-sort="text">Host</th>
+      <th class="num" data-sort="num">Port</th>
+      <th data-sort="text">Service</th>
+      <th>Finding</th>
+      <th>Next action</th>
+      <th>Evidence</th>
+    </tr></thead>
+    <tbody>{''.join(rows) if rows else '<tr><td colspan="10" class="muted">no findings in inbox</td></tr>'}</tbody>
+  </table>
+</section>
+"""
+    return render_page("Inbox", body, "Inbox")
+
+
+def render_guidance(model: dict) -> str:
+    guidance = sorted(model.get("guidance", []), key=lambda g: -int(g.get("priority", 0) or 0))
+    rows = []
+    for g in guidance:
+        evidence = g.get("evidence", [])
+        if isinstance(evidence, list):
+            evidence_txt = ", ".join(str(x) for x in evidence[:4])
+            if len(evidence) > 4:
+                evidence_txt += f", +{len(evidence) - 4} more"
+        else:
+            evidence_txt = str(evidence)
+        rows.append(f"""
+        <tr>
+          <td class="num priority">{e(g.get('priority', 0))}</td>
+          <td>{e(g.get('type', 'guidance'))}</td>
+          <td><strong>{e(g.get('title', 'Guidance'))}</strong><br><span class="muted">{e(g.get('reason', ''))}</span></td>
+          <td>{e(g.get('recommended_next', 'Review planner output'))}</td>
+          <td><code class="mono small">{e(evidence_txt)}</code></td>
+        </tr>""")
+    body = f"""
+<section class="hero">
+  <p class="hero-sub">
+    Planner guidance highlights coverage gaps, gated surfaces, skipped high-value work, and follow-up opportunities.
+  </p>
+</section>
+
+<section class="card">
+  <table class="data sortable filterable" id="guidance-table">
+    <thead><tr>
+      <th class="num" data-sort="num">Priority</th>
+      <th data-sort="text">Type</th>
+      <th>Recommendation</th>
+      <th>Next step</th>
+      <th>Evidence</th>
+    </tr></thead>
+    <tbody>{''.join(rows) if rows else '<tr><td colspan="5" class="muted">no guidance.json present for this run</td></tr>'}</tbody>
+  </table>
+</section>
+"""
+    return render_page("Guidance", body, "Guidance")
+
+
 # --------------------------------------------------------------- severity landing + per-severity
 def render_severity_landing(model: dict) -> str:
     cards = []
@@ -1255,6 +1444,21 @@ def export_data_json(model: dict) -> str:
             }
             for s in sorted(set(list(model["by_service"].keys()) + list(model["hosts_per_service"].keys())))
         ],
+        "inbox": [
+            {
+                "status": f.get("triage_status", "new"),
+                "priority": f.get("priority", 0),
+                "severity": f.get("severity", "info"),
+                "confidence": f.get("confidence", "medium"),
+                "host": f.get("host", ""),
+                "port": f.get("port", ""),
+                "service": f.get("service", ""),
+                "title": f.get("title", ""),
+                "page": f"host_{safe_name(f.get('host', ''))}.html",
+            }
+            for f in model.get("inbox", [])
+        ],
+        "guidance": model.get("guidance", []),
     }
     return json.dumps(payload, indent=2, sort_keys=True)
 
@@ -1472,9 +1676,19 @@ code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; border:
   background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border);
   margin-right: 4px; margin-bottom: 4px; text-decoration: none;
 }
-.chip-svc:hover, .chip-host:hover { background: var(--bg-elev); color: var(--text-strong); text-decoration: none; }
+  .chip-svc:hover, .chip-host:hover { background: var(--bg-elev); color: var(--text-strong); text-decoration: none; }
+  .priority { font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+  .status {
+    display: inline-block; padding: 2px 7px; border-radius: 4px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em;
+    background: var(--bg-elev-2); color: var(--text-muted); border: 1px solid var(--border);
+  }
+  .status-new { color: var(--link-hover); border-color: color-mix(in srgb, var(--link) 45%, transparent); }
+  .status-needs-validation { color: var(--sev-medium); border-color: color-mix(in srgb, var(--sev-medium) 45%, transparent); }
+  .status-accepted { color: var(--sev-high); border-color: color-mix(in srgb, var(--sev-high) 45%, transparent); }
+  .status-suppressed { color: var(--text-muted); opacity: .75; }
 
-/* coverage matrix */
+  /* coverage matrix */
 .coverage-matrix { font-size: 12.5px; }
 .coverage-matrix th.sticky-l { position: sticky; left: 0; z-index: 2; background: var(--bg-elev-2); }
 .coverage-matrix th.rotated  { writing-mode: vertical-rl; transform: rotate(180deg); height: 140px; padding: 8px 4px; }
@@ -1771,6 +1985,8 @@ def main() -> int:
     # Write all pages
     pages: list[tuple[str, str]] = []
     pages.append(("index.html", render_index(model)))
+    pages.append(("inbox.html", render_inbox(model)))
+    pages.append(("guidance.html", render_guidance(model)))
     pages.append(("hosts.html", render_hosts(model)))
     pages.append(("inventory.html", render_inventory(model)))
     pages.append(("services.html", render_services(model)))

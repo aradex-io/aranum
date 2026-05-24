@@ -392,6 +392,11 @@ if python3 network/report.py "$fake" --label smoke >/dev/null 2>&1; then
     high=$(python3 -c "import json; print(json.load(open('$fake/findings.json'))['summary']['counts'].get('high',0))")
     [ "$crit" -ge 1 ] && [ "$high" -ge 1 ] && p "report.py: severity classification (≥1 critical, ≥1 high)" \
                                             || f "report.py: severity wrong (crit=$crit high=$high)"
+    if python3 -c "import json,sys; d=json.load(open('$fake/findings.json')); f=d['findings'][0]; sys.exit(0 if str(d.get('schema_version')) == '2' and all(k in f for k in ('finding_id','title','confidence','priority','tags','next_actions','triage_status')) else 1)"; then
+        p "report.py: structured findings v2 fields present"
+    else
+        f "report.py: structured findings v2 fields missing"
+    fi
     # Redact mode
     python3 network/report.py "$fake" --redact --findings-only >/dev/null 2>&1
     if python3 -c "import json; d=json.load(open('$fake/findings.json')); import sys; sys.exit(0 if any('<TARGET-' in f['line'] for f in d['findings']) else 1)"; then
@@ -420,8 +425,24 @@ rm -rf "$A" "$B"
 # -----------------------------------------------------------------
 dash=/tmp/e-dash
 rm -rf "$dash"
+cat > "$fake/guidance.json" <<'EOF'
+{
+  "guidance": [
+    {
+      "id": "guidance:smoke",
+      "priority": 900,
+      "type": "coverage-gap",
+      "title": "Smoke guidance item",
+      "reason": "synthetic dashboard test",
+      "recommended_next": "review smoke fixture",
+      "evidence": ["10.0.0.5:2375"]
+    }
+  ]
+}
+EOF
 if python3 network/report-dashboard.py --output "$dash" "$fake" >/dev/null 2>&1; then
     if [ -f "$dash/index.html" ] && [ -f "$dash/hosts.html" ] \
+       && [ -f "$dash/inbox.html" ] && [ -f "$dash/guidance.html" ] \
        && [ -f "$dash/inventory.html" ] \
        && [ -f "$dash/services.html" ] && [ -f "$dash/severity.html" ] \
        && [ -f "$dash/timeline.html" ] && [ -f "$dash/coverage.html" ] \
@@ -441,8 +462,8 @@ if python3 network/report-dashboard.py --output "$dash" "$fake" >/dev/null 2>&1;
         f "report-dashboard.py: inventory page missing port rows or data.json schema"
     fi
     # data.json schema sanity
-    if python3 -c "import json,sys; d=json.load(open('$dash/data.json')); sys.exit(0 if all(k in d for k in ('generated_at','out_dir','summary','hosts','services')) else 1)"; then
-        p "report-dashboard.py: data.json schema (generated_at/out_dir/summary/hosts/services)"
+    if python3 -c "import json,sys; d=json.load(open('$dash/data.json')); sys.exit(0 if all(k in d for k in ('generated_at','out_dir','summary','hosts','services','inbox','guidance')) else 1)"; then
+        p "report-dashboard.py: data.json schema (generated_at/out_dir/summary/hosts/services/inbox/guidance)"
     else
         f "report-dashboard.py: data.json schema missing required keys"
     fi
@@ -457,6 +478,12 @@ if python3 network/report-dashboard.py --output "$dash" "$fake" >/dev/null 2>&1;
         p "report-dashboard.py: coverage matrix present"
     else
         f "report-dashboard.py: coverage matrix missing"
+    fi
+    if grep -q "Operator inbox" "$dash/inbox.html" 2>/dev/null \
+       && grep -q "Smoke guidance item" "$dash/guidance.html" 2>/dev/null; then
+        p "report-dashboard.py: inbox + guidance pages present"
+    else
+        f "report-dashboard.py: inbox/guidance pages missing expected content"
     fi
 else
     f "report-dashboard.py: exit non-zero"
@@ -474,6 +501,17 @@ grep -q "run_log" network/auto-enum.sh && p "auto-enum.sh: run_log writer presen
                                        || f "auto-enum.sh: run_log writer missing"
 grep -q "Dispatcher results:" network/auto-enum.sh && p "auto-enum.sh: failure tally present" \
                                                    || f "auto-enum.sh: failure tally missing"
+tmp_plan=/tmp/aratool-plan-smoke.$$
+rm -rf "$tmp_plan"
+if bash network/auto-enum.sh -i tests/fixtures/services/all-services.xml -o "$tmp_plan" --profile quick --plan-only >/dev/null 2>&1 \
+   && [ -f "$tmp_plan/plan.json" ] && [ -f "$tmp_plan/queue.jsonl" ] && [ -f "$tmp_plan/guidance.json" ]; then
+    p "auto-enum.sh: --profile --plan-only writes plan/queue/guidance"
+else
+    f "auto-enum.sh: --profile --plan-only failed"
+fi
+rm -rf "$tmp_plan"
+python3 network/aranum.py --help >/dev/null 2>&1 && p "aranum.py: root help succeeds" \
+                                            || f "aranum.py: root help failed"
 
 # -----------------------------------------------------------------
 section "11. deps-check.sh runs to completion"

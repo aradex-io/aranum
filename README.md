@@ -82,6 +82,8 @@ Each subsystem ships its own README documenting the per-tool surface — `active
 
 | Script | Purpose |
 |---|---|
+| `network/aranum.py` | Unified wrapper CLI for planner, auto-enum, reports, dashboard, queue view, merge, and bulk enum |
+| `network/plan.py` | Operator-centric planner: nmap output → priority queue + guidance (`plan.json`, `queue.jsonl`, `guidance.json`) |
 | `network/nmap-parse.py` | Parse `.xml`, `.gnmap`, and `.nmap` files → JSON inventory by service |
 | `network/auto-enum.sh` | Master orchestrator: nmap output → service buckets → dispatch enum |
 | `network/bulk-enum-linux.sh` | **Post-foothold** — pipe `linenum-fast.sh` over SSH to many hosts in parallel; per-host verdicts via `report.py` (J.1) |
@@ -222,6 +224,32 @@ ENUM_RUN_IKE=1 bash network/enum-ike.sh --targets targets.txt --output /tmp/out
 
 Each service dispatcher writes results into `<output>/<service>/<ip>_<port>/` so re-runs are idempotent and findings are easy to grep.
 
+### Operator plan / queue
+
+For large networks, build the operator queue before scanning:
+
+```bash
+python3 ./network/aranum.py plan --input scan.xml --output ./enum-results --profile quick
+python3 ./network/aranum.py queue ./enum-results --list
+
+# Planning only through auto-enum.sh:
+./network/auto-enum.sh -i scan.xml -o ./enum-results --profile quick --plan-only
+
+# Execute only the planned quick profile targets. Default behavior is unchanged
+# when --profile/--phase/--queue are omitted.
+./network/auto-enum.sh -i scan.xml -o ./enum-results --profile quick --dry-run
+```
+
+Planner outputs:
+
+| File | Purpose |
+|---|---|
+| `plan.json` | Full deterministic plan with profile, phase, priority, and service metadata |
+| `queue.jsonl` | One pending work item per line, sorted by operator priority |
+| `guidance.json` | Manual handoffs, gated surfaces, and next-step recommendations for dashboard rendering |
+
+Profiles live in `network/engagement-profiles.json`; service priorities and safety metadata live in `network/service-metadata.json`.
+
 ## Unified report (iteration E)
 
 After `auto-enum.sh` finishes, generate the consolidated report:
@@ -256,6 +284,8 @@ The output is a self-contained directory of HTML pages — no CDN, no build step
 | Page | Purpose |
 |---|---|
 | `index.html` | severity tiles + top hosts + top services + **noisiest ports** + recent findings + run summary |
+| `inbox.html` | operator inbox sorted by triage status, priority, severity, confidence, and target |
+| `guidance.html` | planner guidance from `guidance.json` — manual handoffs, gated services, and coverage gaps |
 | `hosts.html` | sortable table of every host (max severity, finding count, severity breakdown, services) |
 | `host_<ip>.html` | per-host **port × service** table — every probed port on the host with click-to-expand findings + evidence files inline (no extra page load) |
 | `inventory.html` | **master port table** — every `(host, port, service)` row in the engagement, sortable + searchable, with severity state and top-finding preview |

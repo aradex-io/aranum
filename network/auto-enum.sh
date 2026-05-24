@@ -32,6 +32,11 @@ DRY_RUN=0
 RESUME=0
 THROTTLE=0
 THROTTLE_EXPLICIT_PARALLEL=0
+PROFILE=""
+PLAN_ONLY=0
+PHASE_FILTER=""
+QUEUE_FILE=""
+SKIP_LOW_PRIORITY=""
 # E4 — opt-in aggressive UDP services accumulator (space-separated)
 AGGRESSIVE_ENABLED=""
 
@@ -69,6 +74,13 @@ Tuning:
                       Explicit CLI args win — e.g. -P 4 --throttle keeps -P 4
                       and warns. Use --dry-run --throttle to preview the
                       effective environment without scanning.
+  --profile NAME      build/use network/plan.py operator profile metadata
+  --phase LIST        build/use planner phase filter (e.g. 1,2 or 1-3)
+  --plan-only         write plan.json + queue.jsonl + guidance.json and exit
+  --queue FILE        dispatch only services/targets present in an existing
+                      planner queue.jsonl (dispatchers are still service-batch)
+  --skip-low-priority N
+                      with --profile/--phase/--queue, skip planner items below N
 
 Opt-in aggressive probes (E4 — disabled by default):
   --ike               enable enum-ike.sh (UDP 500 — IKEv1 main-mode probe).
@@ -123,6 +135,11 @@ while [ $# -gt 0 ]; do
         --dry-run)      DRY_RUN=1; shift ;;
         --resume)       RESUME=1; shift ;;
         --throttle)     THROTTLE=1; shift ;;
+        --profile)      PROFILE="$2"; shift 2 ;;
+        --phase)        PHASE_FILTER="$2"; shift 2 ;;
+        --plan-only)    PLAN_ONLY=1; shift ;;
+        --queue)        QUEUE_FILE="$2"; shift 2 ;;
+        --skip-low-priority) SKIP_LOW_PRIORITY="$2"; shift 2 ;;
         --ike)          AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED ike"; shift ;;
         --slp)          AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED slp"; shift ;;
         --radius)       AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED radius"; shift ;;
@@ -137,6 +154,30 @@ done
 [ ! -x "$PARSER" ] && chmod +x "$PARSER" 2>/dev/null
 
 mkdir -p "$OUTDIR"
+
+# ---------- planner integration (operator-centric queue/guidance) ----------
+# Default behavior is unchanged. The planner is invoked only when the operator
+# asks for profile/phase/plan-only behavior, or when a queue file is supplied.
+if [ -n "$PROFILE" ] || [ -n "$PHASE_FILTER" ] || [ "$PLAN_ONLY" = 1 ]; then
+    PLAN_ARGS=("$INPUT" "--output" "$OUTDIR")
+    [ -n "$PROFILE" ] && PLAN_ARGS+=("--profile" "$PROFILE")
+    [ -n "$PHASE_FILTER" ] && PLAN_ARGS+=("--phase" "$PHASE_FILTER")
+    python3 "$SCRIPT_DIR/plan.py" "${PLAN_ARGS[@]}" || {
+        echo "[!] planner failed"; exit 3
+    }
+    QUEUE_FILE="$OUTDIR/queue.jsonl"
+    if [ "$PLAN_ONLY" = 1 ]; then
+        echo "[*] plan-only complete:"
+        echo "    $OUTDIR/plan.json"
+        echo "    $OUTDIR/queue.jsonl"
+        echo "    $OUTDIR/guidance.json"
+        exit 0
+    fi
+fi
+
+if [ -n "$QUEUE_FILE" ] && [ ! -f "$QUEUE_FILE" ]; then
+    echo "queue file missing: $QUEUE_FILE"; exit 2
+fi
 
 # ---------- G.7 --throttle — gentle defaults for sensitive environments ----------
 # Rule (per advisor + CLAUDE.md §3 ergonomics): --throttle sets defaults ONLY
@@ -197,7 +238,29 @@ for cat, ips in sorted(s["categories"].items(), key=lambda x: -len(x[1])):
 PY
 
 # ---------- 2. pick services to run ----------
-ALL_CATEGORIES=$(python3 - "$OUTDIR/inventory.json" <<'PY'
+if [ -n "$QUEUE_FILE" ]; then
+    ALL_CATEGORIES=$(python3 - "$QUEUE_FILE" "$SKIP_LOW_PRIORITY" <<'PY'
+import json, sys
+queue = sys.argv[1]
+min_pri = int(sys.argv[2]) if sys.argv[2] else None
+services = []
+seen = set()
+with open(queue) as f:
+    for line in f:
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        if min_pri is not None and int(item.get("priority", 0)) < min_pri:
+            continue
+        svc = item.get("service")
+        if svc and svc not in seen:
+            seen.add(svc)
+            services.append(svc)
+print(" ".join(sorted(services)))
+PY
+)
+else
+    ALL_CATEGORIES=$(python3 - "$OUTDIR/inventory.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 cats = list(d["summary"]["categories"].keys())
@@ -206,6 +269,7 @@ if d["summary"].get("unknown"):
 print(" ".join(sorted(cats)))
 PY
 )
+fi
 
 if [ -n "$ONLY" ]; then
     SERVICES=$(echo "$ONLY" | tr ',' ' ')
@@ -297,7 +361,36 @@ run_dispatcher() {
     fi
 
     local target_file="$OUTDIR/_targets_${svc}.txt"
-    if [ "$svc" = "unknown" ]; then
+    if [ -n "$QUEUE_FILE" ]; then
+        python3 - "$QUEUE_FILE" "$svc" "$SKIP_LOW_PRIORITY" > "$target_file" <<'PY'
+import json, sys
+queue, service = sys.argv[1], sys.argv[2]
+min_pri = int(sys.argv[3]) if sys.argv[3] else None
+targets = set()
+with open(queue) as f:
+    for line in f:
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        if item.get("service") != service:
+            continue
+        if min_pri is not None and int(item.get("priority", 0)) < min_pri:
+            continue
+        target = item.get("target")
+        if isinstance(target, dict):
+            ip = str(target.get("ip", ""))
+            port = target.get("port")
+            if ip and port:
+                host = f"[{ip}]" if ":" in ip else ip
+                targets.add(f"{host}:{port}")
+        elif isinstance(target, str) and target:
+            targets.add(target)
+        elif item.get("target_label"):
+            targets.add(str(item["target_label"]))
+for t in sorted(targets):
+    print(t)
+PY
+    elif [ "$svc" = "unknown" ]; then
         python3 "$PARSER" "$INPUT" --unknown | sort -u > "$target_file"
     else
         python3 "$PARSER" "$INPUT" --service "$svc" | sort -u > "$target_file"

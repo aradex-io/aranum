@@ -32,7 +32,9 @@ object per line — see jabber/README.md for an example).
 """
 
 from __future__ import annotations
+
 import argparse
+import hashlib
 import datetime
 import html
 import json
@@ -48,6 +50,184 @@ def _c(s: str, code: str) -> str:
         return s
     return {"R": "\033[1;31m", "G": "\033[1;32m", "Y": "\033[1;33m",
             "C": "\033[1;36m", "M": "\033[1;35m"}.get(code, "") + s + "\033[0m"
+
+
+_FINDINGS_SCHEMA_VERSION = "2"
+_DEFAULT_SERVICE_METADATA: dict[str, dict] = {
+    "defaults": {},
+    "services": {},
+}
+_FINDING_ID_PREFIX = f"AR-{_FINDINGS_SCHEMA_VERSION}"
+_SEVERITY_TO_CONFIDENCE = {
+    "critical": "high",
+    "high": "high",
+    "medium": "medium",
+    "low": "low",
+}
+_SEVERITY_TO_PRIORITY = {
+    "critical": "P0",
+    "high": "P1",
+    "medium": "P2",
+    "low": "P3",
+}
+_SEVERITY_TO_TAGS = {
+    "critical": ["critical", "triage:high"],
+    "high": ["high", "triage:med"],
+    "medium": ["medium", "triage:low"],
+    "low": ["low", "triage:low"],
+}
+_SEVERITY_TO_NEXT_ACTIONS = {
+    "critical": ["validate", "contain", "remediate", "track"],
+    "high": ["validate", "remediate", "track"],
+    "medium": ["validate", "track"],
+    "low": ["review", "track"],
+}
+
+
+def _load_service_metadata(out_dir: Path | None = None) -> dict[str, dict]:
+    """Load service metadata hints if present.
+
+    Primary source is `network/service-metadata.json`; fallback is
+    `<out_dir>/service-metadata.json` so a local run can override without
+    touching the repo copy.
+    """
+    files: list[Path] = [Path(__file__).resolve().parent / "service-metadata.json"]
+    if out_dir is not None:
+        files.append(out_dir / "service-metadata.json")
+        files.append(out_dir / "network" / "service-metadata.json")
+
+    for fp in files:
+        if not fp.is_file():
+            continue
+        try:
+            raw = json.loads(fp.read_text(errors="replace"))
+        except Exception:
+            continue
+        if not isinstance(raw, dict):
+            continue
+
+        services_raw = raw.get("services")
+        if isinstance(services_raw, dict):
+            services = services_raw
+        else:
+            services = {
+                k: v for k, v in raw.items()
+                if isinstance(k, str) and k not in {"defaults"}
+                and isinstance(v, dict)
+            }
+
+        defaults = _coerce_service_metadata_fields(raw.get("defaults"))
+        return {
+            "defaults": defaults,
+            "services": _coerce_service_metadata_services(services),
+        }
+    return _DEFAULT_SERVICE_METADATA
+
+
+def _coerce_service_metadata_fields(raw: object) -> dict[str, object]:
+    if not isinstance(raw, dict):
+        return {}
+    return dict((k, v) for k, v in raw.items() if isinstance(k, str))
+
+
+def _coerce_service_metadata_services(raw: object) -> dict[str, dict]:
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict] = {}
+    for service, cfg in raw.items():
+        if not isinstance(service, str):
+            continue
+        cfg_obj = _coerce_service_metadata_fields(cfg)
+        if cfg_obj:
+            out[service] = cfg_obj
+    return out
+
+
+def _coerce_list_text(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        cleaned = item.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def _coerce_str(value: object, *, fallback: str = "") -> str:
+    return value.strip() if isinstance(value, str) and value.strip() else fallback
+
+
+def _finding_title(service: str, severity: str, line: str, cfg: dict[str, object]) -> str:
+    title = _coerce_str(cfg.get("title"), fallback="")
+    if not title:
+        title = _coerce_str(cfg.get("title_template"), fallback="")
+    if title:
+        try:
+            return title.format(service=service, severity=severity, line=line.strip())
+        except (IndexError, KeyError):
+            return title
+    head = line.strip().split(":", 1)[0].strip()
+    if head:
+        return f"{service.upper()}: {head[:90]}"
+    return f"{service.upper()}: {severity.upper()} finding"
+
+
+def _compose_tags(service: str, severity: str, cfg: dict[str, object]) -> list[str]:
+    tags = [severity, service]
+    tags.extend(_SEVERITY_TO_TAGS.get(severity, []))
+    tags.extend(_coerce_list_text(cfg.get("tags")))
+    tags.extend(_coerce_list_text(cfg.get("categories")))
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for t in tags:
+        if t in seen:
+            continue
+        seen.add(t)
+        deduped.append(t)
+    return deduped
+
+
+def _next_actions(cfg: dict[str, object], severity: str) -> list[str]:
+    actions = _coerce_list_text(cfg.get("next_actions"))
+    return actions or _SEVERITY_TO_NEXT_ACTIONS.get(severity, ["track"])
+
+
+def _structured_finding(
+    host: str,
+    port: str,
+    service: str,
+    severity: str,
+    line: str,
+    evidence_path: str,
+    service_metadata: dict[str, dict],
+) -> dict:
+    cfg_defaults = _coerce_service_metadata_fields(service_metadata.get("defaults", {}))
+    cfg_service = _coerce_service_metadata_fields(service_metadata.get("services", {}).get(service, {}))
+    cfg = {**cfg_defaults, **cfg_service}
+    normalized_line = line.strip()[:300]
+    finding_id = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(f"{service}|{host}|{port}|{severity}|{evidence_path}|{normalized_line}".encode()).hexdigest()[:14]}"
+    return {
+        "host": host,
+        "port": port,
+        "service": service,
+        "severity": severity,
+        "line": normalized_line,
+        "evidence_path": evidence_path,
+        "finding_id": finding_id,
+        "title": _finding_title(service, severity, normalized_line, cfg),
+        "confidence": _coerce_str(cfg.get("confidence"), fallback=_SEVERITY_TO_CONFIDENCE.get(severity, "medium")),
+        "priority": _coerce_str(cfg.get("priority"), fallback=_SEVERITY_TO_PRIORITY.get(severity, "P3")),
+        "tags": _compose_tags(service, severity, cfg),
+        "next_actions": _next_actions(cfg, severity),
+        "triage_status": _coerce_str(cfg.get("triage_status"), fallback="new"),
+        "schema_version": _FINDINGS_SCHEMA_VERSION,
+    }
 
 
 # ---------------------------------------------------- severity rules
@@ -435,10 +615,13 @@ def _is_bulk_enum_dir(out_dir: Path) -> bool:
 
 
 # ---------------------------------------------------- walker
-def walk_findings(out_dir: Path, rules) -> Iterable[dict]:
+def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) -> Iterable[dict]:
     """Yield finding dicts. Each finding has:
-        host, port, service, severity, line, evidence_path
+        host, port, service, severity, line, evidence_path plus
+        structured fields for schema v2.
     """
+    if service_metadata is None:
+        service_metadata = _load_service_metadata(out_dir)
     for svc_dir in sorted(p for p in out_dir.iterdir() if p.is_dir()):
         service = svc_dir.name
         # Two layouts in use across the toolkit:
@@ -463,14 +646,15 @@ def walk_findings(out_dir: Path, rules) -> Iterable[dict]:
                     sev = _classify(line, rules)
                     if sev is None:
                         continue
-                    yield {
-                        "host": host,
-                        "port": port,
-                        "service": service,
-                        "severity": sev,
-                        "line": line.strip()[:300],
-                        "evidence_path": str(fp.relative_to(out_dir)),
-                    }
+                    yield _structured_finding(
+                        host,
+                        port,
+                        service,
+                        sev,
+                        line,
+                        str(fp.relative_to(out_dir)),
+                        service_metadata,
+                    )
         # Also scan top-level _dispatcher.log / _hints.txt / _findings.txt
         for top_fp in sorted(svc_dir.glob("_*")):
             if not top_fp.is_file():
@@ -483,24 +667,27 @@ def walk_findings(out_dir: Path, rules) -> Iterable[dict]:
                 sev = _classify(line, rules)
                 if sev is None:
                     continue
-                yield {
-                    "host": "(dispatcher)",
-                    "port": "",
-                    "service": service,
-                    "severity": sev,
-                    "line": line.strip()[:300],
-                    "evidence_path": str(top_fp.relative_to(out_dir)),
-                }
+                yield _structured_finding(
+                    "(dispatcher)",
+                    "",
+                    service,
+                    sev,
+                    line,
+                    str(top_fp.relative_to(out_dir)),
+                    service_metadata,
+                )
 
 
 # ---------------------------------------------------- bulk-enum walker
-def walk_findings_bulk(out_dir: Path, extra_rules) -> Iterable[dict]:
+def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None = None) -> Iterable[dict]:
     """Walk a bulk-enum output tree. Each top-level subdir is one host. The
     host's output file selects the rule set + service label:
         linenum.txt  -> _BULK_RULES     + service='linenum'  (Linux, J)
         winenum.txt  -> _BULK_RULES_WIN + service='winenum'  (Windows, K)
     A single $OUT can hold both — report.py rolls them up into ONE per-host
     verdict table so a mixed-OS engagement gets one prioritized view."""
+    if service_metadata is None:
+        service_metadata = _load_service_metadata(out_dir)
     extras = list(extra_rules or [])
     linux_rules = list(_BULK_RULES) + extras
     win_rules   = list(_BULK_RULES_WIN) + extras
@@ -524,14 +711,15 @@ def walk_findings_bulk(out_dir: Path, extra_rules) -> Iterable[dict]:
                 sev = _classify(line, rules)
                 if sev is None:
                     continue
-                yield {
-                    "host":          host,
-                    "port":          "",
-                    "service":       svc,
-                    "severity":      sev,
-                    "line":          line.strip()[:300],
-                    "evidence_path": str(evidence.relative_to(out_dir)),
-                }
+                yield _structured_finding(
+                    host,
+                    "",
+                    svc,
+                    sev,
+                    line,
+                    str(evidence.relative_to(out_dir)),
+                    service_metadata,
+                )
 
 
 # ---------------------------------------------------- renderers
@@ -764,6 +952,7 @@ def main() -> int:
     # D1.5: layer the AD-depth rules on top of the default + operator rules.
     # These are general (apply to both auto-enum and bulk-enum trees).
     rules = list(rules) + list(_AD_DEPTH_RULES)
+    service_metadata = _load_service_metadata(out_dir)
     redactor = Redactor(args.redact)
     label = args.label or out_dir.name
 
@@ -771,16 +960,17 @@ def main() -> int:
     bulk_mode = _is_bulk_enum_dir(out_dir)
     if bulk_mode:
         print(_c(f"[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
-        findings = list(walk_findings_bulk(out_dir, rules))
+        findings = list(walk_findings_bulk(out_dir, rules, service_metadata))
         per_host = _per_host_verdicts(findings)
     else:
-        findings = list(walk_findings(out_dir, rules))
+        findings = list(walk_findings(out_dir, rules, service_metadata))
         per_host = None
 
     summary = _summary(findings)
 
     # Always emit findings.json (machine-readable)
     findings_json = {
+        "schema_version": _FINDINGS_SCHEMA_VERSION,
         "label":         label,
         "generated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
         "redacted":      args.redact,
@@ -799,6 +989,7 @@ def main() -> int:
             f["host"] = redactor(f["host"])
             f["line"] = redactor(f["line"])
             f["evidence_path"] = redactor(f["evidence_path"])
+            f["title"] = redactor(f["title"])
         findings_json["summary"]["hosts"] = [redactor(h) for h in summary["hosts"]]
         if per_host:
             findings_json["per_host"] = {redactor(h): v for h, v in findings_json["per_host"].items()}

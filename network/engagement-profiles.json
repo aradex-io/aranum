@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "profile": "default"
+  },
+  "profiles": {
+    "default": {
+      "label": "Default operator slice",
+      "description": "Use all supported services and all metadata-defined phases.",
+      "service_filter": {
+        "include": ["*"],
+        "exclude": []
+      },
+      "phase_filter": ["all"]
+    },
+    "quick": {
+      "label": "Quick first pass",
+      "description": "High-signal services only, discovery-only phase.",
+      "service_filter": {
+        "include": ["smb", "ssh", "http", "https", "ldap", "winrm", "rdp", "dns", "mysql", "postgres", "mssql", "redis"],
+        "exclude": []
+      },
+      "phase_filter": ["1"]
+    },
+    "deep": {
+      "label": "Deep profile",
+      "description": "Discovery + enumeration phases across all supportable services.",
+      "service_filter": {
+        "include": ["*"],
+        "exclude": ["ot-untouched"]
+      },
+      "phase_filter": ["1", "2"]
+    }
+  }
+}
