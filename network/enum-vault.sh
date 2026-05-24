@@ -12,6 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "vault: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 if ! have curl; then
     miss "curl not installed — vault dispatcher cannot probe"
@@ -29,7 +31,7 @@ while read -r target; do
         vault_confirmed=0
 
         # ---------- seal-status ----------
-        curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+        curl -ks "${CURL_ARGS[@]}" --max-time 8 \
             "$base/v1/sys/seal-status" \
             > "$OUT/$ip/seal_${scheme}_${port}.txt" 2>&1 || true
 
@@ -62,7 +64,7 @@ while read -r target; do
         fi
 
         # ---------- health ----------
-        curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+        curl -ks "${CURL_ARGS[@]}" --max-time 8 \
             "$base/v1/sys/health" \
             > "$OUT/$ip/health_${scheme}_${port}.txt" 2>&1 || true
 
@@ -70,7 +72,7 @@ while read -r target; do
         # Only probe init if seal-status confirmed this is Vault — otherwise
         # `"initialized":false` on a keyword-stuffed JSON server would FP.
         if [ "$vault_confirmed" = 1 ]; then
-            curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
                 "$base/v1/sys/init" \
                 > "$OUT/$ip/init_${scheme}_${port}.txt" 2>&1 || true
 

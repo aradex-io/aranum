@@ -16,6 +16,19 @@ log "unknown: $(wc -l < "$TARGETS") targets -> $OUT"
 # Sanitize ip:port -> ip_port for directory names (and strip brackets)
 safe() { echo "$1" | tr -d '[]' | tr ':' '_'; }
 
+if ! awk 'NF { found = 1; exit } END { exit found ? 0 : 1 }' "$TARGETS"; then
+    : > "$OUT/_findings.txt"
+    {
+        echo "=== Probable HTTP (got HTTP response header) ==="
+        echo
+        echo "=== Got a non-empty banner ==="
+        echo
+        echo "=== nmap identified service !=unknown ==="
+    } > "$OUT/_summary.txt"
+    log "unknown dispatcher done. See $OUT/_summary.txt and $OUT/_findings.txt"
+    exit 0
+fi
+
 # ---------- 1 + 2. banner + HTTP probe per target (parallel) ----------
 banner_probe() {
     read -r ip port <<< "$(split_ipport "$1")"

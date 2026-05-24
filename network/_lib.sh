@@ -117,10 +117,9 @@ xargs_p() { xargs -n1 -P"${ENUM_PARALLEL:-4}" "$@"; }
 # graphql/gql.py's GQL_PROXY, and ENUM_USER_AGENT for the UA override.
 #
 # Usage from a dispatcher:
-#     curl -ks "$(curl_proxy_arg)" -A "$(curl_ua)" "$url"
-# or with arrays:
-#     extra=(); read -ra extra <<< "$(curl_extra_args)"
-#     curl -ks "${extra[@]}" "$url"
+#     CURL_ARGS=()
+#     curl_common_args CURL_ARGS
+#     curl -ks "${CURL_ARGS[@]}" "$url"
 curl_ua() {
     # Operator override wins; otherwise fall back to a Chrome-stable string
     # matching what graphql/gql.py uses by default (consistent fingerprint).
@@ -141,13 +140,15 @@ curl_proxy_arg() {
     fi
 }
 
-# Convenience: emit `-A <ua> [-x proxy]` as a single string suitable for
-# `eval`-free word-splitting via `read -ra`. Callers that want full safety
-# should use a bash array directly.
-curl_extra_args() {
-    local ua; ua=$(curl_ua)
-    local proxy; proxy=$(curl_proxy_arg)
-    printf -- "-A %q %s" "$ua" "$proxy"
+# Populate a bash array with common curl args. This preserves spaces and
+# shell metacharacters in user-agent/proxy values without eval or word-splitting.
+curl_common_args() {
+    # shellcheck disable=SC2178  # _arr is a nameref to the caller's array.
+    local -n _arr="$1"
+    _arr=(-A "$(curl_ua)")
+    if [ -n "${ENUM_PROXY:-}" ]; then
+        _arr+=(-x "$ENUM_PROXY")
+    fi
 }
 
 # ----------------------------------------------------------
@@ -175,10 +176,16 @@ throttle_sleep() {
 }
 
 # Echo the nmap timing flag appropriate for the current throttle state.
-# Use as:  nmap $(throttle_nmap_args) -sV ...
-# Returns "-T2" under throttle (polite — never more than 1 probe/sec), empty otherwise.
+# Prefer "${THROTTLE_NMAP_ARGS[@]}" in dispatchers so the empty case adds no arg.
 throttle_nmap_args() {
     if [ "${ENUM_THROTTLE:-0}" = 1 ]; then
         printf '%s' "-T2"
     fi
 }
+
+# shellcheck disable=SC2034  # sourced dispatchers consume this shared array.
+THROTTLE_NMAP_ARGS=()
+if [ "${ENUM_THROTTLE:-0}" = 1 ]; then
+    # shellcheck disable=SC2034  # sourced dispatchers consume this shared array.
+    THROTTLE_NMAP_ARGS=(-T2)
+fi

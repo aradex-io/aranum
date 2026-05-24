@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "monitoring: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 while read -r target; do
     [ -z "$target" ] && continue
@@ -163,7 +165,7 @@ PY
             # Splunk installs serve it unauth.
             have curl || { miss "curl not installed — skipping splunk probe"; continue; }
             splunk_file="$OUT/$ip/splunk_${port}_info.xml"
-            curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
                 "https://${ip}:${port}/services/info" \
                 > "$splunk_file" 2>&1 || true
 

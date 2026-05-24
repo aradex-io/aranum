@@ -384,7 +384,7 @@ Run `./deps-check.sh` to see what's installed/missing. Recommended:
 
 ## Safety / OPSEC
 
-- Scripts are **enumeration-only** — no exploit payloads. They run standard recon tools.
+- Network auto-enum defaults to read-side probing; exploit/write helpers are separate and require their documented explicit gates.
 - All network scripts respect `--rate` and `--parallel` flags; default is conservative.
 - Authentication is passed via env vars or CLI flags — never hardcoded.
 - Output writes only to `--output` dir; nothing modifies target systems.

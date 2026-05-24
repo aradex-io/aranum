@@ -42,7 +42,7 @@ while read -r target; do
     nmap -sT -p "$port" \
         --script cassandra-info,cassandra-brute \
         --script-timeout 30 \
-        $(throttle_nmap_args) \
+        "${THROTTLE_NMAP_ARGS[@]}" \
         "$ip" \
         -oN "$OUT/$ip/cassandra_${port}.txt" 2>/dev/null || true
 

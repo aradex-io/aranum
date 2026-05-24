@@ -31,7 +31,7 @@ while read -r target; do
         nmap -sT -p "$port" \
             --script telnet-encryption,telnet-ntlm-info,banner \
             --script-timeout 30 \
-            $(throttle_nmap_args) \
+            "${THROTTLE_NMAP_ARGS[@]}" \
             "$ip" -oN "$OUT/$ip/telnet_${port}.txt" 2>/dev/null || true
     fi
 

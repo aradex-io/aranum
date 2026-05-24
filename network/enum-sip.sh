@@ -26,7 +26,7 @@ while read -r target; do
     nmap -sU -sT -p "$port" \
         --script sip-methods,sip-enum-users \
         --script-timeout 60 \
-        $(throttle_nmap_args) \
+        "${THROTTLE_NMAP_ARGS[@]}" \
         "$ip" -oN "$OUT/$ip/sip_${port}.txt" 2>/dev/null || true
 
     # ---------- vendor fingerprint from Server / User-Agent lines ----------
@@ -45,9 +45,14 @@ while read -r target; do
         fi
     fi
 
-    if [ -n "$vendor" ]; then
+    sip_confirmed=0
+    if grep -qiE 'SIP/[0-9]\.[0-9]|Supported methods:|Potential Users:' "$OUT/$ip/sip_${port}.txt" 2>/dev/null; then
+        sip_confirmed=1
+    fi
+
+    if [ -n "$vendor" ] && [ "$sip_confirmed" = 1 ]; then
         hit "SIP service: $ip:$port — $vendor"
-    elif grep -qiE '(sip-methods|SIP/)' "$OUT/$ip/sip_${port}.txt" 2>/dev/null; then
+    elif [ "$sip_confirmed" = 1 ]; then
         hit "SIP service: $ip:$port — unknown vendor"
     fi
 

@@ -79,7 +79,7 @@ while read -r target; do
         nmap -sT -p "$port" \
             --script msrpc-enum \
             --script-timeout 30 \
-            $(throttle_nmap_args) \
+            "${THROTTLE_NMAP_ARGS[@]}" \
             "$ip" \
             -oN "$OUT/$ip/msrpc_nmap_${port}.txt" 2>/dev/null || true
     fi

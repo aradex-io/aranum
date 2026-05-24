@@ -17,6 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "influxdb: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 if ! have curl; then
     miss "curl not installed — influxdb dispatcher cannot probe"
@@ -29,7 +31,7 @@ while read -r target; do
     mkdir -p "$OUT/$ip"
 
     # ---------- ping (version header) ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         -D - "http://$ip:$port/ping" -o /dev/null \
         > "$OUT/$ip/ping_${port}.txt" 2>&1 || true
 
@@ -40,7 +42,7 @@ while read -r target; do
     fi
 
     # ---------- unauth query API ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "http://$ip:$port/query?q=SHOW+DATABASES&pretty=true" \
         > "$OUT/$ip/databases_${port}.txt" 2>&1 || true
 
@@ -50,7 +52,7 @@ while read -r target; do
     fi
 
     # ---------- debug vars (runtime stats) ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "http://$ip:$port/debug/vars" \
         > "$OUT/$ip/debug_vars_${port}.txt" 2>&1 || true
 

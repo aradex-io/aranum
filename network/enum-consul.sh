@@ -14,6 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "consul: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 if ! have curl; then
     miss "curl not installed — consul dispatcher cannot probe"
@@ -31,7 +33,7 @@ while read -r target; do
     base="${scheme}://${ip}:${port}"
 
     # ---------- agent self ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "$base/v1/agent/self" \
         > "$OUT/$ip/agent_self_${port}.txt" 2>&1 || true
 
@@ -44,7 +46,7 @@ while read -r target; do
     fi
 
     # ---------- KV dump ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "$base/v1/kv/?recurse" \
         > "$OUT/$ip/kv_dump_${port}.txt" 2>&1 || true
 
@@ -54,12 +56,12 @@ while read -r target; do
     fi
 
     # ---------- service catalog ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "$base/v1/catalog/services" \
         > "$OUT/$ip/catalog_services_${port}.txt" 2>&1 || true
 
     # ---------- ACL state probe ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "$base/v1/acl/list" \
         > "$OUT/$ip/acl_list_${port}.txt" 2>&1 || true
 

@@ -27,7 +27,7 @@ while read -r target; do
     nmap -sT -p "$port" \
         --script ajp-headers,ajp-methods,ajp-auth,ajp-brute \
         --script-timeout 30 \
-        $(throttle_nmap_args) \
+        "${THROTTLE_NMAP_ARGS[@]}" \
         "$ip" -oN "$OUT/$ip/ajp_${port}.txt" 2>/dev/null || true
 
     # ---------- service-fingerprint guard ----------

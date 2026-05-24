@@ -18,6 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "neo4j: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 if ! have curl; then
     miss "curl not installed — neo4j dispatcher cannot probe"
@@ -31,7 +33,7 @@ while read -r target; do
 
     # ---------- HTTP API (7474) ----------
     if [ "$port" = "7474" ]; then
-        curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+        curl -ks "${CURL_ARGS[@]}" --max-time 8 \
             "http://$ip:$port/" \
             > "$OUT/$ip/root_${port}.txt" 2>&1 || true
 
@@ -43,7 +45,7 @@ while read -r target; do
         fi
 
         # Unauth check via /db/data/
-        curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+        curl -ks "${CURL_ARGS[@]}" --max-time 8 \
             "http://$ip:$port/db/data/" \
             > "$OUT/$ip/db_data_${port}.txt" 2>&1 || true
 
@@ -55,7 +57,7 @@ while read -r target; do
 
         # ---------- Default credential check (GATED) ----------
         if [ "${ENUM_NEO4J_DEFAULT_CRED:-0}" = "1" ]; then
-            curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
                 -u "neo4j:neo4j" \
                 "http://$ip:$port/db/data/" \
                 > "$OUT/$ip/default_cred_${port}.txt" 2>&1 || true

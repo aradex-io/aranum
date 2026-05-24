@@ -16,6 +16,11 @@ See `CLAUDE.md` §6 for the entry style guide.
 ### Enhanced
 
 ### Fixed
+- `network/enum-sip.sh` — require real SIP response evidence (`SIP/x.y`, supported methods, or user-enum data) before emitting a SIP finding. This removes the FP harness regression where nmap script-name text alone caused every wrong-service scenario to classify as SIP.
+- `network/report.py --redact` — redact target identifiers inside `evidence_path` as well as host and finding text; bracketed IPv6 targets are covered in addition to IPv4.
+- `network/_lib.sh` + curl-based dispatchers — replace string-split `curl_proxy_arg` callsites with array-based `curl_common_args`, preserving spaces/metacharacters in user-agent and proxy values while keeping shellcheck clean.
+- `network/*` nmap callsites — use shared `THROTTLE_NMAP_ARGS` array for throttle timing flags, avoiding unsafe empty-word expansion and shellcheck failures.
+- `tests/smoke.sh` — make the clean-tree gate CI-enforced while remaining a local-dev warning.
 
 ### Security
 

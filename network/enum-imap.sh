@@ -59,7 +59,7 @@ while read -r target; do
         nmap -sT -p "$port" \
             --script imap-capabilities,imap-brute \
             --script-timeout 60 \
-            $(throttle_nmap_args) \
+            "${THROTTLE_NMAP_ARGS[@]}" \
             "$ip" -oN "$OUT/$ip/imap_${port}.txt" 2>/dev/null || true
     fi
 

@@ -56,10 +56,10 @@ while read -r target; do
     fi
 
     # Run nmap with SLP NSE scripts
-    # shellcheck disable=SC2086
+    # shellcheck disable=SC2046,SC2086  # optional nmap flags are intentionally split.
     timeout 30 nmap -sU -p "$port" \
         $nmap_root_flag \
-        $(throttle_nmap_args) \
+        "${THROTTLE_NMAP_ARGS[@]}" \
         --script slp-discovery,slp-info \
         --script-timeout 15s \
         -oN "$slp_out" \

@@ -161,7 +161,7 @@ of_t=$(python3 network/nmap-parse.py /tmp/test_xmpp_route.xml --service openfire
 if echo "$of_t" | grep -q ":80$"; then
     f "openfire-admin REGRESSION: port 80 mis-tagged"
 else
-    p "openfire-admin: port 80 NOT mis-tagged (regex `a^` holds)"
+    p "openfire-admin: port 80 NOT mis-tagged (regex a^ holds)"
 fi
 rm -f /tmp/test_xmpp_route.xml
 
@@ -780,10 +780,13 @@ rm -f "$WTGT"; rm -rf "$WOUT" "$WOUT2" "$WOUT3" /tmp/wbad*
 # -----------------------------------------------------------------
 section "12. git working tree is clean"
 # -----------------------------------------------------------------
-if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+dirty=$(git status --porcelain 2>/dev/null || true)
+if [ -z "$dirty" ]; then
     p "git: working tree clean"
+elif [ "${CI:-0}" = "true" ] || [ "${SMOKE_REQUIRE_CLEAN:-0}" = "1" ]; then
+    f "git: working tree dirty: $(printf '%s\n' "$dirty" | head -3)"
 else
-    f "git: working tree dirty: $(git status --porcelain | head -3)"
+    s "git: working tree dirty (local dev; set SMOKE_REQUIRE_CLEAN=1 to fail): $(printf '%s\n' "$dirty" | head -3)"
 fi
 # Tags present
 for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.16.0 v0.17.0 v0.18.0 v0.19.0 v0.20.0 v0.20.1 v0.20.2 v0.21.0; do

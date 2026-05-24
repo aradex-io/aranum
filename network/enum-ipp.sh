@@ -18,6 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "ipp: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 if ! have curl; then
     miss "curl not installed — ipp dispatcher cannot probe"
@@ -30,17 +32,17 @@ while read -r target; do
     mkdir -p "$OUT/$ip"
 
     # ---------- root banner ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 -i \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 -i \
         "http://$ip:$port/" \
         > "$OUT/$ip/root_${port}.txt" 2>&1 || true
 
     # ---------- printer list ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "http://$ip:$port/printers" \
         > "$OUT/$ip/printers_${port}.txt" 2>&1 || true
 
     # ---------- admin UI reachability ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "http://$ip:$port/admin" \
         > "$OUT/$ip/admin_${port}.txt" 2>&1 || true
 

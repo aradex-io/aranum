@@ -58,7 +58,7 @@ while read -r target; do
         nmap -sT -p "$port" \
             --script pop3-capabilities,pop3-brute \
             --script-timeout 60 \
-            $(throttle_nmap_args) \
+            "${THROTTLE_NMAP_ARGS[@]}" \
             "$ip" -oN "$OUT/$ip/pop3_${port}.txt" 2>/dev/null || true
     fi
 

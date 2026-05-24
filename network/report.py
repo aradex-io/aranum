@@ -230,9 +230,10 @@ class Redactor:
         self._map: dict[str, str] = {}
         self._counter = 0
 
-    def _ip_re(self) -> re.Pattern:
-        # IPv4 only; v6 is far more complex and engagement-rare relative to v4
-        return re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+    def _target_re(self) -> re.Pattern:
+        ipv4 = r"(?<![0-9.])(?:\d{1,3}\.){3}\d{1,3}(?![0-9.])"
+        bracketed_ipv6 = r"\[[0-9A-Fa-f:.]+\]"
+        return re.compile(f"{bracketed_ipv6}|{ipv4}")
 
     def __call__(self, text: str) -> str:
         if not self.enable:
@@ -243,7 +244,7 @@ class Redactor:
                 self._counter += 1
                 self._map[key] = f"<TARGET-{self._counter}>"
             return self._map[key]
-        return self._ip_re().sub(_sub, text)
+        return self._target_re().sub(_sub, text)
 
 
 # ---------------------------------------------------- bulk-enum severity rules
@@ -797,6 +798,7 @@ def main() -> int:
         for f in findings_json["findings"]:
             f["host"] = redactor(f["host"])
             f["line"] = redactor(f["line"])
+            f["evidence_path"] = redactor(f["evidence_path"])
         findings_json["summary"]["hosts"] = [redactor(h) for h in summary["hosts"]]
         if per_host:
             findings_json["per_host"] = {redactor(h): v for h, v in findings_json["per_host"].items()}

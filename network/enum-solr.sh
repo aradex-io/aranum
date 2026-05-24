@@ -15,6 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "solr: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 if ! have curl; then
     miss "curl not installed — solr dispatcher cannot probe"
@@ -33,7 +35,7 @@ while read -r target; do
     mkdir -p "$OUT/$ip"
 
     # ---------- system info ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "http://$ip:$port/solr/admin/info/system?wt=json" \
         > "$OUT/$ip/system_${port}.txt" 2>&1 || true
 
@@ -46,7 +48,7 @@ while read -r target; do
     fi
 
     # ---------- cores ----------
-    curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+    curl -ks "${CURL_ARGS[@]}" --max-time 8 \
         "http://$ip:$port/solr/admin/cores?wt=json" \
         > "$OUT/$ip/cores_${port}.txt" 2>&1 || true
 

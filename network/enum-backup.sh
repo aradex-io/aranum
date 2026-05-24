@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "backup: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 if ! have curl && ! have nc; then
     miss "neither curl nor nc available — backup dispatcher cannot probe"
@@ -37,7 +39,7 @@ while read -r target; do
             veeam_file="$OUT/$ip/veeam_${port}.txt"
             # Veeam exposes /api/v1/serverInfo (v11+) and /api/sessionMngr (v9-v10).
             # 401 + WWW-Authenticate header carrying realm is the fingerprint.
-            curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
                 -D "$veeam_file.headers" \
                 "https://${ip}:${port}/api/v1/serverInfo" \
                 > "$veeam_file.body" 2>&1 || true
@@ -74,7 +76,7 @@ while read -r target; do
             # "CVWebService" / "CommVault" strings.
             scheme="http"
             [ "$port" = "8400" ] && scheme="https"
-            curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
                 "${scheme}://${ip}:${port}/SearchSvc/CVWebService.svc/" \
                 > "$cv_file" 2>&1 || true
 

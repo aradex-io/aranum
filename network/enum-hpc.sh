@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
 parse_common_args "$@" || exit 1
 log "hpc: $(wc -l < "$TARGETS") targets -> $OUT"
+CURL_ARGS=()
+curl_common_args CURL_ARGS
 
 if ! have curl && ! have nc; then
     miss "neither curl nor nc available — hpc dispatcher cannot probe"
@@ -91,7 +93,7 @@ while read -r target; do
             # /ws/v1/cluster/info is unauth on legacy/unsecured clusters.
             # On secured Hadoop (Kerberos / SPNEGO), this returns 401.
             yarn_file="$OUT/$ip/yarn_${port}_info.json"
-            curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 8 \
+            curl -ks "${CURL_ARGS[@]}" --max-time 8 \
                 "http://${ip}:${port}/ws/v1/cluster/info" \
                 > "$yarn_file" 2>&1 || true
 
@@ -109,7 +111,7 @@ while read -r target; do
 
                 # /ws/v1/cluster/apps lists every job + submitter — also unauth.
                 apps_file="$OUT/$ip/yarn_${port}_apps.json"
-                curl -ks -A "$(curl_ua)" $(curl_proxy_arg) --max-time 10 \
+                curl -ks "${CURL_ARGS[@]}" --max-time 10 \
                     "http://${ip}:${port}/ws/v1/cluster/apps?limit=20" \
                     > "$apps_file" 2>&1 || true
                 if grep -q '"app":' "$apps_file" 2>/dev/null; then
