@@ -16,6 +16,8 @@ network/enum-results/
 network/localscan*.gnmap
 network/localscan*.nmap
 network/localscan*.xml
+network/hosts_list
+network/localscanoutput/
 
 # Regenerated example outputs (fixtures are committed; generated output is not)
 docs/examples/*/output/

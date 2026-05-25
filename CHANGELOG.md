@@ -19,6 +19,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 - `tests/test_planner.py`, `tests/test_queue.py`, `tests/test_structured_findings.py`, `tests/test_unified_cli.py`, `tests/test_merge_results.py` — coverage for planner metadata, queue sharding, structured finding fields, wrapper CLI, and merged reports.
 
 ### Changed
+- `network/enum-unknown.sh` — unknown-port handling now goes beyond baseline `nmap -sV -sC`: HTTP-like ports get targeted `http-*` NSE follow-up, TLS-like ports get `ssl-*`, and clear SSH/FTP/SMTP/Redis/VNC/RDP banners trigger matching NSE script sets. Defaults exclude `brute`, `dos`, and `external` categories unless the operator overrides the `ENUM_UNKNOWN_*_NSE` expressions.
 - `network/enum-http.sh` — expanded product detection for Nexus, Artifactory, Harbor, Docker Registry, Argo CD, Rancher, Portainer, Nomad, MinIO, Ceph/RADOSGW, Rubrik, Cohesity, PowerProtect, TeamCity, GitHub Enterprise, and Azure DevOps. Probes remain marker-gated and read-only.
 - `network/enum-backup.sh` — expanded backup coverage to Avamar/PowerProtect legacy ports and Rubrik/Cohesity/PowerProtect API fingerprints.
 - `network/auto-enum.sh` — added optional planner integration flags: `--profile`, `--phase`, `--plan-only`, `--queue`, and `--skip-low-priority`. Default execution remains the original service-bucket dispatcher flow when these flags are omitted.

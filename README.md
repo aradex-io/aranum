@@ -117,7 +117,7 @@ Each subsystem ships its own README documenting the per-tool surface — `active
 | `network/enum-etcd.sh` | /v2/keys + /metrics — CRITICAL on unauth k8s control-plane KV |
 | `network/enum-activemq.sh` | 61616 (OpenWire — CVE-2023-46604 candidate) + 8161 (web console / Jolokia — admin:admin → RCE) + 5672 (AMQP) + 61613 (STOMP) banner + version |
 | `network/enum-https.sh` | symlink → `enum-http.sh`; routed by nmap-parse for ssl/http services. No separate logic — auto-enum dispatches via service name |
-| `network/enum-unknown.sh` | nmap-parse catch-all for services that didn't match any port/regex bucket — banner-only probe + service-name extraction |
+| `network/enum-unknown.sh` | nmap-parse catch-all for services that did not match any port/regex bucket — banner + HTTP/HTTPS probe, baseline `nmap -sV -sC`, then targeted NSE follow-ups (`http-*`, `ssl-*`, SSH/FTP/SMTP/Redis/VNC/RDP scripts) when the first pass suggests a protocol |
 | `network/enum-ajp.sh` | AJP/Tomcat (8009) — nmap ajp-headers/methods/auth/brute; Ghostcat CVE-2020-1938 hints |
 | `network/enum-oracle.sh` | Oracle DB (1521/1522/1526) — TNS version, SID brute, optional tnscmd10g |
 | `network/enum-pop3.sh` | POP3 (110/995) — CAPA banner, plaintext-auth flag, optional ENUM_USER/PASS probe |
@@ -318,6 +318,12 @@ python3 ./network/aranum.py plan --input scan.xml --output ./enum-results --prof
 
 `enum-http.sh` deliberately retries HTTP and HTTPS on unknown ports and runs
 product-specific marker-gated probes that `-sC` will not cover by default.
+For ports that nmap leaves as `unknown`, `enum-unknown.sh` now also performs a
+second targeted NSE pass: HTTP-like unknowns get `http-*` scripts, TLS-like
+unknowns get `ssl-*`, and obvious protocol banners get matching NSE sets. The
+defaults exclude `brute`, `dos`, and `external` script categories; override with
+`ENUM_UNKNOWN_HTTP_NSE`, `ENUM_UNKNOWN_TLS_NSE`, etc. when an engagement calls
+for a different script expression.
 
 To preview without running a live engagement, generate against the committed example fixture:
 
