@@ -13,6 +13,9 @@ __pycache__/
 enum-results/
 network/enum-results/
 *.gnmap.tmp
+network/localscan*.gnmap
+network/localscan*.nmap
+network/localscan*.xml
 
 # Regenerated example outputs (fixtures are committed; generated output is not)
 docs/examples/*/output/
