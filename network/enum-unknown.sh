@@ -24,29 +24,95 @@ append_unique() {
     grep -Fxq "$line" "$file" 2>/dev/null || printf "%s\n" "$line" >> "$file"
 }
 
+build_per_host_ports() {
+    local targets_file="$1" out_file="$2"
+    local tmp="${out_file}.tmp"
+    python3 - "$targets_file" "$tmp" <<'PY'
+from __future__ import annotations
+
+import collections
+import sys
+
+targets_file, out_file = sys.argv[1], sys.argv[2]
+ports: dict[str, set[int]] = collections.defaultdict(set)
+
+
+def split_target(target: str) -> tuple[str, int]:
+    if target.startswith("["):
+        host, sep, port = target.rpartition("]:")
+        if not sep:
+            raise ValueError(f"bad bracketed target: {target}")
+        return host[1:], int(port)
+    host, sep, port = target.rpartition(":")
+    if not sep:
+        raise ValueError(f"bad target: {target}")
+    return host, int(port)
+
+
+with open(targets_file, encoding="utf-8") as f:
+    for raw in f:
+        target = raw.strip().split()[0] if raw.strip() else ""
+        if not target or target.startswith("#"):
+            continue
+        host, port = split_target(target)
+        if not (1 <= port <= 65535):
+            raise ValueError(f"bad port in target: {target}")
+        ports[host].add(port)
+
+with open(out_file, "w", encoding="utf-8") as f:
+    for host in sorted(ports):
+        plist = ",".join(str(p) for p in sorted(ports[host]))
+        print(host, plist, file=f)
+PY
+    mv "$tmp" "$out_file"
+}
+
+log_nmap_cmd() {
+    local label="$1"; shift
+    {
+        printf '[%s] %s:' "$(date -Iseconds)" "$label"
+        printf ' %q' "$@"
+        printf '\n'
+    } >> "$OUT/_nmap_commands.log"
+}
+
+run_bounded_nmap() {
+    local label="$1" out_file="$2"; shift 2
+    local wall_timeout="${ENUM_NMAP_WALL_TIMEOUT:-420s}"
+    local stdout_file="${out_file%.txt}.stdout"
+    local stderr_file="${out_file%.txt}.stderr"
+    local rc
+    log_nmap_cmd "$label" timeout --kill-after=10 "$wall_timeout" "$@"
+    timeout --kill-after=10 "$wall_timeout" "$@" >"$stdout_file" 2>"$stderr_file"
+    rc=$?
+    [ -s "$stdout_file" ] || rm -f "$stdout_file"
+    [ -s "$stderr_file" ] || rm -f "$stderr_file"
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+        err "nmap ${label} timed out after ${wall_timeout}: $out_file"
+    elif [ "$rc" -ne 0 ]; then
+        miss "nmap ${label} exited $rc: $out_file"
+    fi
+    return 0
+}
+
 run_grouped_nmap() {
     local label="$1" script_expr="$2" targets_file="$3"
     [ -s "$targets_file" ] || return 0
-    : > "$OUT/_per_host_ports_${label}.txt.tmp"
-    while read -r t; do
-        [ -z "$t" ] && continue
-        read -r ip port <<< "$(split_ipport "$t")"
-        echo "$ip $port" >> "$OUT/_per_host_ports_${label}.txt.tmp"
-    done < "$targets_file"
-    awk '{ports[$1]=ports[$1]","$2} END{for(ip in ports){p=substr(ports[ip],2); print ip" "p}}' \
-        "$OUT/_per_host_ports_${label}.txt.tmp" > "$OUT/_per_host_ports_${label}.txt"
-    rm -f "$OUT/_per_host_ports_${label}.txt.tmp"
+    build_per_host_ports "$targets_file" "$OUT/_per_host_ports_${label}.txt"
 
-    local script_timeout="${ENUM_NMAP_SCRIPT_TIMEOUT:-45s}"
-    local host_timeout="${ENUM_NMAP_HOST_TIMEOUT:-6m}"
+    local script_timeout="${ENUM_NMAP_SCRIPT_TIMEOUT:-30s}"
+    local host_timeout="${ENUM_NMAP_HOST_TIMEOUT:-5m}"
     log "nmap targeted NSE (${label}: ${script_expr}) on $(wc -l < "$targets_file") target(s)"
     while read -r ip ports; do
-        nmap -Pn -n -sV --version-all "${THROTTLE_NMAP_ARGS[@]}" \
-            --script "$script_expr" \
-            --script-timeout "$script_timeout" --host-timeout "$host_timeout" \
-            -p "$ports" "$ip" \
-            -oN "$OUT/$(safe "$ip:_")_nmap_${label}.txt" \
-            >/dev/null 2>&1 &
+        local out_file
+        out_file="$OUT/$(safe "$ip:_")_nmap_${label}.txt"
+        run_bounded_nmap "$label" "$out_file" \
+            nmap --unprivileged -sT -Pn -n -sV --version-all "${THROTTLE_NMAP_ARGS[@]}" \
+                --script "$script_expr" \
+                --script-timeout "$script_timeout" --host-timeout "$host_timeout" \
+                --max-retries "${ENUM_NMAP_MAX_RETRIES:-2}" \
+                -p "$ports" "$ip" \
+                -oN "$out_file" &
         while [ "$(jobs -rp | wc -l)" -ge "${ENUM_PARALLEL:-4}" ]; do sleep 0.2; done
     done < "$OUT/_per_host_ports_${label}.txt"
     wait
@@ -109,22 +175,16 @@ if have nmap; then
     # Simpler: just feed ip + port as -p arg per host; do it per host serially with light parallelism
     # nmap can handle a -p list per scan, so coalesce ports per ip
     # Coalesce ports per host (IPv4 + bracketed IPv6 safe)
-    : > "$OUT/_per_host_ports.txt.tmp"
-    while read -r t; do
-        [ -z "$t" ] && continue
-        read -r ip port <<< "$(split_ipport "$t")"
-        echo "$ip $port" >> "$OUT/_per_host_ports.txt.tmp"
-    done < "$TARGETS"
-    awk '{ports[$1]=ports[$1]","$2} END{for(ip in ports){p=substr(ports[ip],2); print ip" "p}}' \
-        "$OUT/_per_host_ports.txt.tmp" > "$OUT/_per_host_ports.txt"
-    rm -f "$OUT/_per_host_ports.txt.tmp"
+    build_per_host_ports "$TARGETS" "$OUT/_per_host_ports.txt"
     while read -r ip ports; do
-        nmap -Pn -n -sV --version-all -sC "${THROTTLE_NMAP_ARGS[@]}" \
-            --script-timeout "${ENUM_NMAP_SCRIPT_TIMEOUT:-45s}" \
-            --host-timeout "${ENUM_NMAP_HOST_TIMEOUT:-6m}" \
-            -p "$ports" "$ip" \
-            -oN "$OUT/$(safe "$ip:_")_nmap.txt" \
-            >/dev/null 2>&1 &
+        out_file="$OUT/$(safe "$ip:_")_nmap.txt"
+        run_bounded_nmap "baseline" "$out_file" \
+            nmap --unprivileged -sT -Pn -n -sV --version-all -sC "${THROTTLE_NMAP_ARGS[@]}" \
+                --script-timeout "${ENUM_NMAP_SCRIPT_TIMEOUT:-30s}" \
+                --host-timeout "${ENUM_NMAP_HOST_TIMEOUT:-5m}" \
+                --max-retries "${ENUM_NMAP_MAX_RETRIES:-2}" \
+                -p "$ports" "$ip" \
+                -oN "$out_file" &
         # Throttle
         while [ "$(jobs -rp | wc -l)" -ge "${ENUM_PARALLEL:-4}" ]; do sleep 0.2; done
     done < "$OUT/_per_host_ports.txt"
@@ -164,7 +224,7 @@ if have nmap; then
     # Operator can override these expressions if a lab needs the full script
     # family. Defaults are aggressive enough to fingerprint, but skip brute,
     # DoS, and external scripts so unknown-port triage stays safe by default.
-    run_grouped_nmap "http_nse"  "${ENUM_UNKNOWN_HTTP_NSE:-http-* and not brute and not dos and not external}" "$OUT/_http_targets.txt"
+    run_grouped_nmap "http_nse"  "${ENUM_UNKNOWN_HTTP_NSE:-(http-* or default or discovery or intrusive or vuln) and not (brute or dos or external or broadcast)}" "$OUT/_http_targets.txt"
     run_grouped_nmap "tls_nse"   "${ENUM_UNKNOWN_TLS_NSE:-ssl-* and not brute and not dos and not external}" "$OUT/_tls_targets.txt"
     run_grouped_nmap "ssh_nse"   "${ENUM_UNKNOWN_SSH_NSE:-ssh2-enum-algos,ssh-hostkey,ssh-auth-methods}" "$OUT/_ssh_targets.txt"
     run_grouped_nmap "ftp_nse"   "${ENUM_UNKNOWN_FTP_NSE:-ftp-anon,ftp-syst,ftp-bounce}" "$OUT/_ftp_targets.txt"

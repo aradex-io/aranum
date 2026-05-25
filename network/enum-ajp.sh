@@ -24,9 +24,11 @@ while read -r target; do
     mkdir -p "$OUT/$ip"
 
     # ---------- nmap AJP scripts ----------
-    nmap -sT -p "$port" \
-        --script ajp-headers,ajp-methods,ajp-auth,ajp-brute \
-        --script-timeout 30 \
+    nmap --unprivileged -sT -Pn -n -p "$port" \
+        --script "${ENUM_AJP_NSE:-ajp-headers,ajp-methods,ajp-auth}" \
+        --script-timeout "${ENUM_NMAP_SCRIPT_TIMEOUT:-30s}" \
+        --host-timeout "${ENUM_NMAP_HOST_TIMEOUT:-90s}" \
+        --max-retries "${ENUM_NMAP_MAX_RETRIES:-1}" \
         "${THROTTLE_NMAP_ARGS[@]}" \
         "$ip" -oN "$OUT/$ip/ajp_${port}.txt" 2>/dev/null || true
 

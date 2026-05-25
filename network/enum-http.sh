@@ -10,6 +10,9 @@
 #   RUN_NIKTO=1         enable nikto (off by default — very slow)
 #   NUCLEI_TIMEOUT=600  hard wall-clock cap on nuclei in seconds (default 600 = 10m)
 #   NUCLEI_RATE=150     nuclei -rate-limit (default 150)
+#   ENUM_HTTP_CONNECT_TIMEOUT=3  curl connect timeout for lightweight probes
+#   ENUM_HTTP_MAX_TIME=6         curl total timeout for lightweight probes
+#   ENUM_HTTP_PRODUCT_MAX_URLS=200 cap product-detect URLs per dispatcher run
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
@@ -38,6 +41,9 @@ parse_common_args "$@" || exit 1
 log "http: $(wc -l < "$TARGETS") targets -> $OUT"
 CURL_ARGS=()
 curl_common_args CURL_ARGS
+HTTP_CONNECT_TIMEOUT="${ENUM_HTTP_CONNECT_TIMEOUT:-3}"
+HTTP_MAX_TIME="${ENUM_HTTP_MAX_TIME:-6}"
+HTTP_PRODUCT_MAX_URLS="${ENUM_HTTP_PRODUCT_MAX_URLS:-200}"
 
 if [ "${WEB_PROBE_ONLY:-0}" = "1" ]; then
     NO_NUCLEI=1; NO_FFUF=1; NO_WHATWEB=1
@@ -82,7 +88,7 @@ else
     miss "projectdiscovery httpx not found — using curl fallback for alive-check"
     : > "$OUT/httpx.txt"
     while read -r url; do
-        code=$(curl -ksL -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "$url" 2>/dev/null || echo "000")
+        code=$(curl -ksL -o /dev/null -w '%{http_code}' --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" "$url" 2>/dev/null || echo "000")
         [ "$code" != "000" ] && printf "%s [%s]\n" "$url" "$code" >> "$OUT/httpx.txt"
     done < "$URLS"
 fi
@@ -106,7 +112,7 @@ log "curl -I (headers only, UA=$(curl_ua | head -c 40)...)"
 UA=$(curl_ua)
 while read -r url; do
     safe=$(echo "$url" | sed 's|[:/]|_|g')
-    curl -ksLI -A "$UA" --connect-timeout 5 --max-time 10 "$url" \
+    curl -ksLI -A "$UA" --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" "$url" \
         > "$OUT/headers_${safe}.txt" 2>&1 || true
 done < "$URLS"
 
@@ -225,7 +231,7 @@ if [ -s "$LIVE_URLS" ]; then
         safe=$(echo "$url" | sed 's|[:/]|_|g')
         : > "$OUT/exposed_${safe}.txt"
         for p in "${VCS_PATHS[@]}" "${API_PATHS[@]}"; do
-            code=$(curl -ksI --connect-timeout 4 --max-time 8 \
+            code=$(curl -ksI --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                         -o /dev/null -w '%{http_code}' "${url}${p}" 2>/dev/null)
             [ "$code" = "000" ] && continue
             # Anything 200/401/403 is interesting; 404 is not.
@@ -241,7 +247,7 @@ if [ -s "$LIVE_URLS" ]; then
         [ -z "$url" ] && continue
         safe=$(echo "$url" | sed 's|[:/]|_|g')
         evil="https://attacker.example.invalid"
-        hdrs=$(curl -ksI -H "Origin: $evil" --connect-timeout 4 --max-time 8 \
+        hdrs=$(curl -ksI -H "Origin: $evil" --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                     "$url/" 2>/dev/null)
         echo "$hdrs" > "$OUT/cors_${safe}.txt"
         # Flag any reflection of the attacker origin
@@ -260,7 +266,7 @@ if [ -s "$LIVE_URLS" ]; then
     : > "$OUT/_jwts.txt"
     while read -r url; do
         [ -z "$url" ] && continue
-        body=$(curl -ks --connect-timeout 5 --max-time 10 "$url/" 2>/dev/null | head -c 200000)
+        body=$(curl -ks --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" "$url/" 2>/dev/null | head -c 200000)
         # Greedy match for JWT shape (header.payload.signature)
         echo "$body" | grep -oE 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}' \
             | sort -u | while read -r jwt; do
@@ -303,7 +309,15 @@ fi
 if [ "${NO_PRODUCT_DETECT:-0}" = "1" ]; then
     log "product-detect skipped (NO_PRODUCT_DETECT=1)"
 elif [ -s "$LIVE_URLS" ]; then
-    log "C.13 product-fingerprint probes against $(wc -l < "$LIVE_URLS") live URL(s)"
+    PRODUCT_URLS="$OUT/_product_urls.txt"
+    total_live=$(wc -l < "$LIVE_URLS")
+    if [ "$total_live" -gt "$HTTP_PRODUCT_MAX_URLS" ]; then
+        head -n "$HTTP_PRODUCT_MAX_URLS" "$LIVE_URLS" > "$PRODUCT_URLS"
+        log "C.13 product-fingerprint probes capped at $HTTP_PRODUCT_MAX_URLS/$total_live live URL(s)"
+    else
+        cp "$LIVE_URLS" "$PRODUCT_URLS"
+        log "C.13 product-fingerprint probes against $total_live live URL(s)"
+    fi
 
     while read -r url; do
         [ -z "$url" ] && continue
@@ -321,7 +335,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # body contains distinctive Tomcat Manager string.
         tm_hdr="$OUT/prod_tomcat_hdr_${safe}.txt"
         tm_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$tm_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/manager/html" 2>/dev/null)
@@ -335,7 +349,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Also probe /host-manager/text/list
         hm_hdr="$OUT/prod_tomcat_hm_hdr_${safe}.txt"
         hm_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$hm_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/host-manager/text/list" 2>/dev/null)
@@ -349,7 +363,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # --- 2. Jenkins ---
         jk_hdr="$OUT/prod_jenkins_hdr_${safe}.txt"
         jk_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$jk_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/api/json" 2>/dev/null)
@@ -366,7 +380,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Probe /asynchPeople/api/json for user enumeration
         jp_hdr="$OUT/prod_jenkins_people_hdr_${safe}.txt"
         jp_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$jp_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/asynchPeople/api/json" 2>/dev/null)
@@ -378,7 +392,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Probe /script for Groovy script console (full RCE if accessible)
         js_hdr="$OUT/prod_jenkins_script_hdr_${safe}.txt"
         js_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$js_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/script" 2>/dev/null)
@@ -392,7 +406,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # --- 3. GitLab ---
         gl_hdr="$OUT/prod_gitlab_hdr_${safe}.txt"
         gl_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$gl_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/api/v4/version" 2>/dev/null)
@@ -416,7 +430,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # --- 4. SonarQube ---
         sq_hdr="$OUT/prod_sonarqube_hdr_${safe}.txt"
         sq_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$sq_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/api/server/version" 2>/dev/null)
@@ -428,7 +442,7 @@ elif [ -s "$LIVE_URLS" ]; then
             # Probe /api/system/info for unauth system info
             si_hdr="$OUT/prod_sonarqube_si_hdr_${safe}.txt"
             si_body=$(curl -ks "${CURL_ARGS[@]}" \
-                --connect-timeout 4 --max-time 8 \
+                --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                 -D "$si_hdr" \
                 -w "\n---HTTP-STATUS:%{http_code}---\n" \
                 "${url}/api/system/info" 2>/dev/null)
@@ -443,7 +457,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # --- 5. Grafana ---
         gf_hdr="$OUT/prod_grafana_hdr_${safe}.txt"
         gf_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$gf_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/api/health" 2>/dev/null)
@@ -455,7 +469,7 @@ elif [ -s "$LIVE_URLS" ]; then
             # Probe /api/datasources
             gd_hdr="$OUT/prod_grafana_ds_hdr_${safe}.txt"
             gd_body=$(curl -ks "${CURL_ARGS[@]}" \
-                --connect-timeout 4 --max-time 8 \
+                --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                 -D "$gd_hdr" \
                 -w "\n---HTTP-STATUS:%{http_code}---\n" \
                 "${url}/api/datasources" 2>/dev/null)
@@ -470,7 +484,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # --- 6. Prometheus ---
         pm_hdr="$OUT/prod_prometheus_hdr_${safe}.txt"
         pm_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$pm_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/-/healthy" 2>/dev/null)
@@ -482,7 +496,7 @@ elif [ -s "$LIVE_URLS" ]; then
             # Probe /api/v1/status/buildinfo for version
             pb_hdr="$OUT/prod_prometheus_bi_hdr_${safe}.txt"
             pb_body=$(curl -ks "${CURL_ARGS[@]}" \
-                --connect-timeout 4 --max-time 8 \
+                --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                 -D "$pb_hdr" \
                 -w "\n---HTTP-STATUS:%{http_code}---\n" \
                 "${url}/api/v1/status/buildinfo" 2>/dev/null)
@@ -495,7 +509,7 @@ elif [ -s "$LIVE_URLS" ]; then
             # Probe /api/v1/status/config for unauth config exposure
             pc_hdr="$OUT/prod_prometheus_cfg_hdr_${safe}.txt"
             pc_body=$(curl -ks "${CURL_ARGS[@]}" \
-                --connect-timeout 4 --max-time 8 \
+                --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                 -D "$pc_hdr" \
                 -w "\n---HTTP-STATUS:%{http_code}---\n" \
                 "${url}/api/v1/status/config" 2>/dev/null)
@@ -510,7 +524,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # --- 7. Hadoop NameNode ---
         hn_hdr="$OUT/prod_hadoop_hdr_${safe}.txt"
         hn_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$hn_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/dfshealth.html" 2>/dev/null)
@@ -522,7 +536,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Probe /jmx
         hj_hdr="$OUT/prod_hadoop_jmx_hdr_${safe}.txt"
         hj_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$hj_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/jmx" 2>/dev/null)
@@ -536,7 +550,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # --- 8. Spark UI ---
         sp_hdr="$OUT/prod_spark_hdr_${safe}.txt"
         sp_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$sp_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/api/v1/applications" 2>/dev/null)
@@ -557,7 +571,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # SDK endpoint: expects <namespace>urn:vim25</namespace>
         vc_sdk_hdr="$OUT/prod_vcenter_sdk_hdr_${safe}.txt"
         vc_sdk_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$vc_sdk_hdr" \
             "${url}/sdk/vimServiceVersions.xml" 2>/dev/null)
         if echo "$vc_sdk_body" | grep -q "urn:vim25"; then
@@ -567,7 +581,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # UI endpoint: expects <title>vSphere Client</title>
         vc_ui_hdr="$OUT/prod_vcenter_ui_hdr_${safe}.txt"
         vc_ui_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$vc_ui_hdr" \
             "${url}/ui/" 2>/dev/null)
         if echo "$vc_ui_body" | grep -qi "vSphere Client"; then
@@ -582,7 +596,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # exact resource path that only that vendor serves.
         bmc_root_hdr="$OUT/prod_bmc_root_hdr_${safe}.txt"
         bmc_root_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$bmc_root_hdr" \
             "${url}/" 2>/dev/null)
 
@@ -598,7 +612,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # OR resource path /restgui/start.html (iDRAC 9+) returns 200.
         if echo "$bmc_root_body" | grep -qE 'Integrated Dell Remote Access Controller' \
            || echo "$bmc_root_body" | grep -qE '"iDRAC[0-9]?"' \
-           || curl -ks "${CURL_ARGS[@]}" --connect-timeout 3 --max-time 6 \
+           || curl -ks "${CURL_ARGS[@]}" --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                -o /dev/null -w '%{http_code}' "${url}/restgui/start.html" 2>/dev/null | grep -q '^200$'; then
             hit "BMC Dell iDRAC detected: ${url}"
         fi
@@ -606,7 +620,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Supermicro IPMI/BMC: body contains "ATEN International" (the OEM that
         # produces Supermicro's IPMI firmware) AND specific JS asset paths.
         if echo "$bmc_root_body" | grep -qiE '(ATEN International|Supermicro|SMC[ _]?BMC|/cgi/login\.cgi)' \
-           && curl -ks "${CURL_ARGS[@]}" --connect-timeout 3 --max-time 6 \
+           && curl -ks "${CURL_ARGS[@]}" --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                -o /dev/null -w '%{http_code}' "${url}/cgi/login.cgi" 2>/dev/null | grep -qE '^(200|302|401)$'; then
             hit "BMC Supermicro IPMI detected: ${url}"
         fi
@@ -633,7 +647,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # /+CSCOU+/* assets. Body contains "AnyConnect Secure Mobility Client"
         # or +webvpn+ markers.
         cisco_anyconnect=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/+CSCOE+/logon.html" 2>/dev/null)
         if echo "$cisco_anyconnect" | grep -qE '(AnyConnect|webvpn_logon|cisco_logon|CSCOE)'; then
             hit "VPN Cisco AnyConnect/ASA SSL VPN detected: ${url}"
@@ -643,7 +657,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # "FortiGate" or "Fortinet" or the canonical login JS path
         # /remote/fgt_lang. CVE-2022-42475 / CVE-2023-27997 reachability.
         fortinet=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/remote/login" 2>/dev/null)
         if echo "$fortinet" | grep -qE '(FortiGate|Fortinet|fgt_lang|/sslvpn/|tos\.cgi)'; then
             hit "VPN Fortinet SSL VPN detected: ${url}"
@@ -652,7 +666,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Palo Alto GlobalProtect: /global-protect/login.esp returns the
         # canonical portal page. CVE-2024-3400 reachability.
         palo=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/global-protect/login.esp" 2>/dev/null)
         if echo "$palo" | grep -qE '(GlobalProtect Portal|globalprotect|Palo Alto Networks)'; then
             hit "VPN Palo Alto GlobalProtect detected: ${url}"
@@ -661,7 +675,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Pulse Secure / Ivanti Connect Secure: /dana-na/auth/url_default/welcome.cgi
         # CVE-2023-46805 + CVE-2024-21887 reachability.
         pulse=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/dana-na/auth/url_default/welcome.cgi" 2>/dev/null)
         if echo "$pulse" | grep -qE '(Pulse Secure|Ivanti Connect Secure|dana-na|/dana/)'; then
             hit "VPN Pulse/Ivanti Connect Secure detected: ${url}"
@@ -670,7 +684,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Citrix NetScaler Gateway: /vpn/index.html — body contains
         # "Citrix Gateway" or "NetScaler". CVE-2023-3519 / CVE-2023-4966 era.
         citrix=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/vpn/index.html" 2>/dev/null)
         if echo "$citrix" | grep -qE '(Citrix Gateway|NetScaler Gateway|NetScaler ADC|/logon/LogonPoint/)'; then
             hit "VPN Citrix NetScaler Gateway detected: ${url}"
@@ -679,7 +693,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # SonicWall SMA / NetExtender: /__api__/v1 or /cgi-bin/welcome with
         # canonical SonicWall banner. CVE-2024-40766 era.
         sonicwall=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/cgi-bin/welcome" 2>/dev/null)
         if echo "$sonicwall" | grep -qE '(SonicWall|NetExtender|sonicwall_swl|sma1000|sma100)'; then
             hit "VPN SonicWall SMA/NetExtender detected: ${url}"
@@ -692,7 +706,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # (vCenter is "vSphere Client"). Probe /ui/ — same path, different marker.
         esxi_ui_hdr="$OUT/prod_esxi_ui_hdr_${safe}.txt"
         esxi_ui_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$esxi_ui_hdr" \
             "${url}/ui/" 2>/dev/null)
         if echo "$esxi_ui_body" | grep -qi "VMware Host Client"; then
@@ -706,7 +720,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # If the endpoint returns data without auth, also emit UNAUTH signal.
         pve_hdr="$OUT/prod_proxmox_hdr_${safe}.txt"
         pve_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$pve_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/api2/json/version" 2>/dev/null)
@@ -728,7 +742,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # contains NTNX_IGW_SESSION AND body contains "Nutanix" or "Prism".
         ntnx_hdr="$OUT/prod_nutanix_hdr_${safe}.txt"
         ntnx_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$ntnx_hdr" \
             "${url}/console/" 2>/dev/null)
         if grep -qiE 'Set-Cookie:.*NTNX_IGW_SESSION' "$ntnx_hdr" 2>/dev/null \
@@ -742,7 +756,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # contains "status":"stable"|"beta"|"deprecated" AND contains "rel":"self".
         ks_hdr="$OUT/prod_keystone_hdr_${safe}.txt"
         ks_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$ks_hdr" \
             "${url}/v3" 2>/dev/null)
         if echo "$ks_body" | grep -q '"version":{' \
@@ -760,7 +774,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # quoted version-like string. The XSSI prefix is unique to Gerrit's
         # REST-style endpoints — no other product ships it.
         ger_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/config/server/version" 2>/dev/null)
         if echo "$ger_body" | head -c 5 | grep -q ")]}'" \
            && echo "$ger_body" | grep -qE '"[0-9]+\.[0-9]+(\.[0-9]+)?(-[A-Za-z0-9.-]+)?"'; then
@@ -774,7 +788,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # returning <version>X.Y.Z</version>.
         conf_root_hdr="$OUT/prod_confluence_root_hdr_${safe}.txt"
         conf_root_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$conf_root_hdr" \
             "${url}/" 2>/dev/null)
         conf_is=0
@@ -785,7 +799,7 @@ elif [ -s "$LIVE_URLS" ]; then
         conf_ver=""
         if [ "$conf_is" = 0 ]; then
             conf_si_body=$(curl -ks "${CURL_ARGS[@]}" \
-                --connect-timeout 4 --max-time 8 \
+                --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                 "${url}/server-info.action" 2>/dev/null)
             if echo "$conf_si_body" | grep -qE '<version>[0-9]+\.[0-9]+'; then
                 conf_is=1
@@ -802,7 +816,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # Two-evidence: response must contain ALL THREE of "baseUrl":, "versionNumbers":, "deploymentType":
         # The closed schema is unique to Jira's serverInfo endpoint.
         jira_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/rest/api/2/serverInfo" 2>/dev/null)
         if echo "$jira_body" | grep -q '"baseUrl":' \
            && echo "$jira_body" | grep -q '"versionNumbers":' \
@@ -819,7 +833,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # <version>X.Y.Z</version> OR "version":"X.Y.Z" AND
         # <buildDate> OR "buildDate":
         bam_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/rest/api/latest/info" 2>/dev/null)
         if echo "$bam_body" | grep -q "Bamboo" \
            && (echo "$bam_body" | grep -qE '<version>[0-9]+\.[0-9]+' \
@@ -836,7 +850,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # image pulls, package downloads, repository writes, or token probes.
         reg_hdr="$OUT/prod_registry_hdr_${safe}.txt"
         reg_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$reg_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/v2/" 2>/dev/null)
@@ -850,7 +864,7 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         nexus_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/service/rest/v1/status" 2>/dev/null)
         if echo "$nexus_body" | grep -q '"version"' \
            && echo "$nexus_body" | grep -q '"edition"'; then
@@ -859,7 +873,7 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         art_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/artifactory/api/system/version" 2>/dev/null)
         if echo "$art_body" | grep -q '"version"' \
            && echo "$art_body" | grep -q '"revision"'; then
@@ -868,7 +882,7 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         harbor_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/api/v2.0/systeminfo" 2>/dev/null)
         if echo "$harbor_body" | grep -q '"harbor_version"'; then
             harbor_ver=$(echo "$harbor_body" | grep -oE '"harbor_version"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
@@ -878,7 +892,7 @@ elif [ -s "$LIVE_URLS" ]; then
 
         # --- 21. Platform / Kubernetes-adjacent admin planes ---
         argocd_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/api/version" 2>/dev/null)
         if echo "$argocd_body" | grep -q '"Version"' \
            && echo "$argocd_body" | grep -q '"GitCommit"'; then
@@ -887,7 +901,7 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         rancher_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/v3/settings/server-version" 2>/dev/null)
         if echo "$rancher_body" | grep -q '"name"[[:space:]]*:[[:space:]]*"server-version"' \
            && echo "$rancher_body" | grep -q '"value"'; then
@@ -896,7 +910,7 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         portainer_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/api/status" 2>/dev/null)
         if echo "$portainer_body" | grep -q '"Version"' \
            && echo "$portainer_body" | grep -q '"InstanceID"'; then
@@ -905,12 +919,12 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         nomad_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/v1/status/leader" 2>/dev/null)
         if echo "$nomad_body" | grep -qE '^"[^"]+:[0-9]+"$'; then
             hit "Platform HashiCorp Nomad detected: ${url}"
             nomad_jobs=$(curl -ks "${CURL_ARGS[@]}" \
-                --connect-timeout 4 --max-time 8 \
+                --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
                 "${url}/v1/jobs" 2>/dev/null)
             if echo "$nomad_jobs" | grep -q '"ID"'; then
                 hit "Platform Nomad UNAUTH job inventory: ${url}"
@@ -921,7 +935,7 @@ elif [ -s "$LIVE_URLS" ]; then
         # --- 22. Storage and backup web admin planes ---
         minio_hdr="$OUT/prod_minio_hdr_${safe}.txt"
         minio_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$minio_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/minio/health/live" 2>/dev/null)
@@ -932,7 +946,7 @@ elif [ -s "$LIVE_URLS" ]; then
 
         ceph_hdr="$OUT/prod_ceph_hdr_${safe}.txt"
         ceph_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             -D "$ceph_hdr" \
             "${url}/" 2>/dev/null)
         if grep -qiE '(x-amz-request-id|x-rgw-object-type|ceph|radosgw)' "$ceph_hdr" <(echo "$ceph_body") 2>/dev/null; then
@@ -940,21 +954,21 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         rubrik_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/api/v1/cluster/me" 2>/dev/null)
         if echo "$rubrik_body" | grep -qiE '(rubrik|brik|CDMVersion|clusterUuid)'; then
             hit "Backup Rubrik API detected: ${url}"
         fi
 
         cohesity_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/irisservices/api/v1/public/cluster" 2>/dev/null)
         if echo "$cohesity_body" | grep -qiE '(cohesity|clusterIncarnationId|clusterSoftwareVersion)'; then
             hit "Backup Cohesity API detected: ${url}"
         fi
 
         ppdm_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/api/v2/about" 2>/dev/null)
         if echo "$ppdm_body" | grep -qiE '(PowerProtect|PPDM|Data Manager)'; then
             hit "Backup Dell PowerProtect Data Manager API detected: ${url}"
@@ -963,7 +977,7 @@ elif [ -s "$LIVE_URLS" ]; then
 
         # --- 23. Additional source / CI platforms ---
         teamcity_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/app/rest/server" 2>/dev/null)
         if echo "$teamcity_body" | grep -qE '<server[^>]+version=' \
            && echo "$teamcity_body" | grep -qE 'buildNumber='; then
@@ -972,7 +986,7 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         ghe_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/site/status" 2>/dev/null)
         if echo "$ghe_body" | grep -q '"github"' \
            && echo "$ghe_body" | grep -qE '"status"|"version"'; then
@@ -980,7 +994,7 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
 
         ado_body=$(curl -ks "${CURL_ARGS[@]}" \
-            --connect-timeout 4 --max-time 8 \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/_apis/connectionData" 2>/dev/null)
         if echo "$ado_body" | grep -q '"authenticatedUser"' \
            && echo "$ado_body" | grep -q '"instanceId"'; then
@@ -988,7 +1002,8 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
         throttle_sleep
 
-    done < "$LIVE_URLS"
+    done < "$PRODUCT_URLS"
+    rm -f "$PRODUCT_URLS"
 fi
 
 # ---------- 8. iteration-C hints ----------
