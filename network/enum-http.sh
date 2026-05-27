@@ -190,6 +190,65 @@ fi
 # Fall back to the candidate-URL list if httpx didn't run / found nothing
 [ ! -s "$LIVE_URLS" ] && cp "$URLS" "$LIVE_URLS" 2>/dev/null || true
 
+# ---------- 7a. Source-code product fingerprints ----------
+# Pull root HTML and require product-specific DOM/asset markers. This gives
+# operators a lower-FP corroboration path when header/title tooling produces
+# noisy product guesses on generic web servers.
+if [ "${NO_SOURCE_FINGERPRINT:-0}" != "1" ] && [ -s "$LIVE_URLS" ]; then
+    log "source-code product fingerprints against $(wc -l < "$LIVE_URLS") URL(s)"
+    : > "$OUT/source_products.tsv"
+    while read -r url; do
+        [ -z "$url" ] && continue
+        safe=$(echo "$url" | sed 's|[:/]|_|g')
+        src="$OUT/source_${safe}.html"
+        hdr="$OUT/source_${safe}.headers"
+        curl -ksL "${CURL_ARGS[@]}" -D "$hdr" \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
+            "$url/" 2>/dev/null | head -c 524288 > "$src" || true
+        python3 - "$url" "$src" "$hdr" >> "$OUT/source_products.tsv" <<'PY'
+import re, sys
+url, src, hdr = sys.argv[1], sys.argv[2], sys.argv[3]
+hay = ""
+for p in (src, hdr):
+    try:
+        hay += open(p, errors="replace").read(524288) + "\n"
+    except OSError:
+        pass
+rules = [
+    ("Jenkins", r"X-Jenkins:|jenkins\.model|adjuncts/|Jenkins ver\.|jenkins-logo"),
+    ("Grafana", r"grafanaBootData|public/build/grafana|<title>Grafana</title>"),
+    ("GitLab", r"gon\.gitlab_url|assets/gitlab|GitLab Community Edition|GitLab Enterprise Edition"),
+    ("Confluence", r"ajs-version-number|confluence-context-path|Atlassian Confluence"),
+    ("Jira", r"jira\.webresources|Atlassian Jira|data-aui-version"),
+    ("Bamboo", r"Atlassian Bamboo|bamboo\.webresources|Bamboo</title>"),
+    ("Keycloak", r"kc-form|keycloak\.js|Keycloak Administration Console"),
+    ("Nexus Repository", r"Nexus Repository|Nexus Repository Manager|NX\.Bootstrap"),
+    ("Artifactory", r"JFrog|Artifactory|artifactory-ui"),
+    ("Harbor", r"Harbor</title>|harbor-icon|harbor-ui"),
+    ("MinIO", r"MinIO Console|__MINIO|minio_browser"),
+    ("Portainer", r"Portainer</title>|portainer\.|portainer-"),
+    ("Rancher", r"Rancher</title>|rancher-ui|ember-rancher"),
+    ("Argo CD", r"Argo CD|argocd|argo-cd"),
+    ("Proxmox VE", r"PVE\.Utils|Proxmox Virtual Environment|proxmox"),
+    ("VMware vSphere/ESXi", r"vSphere Client|VMware Host Client|/ui/assets/"),
+    ("Tomcat", r"Apache Tomcat|Tomcat Manager|/manager/html"),
+    ("Kibana", r"kbn-injected-metadata|Kibana</title>|elastic"),
+    ("Prometheus", r"Prometheus Time Series Collection|prometheus-ui|Prometheus</title>"),
+    ("Vault", r"HashiCorp Vault|vault-ui|Vault</title>"),
+]
+for name, pat in rules:
+    if re.search(pat, hay, re.I):
+        print(f"{url}\t{name}\tsource-regex:{pat}")
+PY
+    done < "$LIVE_URLS"
+    sort -u "$OUT/source_products.tsv" -o "$OUT/source_products.tsv"
+    if [ -s "$OUT/source_products.tsv" ]; then
+        while IFS=$'\t' read -r url product evidence; do
+            hit "HTTP source fingerprint: $product at $url ($evidence)"
+        done < "$OUT/source_products.tsv"
+    fi
+fi
+
 if [ -s "$LIVE_URLS" ]; then
     log "iteration-C bug-class probes against $(wc -l < "$LIVE_URLS") URL(s)"
 

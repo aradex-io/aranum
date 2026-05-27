@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """aranum.py — unified network wrapper CLI.
 
-This module is a thin dispatcher. Every functional subcommand forwards all
-received arguments to an existing script via subprocess; no scanner logic is
-reimplemented here.
+This module is a thin dispatcher. Scanner/report generation still lives in the
+existing scripts; aranum.py only normalizes common operator shortcuts and then
+forwards to those scripts via subprocess.
 
 Subcommands:
   plan        -> network/plan.py
@@ -12,6 +12,7 @@ Subcommands:
   dashboard   -> network/report-dashboard.py
   merge       -> network/merge-results.py
   queue       -> network/autoenum-diff.sh
+  iter        -> network/iterative-enum.sh
   bulk-linux  -> network/bulk-enum-linux.sh
   bulk-windows-> network/bulk-enum-windows.py
 """
@@ -21,6 +22,8 @@ from __future__ import annotations
 import subprocess
 import sys
 import json
+import socket
+import webbrowser
 from pathlib import Path
 from typing import Sequence
 
@@ -38,16 +41,42 @@ _COMMANDS = {
     "report": ("python", _script_path("report.py")),
     "dashboard": ("python", _script_path("report-dashboard.py")),
     "merge": ("python", _script_path("merge-results.py")),
+    "iter": ("bash", _script_path("iterative-enum.sh")),
     "bulk-linux": ("bash", _script_path("bulk-enum-linux.sh")),
     "bulk-windows": ("python", _script_path("bulk-enum-windows.py")),
 }
 _LOCAL_COMMANDS = {"queue"}
+_RUN_REPORT_FLAGS = {"-report", "--report"}
+_RUN_DASHBOARD_FLAGS = {"-dashboard", "--dashboard"}
+_NMAP_SUFFIXES = (".xml", ".gnmap", ".nmap")
+_DEFAULT_DASHBOARD_BIND = "127.0.0.1"
+_DEFAULT_DASHBOARD_PORT = 8765
+_AUTO_ENUM_VALUE_FLAGS = {
+    "-i", "--input",
+    "-o", "--output",
+    "-u", "--user",
+    "-p", "--password",
+    "-H", "--hash",
+    "-d", "--domain",
+    "--dc-ip",
+    "-P", "--parallel",
+    "--only",
+    "--exclude",
+    "--profile",
+    "--phase",
+    "--queue",
+    "--skip-low-priority",
+}
 
 
 def _build_help() -> str:
     cmds = ", ".join(sorted(set(_COMMANDS) | _LOCAL_COMMANDS))
     return (
         "Usage: aranum <subcommand> [args...]\n"
+        "\n"
+        "Examples:\n"
+        "  aranum run scan01 -report      # scan01.xml -> ./scan01 + ./scan01-dashboard\n"
+        "  aranum dashboard               # newest scan output -> <outdir>-dashboard + server\n"
         "\n"
         "Subcommands:\n"
         f"  {cmds}\n"
@@ -129,9 +158,358 @@ def _queue(args: Sequence[str]) -> int:
     return 0
 
 
+def _dashboard_help() -> str:
+    return (
+        "Usage: aranum dashboard [outdir] [-o DIR] [--bulk] [--rules FILE]\n"
+        "                         [--bind ADDR] [--port N] [--open] [--no-serve]\n"
+        "\n"
+        "Generates the report-dashboard.py static HTML dashboard and starts a local report server.\n"
+        "If outdir is omitted, aranum uses the newest scan-looking directory in cwd.\n"
+        "Default dashboard output is a sibling directory: <outdir>-dashboard.\n"
+        "Default server bind is 127.0.0.1 with the first free port at or above 8765.\n"
+    )
+
+
+def _is_generated_dashboard_dir(path: Path) -> bool:
+    return (
+        path.is_dir()
+        and (path / "index.html").is_file()
+        and (path / "assets" / "dashboard.css").is_file()
+        and (path / "assets" / "dashboard.js").is_file()
+    )
+
+
+def _looks_like_scan_outdir(path: Path) -> bool:
+    if not path.is_dir() or _is_generated_dashboard_dir(path):
+        return False
+    sentinel_names = {
+        "inventory.json",
+        "services.txt",
+        "run.log",
+        "queue.jsonl",
+        "guidance.json",
+        "findings.json",
+        "report.md",
+        "report.html",
+    }
+    if any((path / name).exists() for name in sentinel_names):
+        return True
+    try:
+        for child in path.iterdir():
+            if not child.is_dir() or _is_generated_dashboard_dir(child):
+                continue
+            if (child / "_dispatcher.log").is_file() or (child / "_meta.json").is_file():
+                return True
+            try:
+                if any(grand.is_dir() for grand in child.iterdir()):
+                    return True
+            except OSError:
+                continue
+    except OSError:
+        return False
+    return False
+
+
+def _candidate_mtime(path: Path) -> float:
+    mtimes = [path.stat().st_mtime]
+    for name in ("run.log", "inventory.json", "findings.json", "report.html"):
+        fp = path / name
+        if fp.exists():
+            mtimes.append(fp.stat().st_mtime)
+    return max(mtimes)
+
+
+def _find_latest_outdir() -> Path | None:
+    roots = [Path.cwd()]
+    if SCRIPT_DIR != roots[0]:
+        roots.append(SCRIPT_DIR)
+
+    candidates: list[Path] = []
+    for root in roots:
+        if _looks_like_scan_outdir(root):
+            candidates.append(root)
+        try:
+            for child in root.iterdir():
+                if _looks_like_scan_outdir(child):
+                    candidates.append(child)
+        except OSError:
+            continue
+
+    if not candidates:
+        return None
+    return max(candidates, key=_candidate_mtime)
+
+
+def _default_dashboard_output(outdir: Path) -> Path:
+    outdir = outdir.resolve()
+    return outdir.parent / f"{outdir.name}-dashboard"
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _port_is_free(bind: str, port: int) -> bool:
+    try:
+        with socket.create_server((bind, port), reuse_port=False):
+            return True
+    except OSError:
+        return False
+
+
+def _first_free_port(bind: str, start: int) -> int:
+    for port in range(start, 65536):
+        if _port_is_free(bind, port):
+            return port
+    raise RuntimeError(f"no free TCP port found on {bind} at or above {start}")
+
+
+def _serve_dashboard(output: Path, bind: str, port: int, open_after: bool) -> int:
+    url = f"http://{bind}:{port}/"
+    print(f"[*] report server: {url}", file=sys.stderr)
+    print("[*] press Ctrl-C to stop", file=sys.stderr)
+    if open_after:
+        webbrowser.open(url)
+    return subprocess.run(
+        [str(sys.executable), "-m", "http.server", str(port), "--bind", bind],
+        cwd=str(output),
+    ).returncode
+
+
+def _run_dashboard(args: Sequence[str]) -> int:
+    args = list(args)
+    if args and args[0] in {"-h", "--help", "help"}:
+        print(_dashboard_help().rstrip())
+        return 0
+
+    outdir: Path | None = None
+    output: Path | None = None
+    rules: Path | None = None
+    bulk = False
+    open_after = False
+    serve = True
+    bind = _DEFAULT_DASHBOARD_BIND
+    port: int | None = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in {"-o", "--output"}:
+            if i + 1 >= len(args):
+                print(f"[!] {arg} requires a directory", file=sys.stderr)
+                return 2
+            output = Path(args[i + 1])
+            i += 2
+        elif arg.startswith("--output="):
+            output = Path(arg.split("=", 1)[1])
+            i += 1
+        elif arg == "--rules":
+            if i + 1 >= len(args):
+                print("[!] --rules requires a file", file=sys.stderr)
+                return 2
+            rules = Path(args[i + 1])
+            i += 2
+        elif arg.startswith("--rules="):
+            rules = Path(arg.split("=", 1)[1])
+            i += 1
+        elif arg == "--bulk":
+            bulk = True
+            i += 1
+        elif arg == "--bind":
+            if i + 1 >= len(args):
+                print("[!] --bind requires an address", file=sys.stderr)
+                return 2
+            bind = args[i + 1]
+            i += 2
+        elif arg.startswith("--bind="):
+            bind = arg.split("=", 1)[1]
+            i += 1
+        elif arg == "--port":
+            if i + 1 >= len(args):
+                print("[!] --port requires a port", file=sys.stderr)
+                return 2
+            try:
+                port = int(args[i + 1])
+            except ValueError:
+                print(f"[!] invalid --port: {args[i + 1]}", file=sys.stderr)
+                return 2
+            i += 2
+        elif arg.startswith("--port="):
+            try:
+                port = int(arg.split("=", 1)[1])
+            except ValueError:
+                print(f"[!] invalid --port: {arg.split('=', 1)[1]}", file=sys.stderr)
+                return 2
+            i += 1
+        elif arg == "--open":
+            open_after = True
+            i += 1
+        elif arg == "--no-serve":
+            serve = False
+            i += 1
+        elif arg.startswith("-"):
+            print(f"[!] unknown dashboard arg: {arg}", file=sys.stderr)
+            print(_dashboard_help().rstrip(), file=sys.stderr)
+            return 2
+        elif outdir is None:
+            outdir = Path(arg)
+            i += 1
+        else:
+            print(f"[!] unexpected dashboard arg: {arg}", file=sys.stderr)
+            print(_dashboard_help().rstrip(), file=sys.stderr)
+            return 2
+
+    if outdir is None:
+        outdir = _find_latest_outdir()
+        if outdir is None:
+            print("[!] no scan output directory found; pass one explicitly", file=sys.stderr)
+            print(_dashboard_help().rstrip(), file=sys.stderr)
+            return 2
+        print(f"[*] dashboard: using latest output directory: {outdir}", file=sys.stderr)
+
+    if not outdir.is_dir():
+        print(f"[!] dashboard outdir not found: {outdir}", file=sys.stderr)
+        return 2
+    if _is_generated_dashboard_dir(outdir):
+        print(
+            f"[!] {outdir} looks like generated dashboard output; "
+            "pass the scan output directory instead",
+            file=sys.stderr,
+        )
+        return 2
+
+    output = output or _default_dashboard_output(outdir)
+    if _is_relative_to(output, outdir):
+        print(
+            "[!] warning: dashboard output is inside the scan output tree; "
+            "future reports may re-ingest generated HTML",
+            file=sys.stderr,
+        )
+
+    cmd = build_command("dashboard", [str(outdir), "--output", str(output)])
+    if bulk:
+        cmd.append("--bulk")
+    if rules is not None:
+        cmd += ["--rules", str(rules)]
+
+    rc = subprocess.run(cmd).returncode
+    if rc != 0 or not serve:
+        if rc == 0 and open_after:
+            webbrowser.open((output / "index.html").resolve().as_uri())
+        return rc
+
+    if port is None:
+        try:
+            port = _first_free_port(bind, _DEFAULT_DASHBOARD_PORT)
+        except RuntimeError as e:
+            print(f"[!] {e}", file=sys.stderr)
+            return 2
+    elif not 1 <= port <= 65535:
+        print(f"[!] invalid --port: {port}", file=sys.stderr)
+        return 2
+    return _serve_dashboard(output, bind, port, open_after)
+
+
+def _extract_option(args: Sequence[str], names: set[str]) -> str | None:
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        for name in names:
+            if arg.startswith(f"{name}="):
+                return arg.split("=", 1)[1]
+        if arg in names and i + 1 < len(args):
+            return args[i + 1]
+        if arg in _AUTO_ENUM_VALUE_FLAGS:
+            i += 2
+        else:
+            i += 1
+    return None
+
+
+def _has_option(args: Sequence[str], names: set[str]) -> bool:
+    return _extract_option(args, names) is not None
+
+
+def _resolve_scan_token(token: str) -> Path:
+    p = Path(token)
+    if p.is_file():
+        return p
+    if p.suffix in _NMAP_SUFFIXES:
+        return p
+    for suffix in _NMAP_SUFFIXES:
+        candidate = Path(f"{token}{suffix}")
+        if candidate.is_file():
+            return candidate
+    return p
+
+
+def _first_bare_arg(args: Sequence[str]) -> tuple[int, str] | None:
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in _AUTO_ENUM_VALUE_FLAGS:
+            i += 2
+            continue
+        if arg.startswith("-"):
+            i += 1
+            continue
+        return i, arg
+    return None
+
+
+def _prepare_run_args(args: Sequence[str]) -> tuple[list[str], bool]:
+    run_args: list[str] = []
+    generate_report = False
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in _RUN_REPORT_FLAGS:
+            generate_report = True
+            i += 1
+        elif arg in _RUN_DASHBOARD_FLAGS:
+            generate_report = True
+            i += 1
+        else:
+            run_args.append(arg)
+            i += 1
+
+    if not _has_option(run_args, {"-i", "--input"}):
+        bare = _first_bare_arg(run_args)
+        if bare is not None:
+            idx, token = bare
+            resolved = _resolve_scan_token(token)
+            del run_args[idx]
+            run_args = ["-i", str(resolved)] + run_args
+            if not _has_option(run_args, {"-o", "--output"}):
+                run_args += ["-o", Path(token).stem]
+
+    return run_args, generate_report
+
+
+def _run_auto_enum(args: Sequence[str]) -> int:
+    run_args, generate_report = _prepare_run_args(args)
+    rc = subprocess.run(build_command("run", run_args)).returncode
+    if rc != 0 or not generate_report:
+        return rc
+
+    outdir = Path(_extract_option(run_args, {"-o", "--output"}) or "./enum-results")
+    report_cmd = build_command("report", [str(outdir), "--label", outdir.name])
+    rc = subprocess.run(report_cmd).returncode
+    if rc != 0:
+        return rc
+    return _run_dashboard([str(outdir)])
+
+
 def run(command: str, args: Sequence[str]) -> int:
     if command == "queue":
         return _queue(args)
+    if command == "run":
+        return _run_auto_enum(args)
+    if command == "dashboard":
+        return _run_dashboard(args)
     try:
         cmd = build_command(command, args)
     except (FileNotFoundError, ValueError) as e:
@@ -146,6 +524,10 @@ def print_help() -> None:
     for c in sorted(set(_COMMANDS) | _LOCAL_COMMANDS):
         if c in _LOCAL_COMMANDS:
             print(f"  - {c}: built-in queue viewer")
+        elif c == "dashboard":
+            print("  - dashboard: wrapper for report-dashboard.py with safe defaults")
+        elif c == "run":
+            print("  - run: bash auto-enum.sh; add -report to chain report + dashboard")
         else:
             runner, script = _COMMANDS[c]
             print(f"  - {c}: {runner} {script.name}")

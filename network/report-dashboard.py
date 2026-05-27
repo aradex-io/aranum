@@ -350,7 +350,11 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     known_hosts: set[str] = set()
     if not bulk:
         for svc_dir in out_dir.iterdir():
-            if not svc_dir.is_dir() or svc_dir.name.startswith("_"):
+            if (
+                not svc_dir.is_dir()
+                or svc_dir.name.startswith("_")
+                or rpt._is_generated_dashboard_dir(svc_dir)
+            ):
                 continue
             for host_dir in svc_dir.iterdir():
                 if host_dir.is_dir():
@@ -398,7 +402,10 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     services_per_host: dict[str, set[str]] = defaultdict(set)
     hosts_per_service: dict[str, set[str]] = defaultdict(set)
     if not bulk:
-        for svc_dir in sorted(p for p in out_dir.iterdir() if p.is_dir()):
+        for svc_dir in sorted(
+            p for p in out_dir.iterdir()
+            if p.is_dir() and not rpt._is_generated_dashboard_dir(p)
+        ):
             for host_dir in sorted(p for p in svc_dir.iterdir() if p.is_dir()):
                 name = host_dir.name
                 ip = name.rsplit("_", 1)[0] if "_" in name and name.rsplit("_", 1)[-1].isdigit() else name
@@ -444,7 +451,11 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
 
         # Source 2 — filenames under $OUTDIR/<svc>/<ip>/*.
         for svc_dir in out_dir.iterdir():
-            if not svc_dir.is_dir() or svc_dir.name.startswith("_"):
+            if (
+                not svc_dir.is_dir()
+                or svc_dir.name.startswith("_")
+                or rpt._is_generated_dashboard_dir(svc_dir)
+            ):
                 continue
             for host_dir in svc_dir.iterdir():
                 if not host_dir.is_dir():

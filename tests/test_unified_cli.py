@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -27,7 +28,7 @@ class TestRootCLI(unittest.TestCase):
             rc = ARANUM_MOD.main(["--help"])
         self.assertEqual(rc, 0)
         help_text = out.getvalue()
-        for cmd in ["plan", "run", "report", "dashboard", "merge", "queue", "bulk-linux", "bulk-windows"]:
+        for cmd in ["plan", "run", "report", "dashboard", "merge", "queue", "iter", "bulk-linux", "bulk-windows"]:
             self.assertIn(cmd, help_text)
 
     def test_unknown_command_returns_error(self):
@@ -54,8 +55,8 @@ class TestSubcommandDelegation(unittest.TestCase):
     def test_other_command_runners(self):
         checks = [
             ("report", "report.py", sys.executable),
-            ("dashboard", "report-dashboard.py", sys.executable),
             ("merge", "merge-results.py", sys.executable),
+            ("iter", "iterative-enum.sh", "bash"),
             ("bulk-linux", "bulk-enum-linux.sh", "bash"),
             ("bulk-windows", "bulk-enum-windows.py", sys.executable),
         ]
@@ -67,6 +68,67 @@ class TestSubcommandDelegation(unittest.TestCase):
                 called = run_call.call_args.args[0]
                 self.assertEqual(called[0], runner)
                 self.assertEqual(called[1].endswith(script), True)
+
+    def test_dashboard_defaults_to_sibling_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            outdir = Path(td) / "enum-results"
+            outdir.mkdir()
+            (outdir / "inventory.json").write_text("{}")
+            with mock.patch.object(ARANUM_MOD.subprocess, "run") as run_call, \
+                 mock.patch.object(ARANUM_MOD, "_first_free_port", return_value=8765):
+                run_call.return_value = mock.Mock(returncode=0)
+                rc = ARANUM_MOD.main(["dashboard", str(outdir)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(run_call.call_count, 2)
+        called = run_call.call_args_list[0].args[0]
+        self.assertEqual(called[0], sys.executable)
+        self.assertEqual(called[1].endswith("report-dashboard.py"), True)
+        self.assertIn(str(outdir), called)
+        self.assertIn("--output", called)
+        self.assertIn(str(outdir.parent / "enum-results-dashboard"), called)
+        server = run_call.call_args_list[1]
+        self.assertEqual(server.args[0][:3], [sys.executable, "-m", "http.server"])
+        self.assertEqual(server.kwargs["cwd"], str(outdir.parent / "enum-results-dashboard"))
+
+    def test_run_report_flag_chains_report_and_dashboard(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scan = root / "scan01.xml"
+            scan.write_text("<nmaprun/>")
+            (root / "scan01").mkdir()
+            with mock.patch.object(ARANUM_MOD.subprocess, "run") as run_call, \
+                 mock.patch.object(ARANUM_MOD, "_first_free_port", return_value=8765):
+                run_call.return_value = mock.Mock(returncode=0)
+                old_cwd = Path.cwd()
+                os.chdir(root)
+                try:
+                    rc = ARANUM_MOD.main(["run", "scan01", "-report"])
+                finally:
+                    os.chdir(old_cwd)
+        self.assertEqual(rc, 0)
+        calls = [c.args[0] for c in run_call.call_args_list]
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(calls[0][1].endswith("auto-enum.sh"), True)
+        self.assertIn("-i", calls[0])
+        self.assertIn("scan01.xml", calls[0])
+        self.assertIn("-o", calls[0])
+        self.assertIn("scan01", calls[0])
+        self.assertEqual(calls[1][1].endswith("report.py"), True)
+        self.assertEqual(calls[2][1].endswith("report-dashboard.py"), True)
+        self.assertIn("--output", calls[2])
+        self.assertIn(str(root / "scan01-dashboard"), calls[2])
+        self.assertEqual(calls[3][:3], [sys.executable, "-m", "http.server"])
+
+    def test_dashboard_no_serve_only_generates(self):
+        with tempfile.TemporaryDirectory() as td:
+            outdir = Path(td) / "enum-results"
+            outdir.mkdir()
+            (outdir / "inventory.json").write_text("{}")
+            with mock.patch.object(ARANUM_MOD.subprocess, "run") as run_call:
+                run_call.return_value = mock.Mock(returncode=0)
+                rc = ARANUM_MOD.main(["dashboard", str(outdir), "--no-serve"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(run_call.call_count, 1)
 
 
 class TestQueueBuiltin(unittest.TestCase):

@@ -10,15 +10,21 @@ See `CLAUDE.md` §6 for the entry style guide.
 ## [Unreleased]
 
 ### Added
+- `network/iterative-enum.sh` — second-pass enumeration that emits `/etc/hosts`-ready hostname mappings, HTTP source-code product fingerprints, SMB share spider/mount grep artifacts, low-rate default-credential checks, harvested usernames, and optional SSH stdin-piped filesystem scraping via `linux/juicy-files-hunt.sh`.
+- `linux/juicy-files-hunt.sh` — read-only filesystem scraper for credential-like content, keyboard walks, service files, config files, cloud/kube profiles, history files, and high-value filenames. Intended for mounted shares or credentialed SSH sessions.
 - `network/enum-artifact.sh`, `network/enum-platform.sh`, `network/enum-storage.sh` — read-side dispatchers for artifact/container registries, Kubernetes-adjacent control planes, and storage fabrics/object stores.
 - `network/nmap-parse.py` categories `artifact`, `platform`, and `storage`, plus service metadata/planner priorities for those high-value operator pivots.
 - `network/plan.py`, `network/service-metadata.json`, `network/engagement-profiles.json` — operator-centric planner that turns nmap output into prioritized `plan.json`, `queue.jsonl`, and `guidance.json` artifacts without changing scan behavior. Metadata covers every `nmap-parse.py` service category and every `network/enum-*.sh` dispatcher.
 - `network/aranum.py` — unified wrapper CLI for planner, auto-enum, reports, dashboard, merge, queue viewing, and bulk Linux/Windows enum workflows.
+- `network/aranum.py iter` — wrapper for the iterative second-pass workflow.
+- `network/aranum.py dashboard` now wraps `report-dashboard.py` with scan-output auto-detection, a safe sibling output default (`<outdir>-dashboard`), and a local report server by default; `aranum.py run <scan-stem> -report` chains enum, report, dashboard generation, and serving.
 - `network/merge-results.py` — merge multiple `findings.json` exports into one findings file with deduplication and evidence-path rewriting.
 - `network/report-dashboard.py` — new `inbox.html` and `guidance.html` pages plus `data.json` inbox/guidance payloads for operator triage.
 - `tests/test_planner.py`, `tests/test_queue.py`, `tests/test_structured_findings.py`, `tests/test_unified_cli.py`, `tests/test_merge_results.py` — coverage for planner metadata, queue sharding, structured finding fields, wrapper CLI, and merged reports.
 
 ### Changed
+- `network/enum-smb.sh` — adds `nxc smb --rid-brute` username harvesting and aggregates SMB/RPC usernames into `_users.lst` for Kerberos/AS-REP follow-up.
+- `network/enum-http.sh` — adds source-code product fingerprints from root HTML/header markers so noisy header-only web product guesses can be corroborated by DOM/asset regex evidence.
 - `network/enum-unknown.sh` — unknown-port handling now goes beyond baseline `nmap -sV -sC`: HTTP-like ports get targeted `http-*` NSE follow-up, TLS-like ports get `ssl-*`, and clear SSH/FTP/SMTP/Redis/VNC/RDP banners trigger matching NSE script sets. Defaults exclude `brute`, `dos`, and `external` categories unless the operator overrides the `ENUM_UNKNOWN_*_NSE` expressions.
 - `network/enum-http.sh` — expanded product detection for Nexus, Artifactory, Harbor, Docker Registry, Argo CD, Rancher, Portainer, Nomad, MinIO, Ceph/RADOSGW, Rubrik, Cohesity, PowerProtect, TeamCity, GitHub Enterprise, and Azure DevOps. Probes remain marker-gated and read-only.
 - `network/enum-backup.sh` — expanded backup coverage to Avamar/PowerProtect legacy ports and Rubrik/Cohesity/PowerProtect API fingerprints.
@@ -29,6 +35,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 ### Enhanced
 
 ### Fixed
+- `network/report.py` and `network/report-dashboard.py` — ignore generated dashboard directories when walking scan output so stale static HTML/CSS/JS is not re-ingested as fake services or hosts.
 - `network/enum-sip.sh` — require real SIP response evidence (`SIP/x.y`, supported methods, or user-enum data) before emitting a SIP finding. This removes the FP harness regression where nmap script-name text alone caused every wrong-service scenario to classify as SIP.
 - `network/report.py --redact` — redact target identifiers inside `evidence_path` as well as host and finding text; bracketed IPv6 targets are covered in addition to IPv4.
 - `network/_lib.sh` + curl-based dispatchers — replace string-split `curl_proxy_arg` callsites with array-based `curl_common_args`, preserving spaces/metacharacters in user-agent and proxy values while keeping shellcheck clean.

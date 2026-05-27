@@ -65,6 +65,25 @@ class TestStructuredFindingDefaults(unittest.TestCase):
             self.assertEqual({x["finding_id"] for x in findings}, {x["finding_id"] for x in findings_again},
                              "finding_id should be stable for the same input set")
 
+    def test_walk_findings_ignores_generated_dashboard_dirs(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            (out / "http" / "10.0.0.5_80").mkdir(parents=True)
+            (out / "http" / "10.0.0.5_80" / "probe.txt").write_text(
+                "UNAUTH: Docker daemon exposed\n"
+            )
+            (out / "dashboard" / "assets").mkdir(parents=True)
+            (out / "dashboard" / "index.html").write_text(
+                "UNAUTH: stale generated dashboard content\n"
+            )
+            (out / "dashboard" / "assets" / "dashboard.css").write_text("/* generated */")
+            (out / "dashboard" / "assets" / "dashboard.js").write_text("// generated")
+
+            findings = list(R.walk_findings(out, R._load_rules(None)))
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0]["service"], "http")
+            self.assertEqual(findings[0]["host"], "10.0.0.5")
+
 
 class TestServiceMetadataIntegration(unittest.TestCase):
     def test_service_metadata_file_is_loaded_when_present(self):

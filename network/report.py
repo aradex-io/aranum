@@ -344,6 +344,7 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bBackup (Rubrik|Cohesity|Dell PowerProtect Data Manager) API detected:", re.I), "high"),
     (re.compile(r"\bDell Avamar / PowerProtect legacy service reachable:", re.I), "high"),
     (re.compile(r"\bSource/CI (TeamCity|GitHub Enterprise|Azure DevOps Server) detected:", re.I), "medium"),
+    (re.compile(r"\bHTTP source fingerprint:", re.I),                "low"),
     (re.compile(r"\bRADIUS server reachable:", re.I),                   "low"),
     (re.compile(r"\bIKE/IPsec VPN endpoint reachable:", re.I),          "low"),
     (re.compile(r"\bIKE vendor:", re.I),                                "low"),
@@ -625,6 +626,17 @@ def _is_bulk_enum_dir(out_dir: Path) -> bool:
     return False
 
 
+def _is_generated_dashboard_dir(path: Path) -> bool:
+    """Detect report-dashboard.py output so regenerated dashboards do not
+    ingest their own static HTML/CSS/JS as service evidence."""
+    return (
+        path.is_dir()
+        and (path / "index.html").is_file()
+        and (path / "assets" / "dashboard.css").is_file()
+        and (path / "assets" / "dashboard.js").is_file()
+    )
+
+
 # ---------------------------------------------------- walker
 def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) -> Iterable[dict]:
     """Yield finding dicts. Each finding has:
@@ -633,7 +645,7 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
     """
     if service_metadata is None:
         service_metadata = _load_service_metadata(out_dir)
-    for svc_dir in sorted(p for p in out_dir.iterdir() if p.is_dir()):
+    for svc_dir in sorted(p for p in out_dir.iterdir() if p.is_dir() and not _is_generated_dashboard_dir(p)):
         service = svc_dir.name
         # Two layouts in use across the toolkit:
         #   $OUT/$service/<ip>/<file>          (most dispatchers)

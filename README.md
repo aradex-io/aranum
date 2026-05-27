@@ -63,6 +63,7 @@ Each subsystem ships its own README documenting the per-tool surface — `active
 | `linux/container-detect.sh` | Detect Docker/LXC/k8s and check for socket access, cgroup escapes |
 | `linux/writable-files.sh` | World-writable + writable in $PATH + writable /etc/* sensitive |
 | `linux/creds-hunt.sh` | Grep filesystem for passwords, API keys, private keys, history files |
+| `linux/juicy-files-hunt.sh` | Expanded credential/config/service-file grep for SSH stdin-pipe use or mounted shares |
 | `linux/pwnkit-check.sh` (D2.1) | CVE-2021-4034 (polkit `pkexec`) version + setuid check |
 | `linux/looney-check.sh` (D2.1) | CVE-2023-4911 (glibc `GLIBC_TUNABLES`) — flags glibc 2.34-2.38 |
 | `linux/overlayfs-check.sh` (D2.1) | CVE-2023-0386 — Ubuntu HWE kernel range check + overlayfs/userns prerequisites |
@@ -86,6 +87,7 @@ Each subsystem ships its own README documenting the per-tool surface — `active
 | `network/plan.py` | Operator-centric planner: nmap output → priority queue + guidance (`plan.json`, `queue.jsonl`, `guidance.json`) |
 | `network/nmap-parse.py` | Parse `.xml`, `.gnmap`, and `.nmap` files → JSON inventory by service |
 | `network/auto-enum.sh` | Master orchestrator: nmap output → service buckets → dispatch enum |
+| `network/iterative-enum.sh` | Second-pass pivot: `/etc/hosts` entries, HTTP source fingerprints, SMB share spidering/mount grep, default creds, username harvesting, and credentialed filesystem scraping |
 | `network/bulk-enum-linux.sh` | **Post-foothold** — pipe `linenum-fast.sh` over SSH to many hosts in parallel; per-host verdicts via `report.py` (J.1) |
 | `network/bulk-enum-windows.py` | **Post-foothold** — ship `Invoke-PrivEscEnum.ps1` over WinRM (pywinrm) to many Windows hosts in parallel; same `report.py` rolls up mixed Linux+Windows estates (K.1) |
 | `network/enum-smb.sh` | `enum4linux-ng`, `nxc smb --shares --users --pass-pol --spider`, smbclient, rpcclient |
@@ -227,6 +229,25 @@ ENUM_RUN_IKE=1 bash network/enum-ike.sh --targets targets.txt --output /tmp/out
 
 Each service dispatcher writes results into `<output>/<service>/<ip>_<port>/` so re-runs are idempotent and findings are easy to grep.
 
+### Iterative second pass
+
+After the first `auto-enum.sh` run, use `iterative-enum.sh` to turn discovered names, shares, web fingerprints, default credentials, and usernames into the next set of pivots:
+
+```bash
+./network/iterative-enum.sh \
+    --input scan.xml \
+    --enum-output ./enum-results \
+    --output ./iter-results \
+    --user 'CORP\jay' \
+    --password 'P@ssword' \
+    --domain CORP.LOCAL \
+    --dc-ip 10.10.0.1 \
+    --ssh-user jay \
+    --ssh-key ~/.ssh/id_rsa
+```
+
+Use `--mount-shares` only when you want read-only CIFS mounts under `/mnt/aranum_*`; it requires root/sudo and unmounts after each grep pass. The default run still spiders/list-shares, builds `etc-hosts.add`, runs HTTP source-code product fingerprints, runs the low-rate default-credential catalog, harvests usernames, and writes `next-ideas.txt`.
+
 ### Operator plan / queue
 
 For large networks, build the operator queue before scanning:
@@ -258,6 +279,10 @@ Profiles live in `network/engagement-profiles.json`; service priorities and safe
 After `auto-enum.sh` finishes, generate the consolidated report:
 
 ```bash
+python3 ./network/aranum.py run scan01 -report
+# shorthand: reads scan01.xml/scan01.gnmap/scan01.nmap, writes ./scan01/,
+# then writes report artifacts plus ./scan01-dashboard/
+
 python3 ./network/report.py ./enum-results --label "engagement-name"
 # writes findings.json + report.md + report.html into ./enum-results/
 
@@ -275,14 +300,17 @@ python3 ./network/report.py ./enum-results --redact
 For a polished multi-page view of the run — severity tiles, per-host detail, per-service detail, coverage matrix, timeline — generate the dashboard:
 
 ```bash
-python3 ./network/report-dashboard.py --output ./dashboard ./enum-results
-# Open in any browser:
-xdg-open ./dashboard/index.html
-# Or share over the network briefly:
-( cd dashboard && python3 -m http.server 8765 )
+python3 ./network/aranum.py dashboard ./enum-results
+# writes ./enum-results-dashboard/ and starts a local report server
+
+# Or auto-pick the newest scan-looking output directory in the current dir:
+python3 ./network/aranum.py dashboard
+
+# Export static files only, without starting the server:
+python3 ./network/aranum.py dashboard ./enum-results --no-serve
 ```
 
-The output is a self-contained directory of HTML pages — no CDN, no build step, no server required. Pages:
+By default the report server binds to `127.0.0.1` on the first free port at or above `8765`; use `--bind`, `--port`, or `--open` when needed. The output remains a self-contained directory of HTML pages — no CDN or build step required. Pages:
 
 | Page | Purpose |
 |---|---|
@@ -302,6 +330,8 @@ The output is a self-contained directory of HTML pages — no CDN, no build step
 Keyboard shortcuts inside the dashboard: `/` focuses the search box; `Esc` clears it; type `>host 10.0.0` then Enter to jump to a host page; `>svc smb` jumps to a service page. Dark theme by default with a toggle in the top nav.
 
 Pass `--bulk` when generating from a `bulk-enum-linux.sh`/`bulk-enum-windows.py` tree instead of an `auto-enum.sh` tree.
+
+`network/report-dashboard.py` remains the underlying generator for advanced/manual use; `aranum.py dashboard` supplies the default output path and scan-output auto-detection.
 
 ### Nmap defaults vs aranum depth
 

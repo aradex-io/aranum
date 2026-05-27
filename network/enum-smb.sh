@@ -21,6 +21,10 @@ if have nxc || have netexec; then
     echo "$IPS" | "$NXC" smb - "${NXC_ARGS[@]}" --shares --pass-pol --users --groups \
         > "$OUT/nxc_smb_full.txt" 2>&1 || true
 
+    log "nxc smb --rid-brute (username dump, capped by ENUM_RID_BRUTE_MAX)"
+    echo "$IPS" | "$NXC" smb - "${NXC_ARGS[@]}" --rid-brute "${ENUM_RID_BRUTE_MAX:-10000}" \
+        > "$OUT/nxc_smb_rid_brute.txt" 2>&1 || true
+
     # Spider readable shares (auth-only — much faster than unauth flailing)
     if [ -n "${ENUM_USER:-}" ]; then
         log "nxc smb --spider_plus (this can take a while)"
@@ -96,6 +100,16 @@ if have rpcclient; then
     export -f run_rpc
     export OUT
     echo "$IPS" | xargs_p -I{} bash -c 'run_rpc "$@"' _ {}
+fi
+
+# ---------- 4b. Aggregate usernames for Kerberos / AS-REP follow-ups ----------
+{
+    grep -hEio '[A-Za-z0-9._-]+\$?[[:space:]]+\(SidTypeUser\)' "$OUT"/nxc_smb_*.txt 2>/dev/null || true
+    grep -hEio 'user:[[:space:]\[]*[A-Za-z0-9._$-]+' "$OUT"/*/rpc_anon.txt "$OUT"/nxc_smb_*.txt 2>/dev/null || true
+} | sed -E 's/[[:space:]]+\(SidTypeUser\)//;s/.*user:?[[:space:]\[]*//I;s/.*\\//;s/\$//' \
+    | grep -E '^[A-Za-z0-9._-]{2,64}$' | sort -u > "$OUT/../_users.lst"
+if [ -s "$OUT/../_users.lst" ]; then
+    log "harvested $(wc -l < "$OUT/../_users.lst") username(s) -> $OUT/../_users.lst"
 fi
 
 # ---------- 5. Vulnerability scan (nmap NSE) ----------
