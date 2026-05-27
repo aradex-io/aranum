@@ -9,8 +9,8 @@ help:
 	@printf "aratool — make targets\n\n"
 	@printf "  make test         — full test pass: lint + unittest + smoke\n"
 	@printf "  make lint         — shellcheck -S warning across every .sh\n"
-	@printf "  make unittest     — python3 -m unittest discover tests/\n"
-	@printf "  make smoke        — tests/smoke.sh (syntax + dispatch + gates + tags)\n"
+	@printf "  make unittest     — python3 -m unittest discover aranumtoolkit/tests/\n"
+	@printf "  make smoke        — aranumtoolkit/tests/smoke.sh (syntax + dispatch + gates + tags)\n"
 	@printf "  make deps-check   — deps-check.sh — verify enumeration tooling\n"
 	@printf "  make clean        — remove __pycache__ / .pyc / stale tmp dirs\n"
 	@printf "  make help         — this message\n"
@@ -30,21 +30,22 @@ lint:
 	@# SC1091 — source-file not findable from CLI (covered by tests/smoke.sh syntax + harness).
 	@# SC2046 — word-splitting from command substitution. The dispatcher fleet
 	@#         relies on this for the curl_proxy_arg / curl_ua / throttle_nmap_args
-	@#         helpers in network/_lib.sh, which intentionally emit 0-or-2 args
+	@#         helpers in aranumtoolkit/network/_lib.sh, which intentionally emit 0-or-2 args
 	@#         via $(helper). Refactor to bash arrays is tracked separately
 	@#         (deferred to v0.32.0 — see CHANGELOG).
 	shellcheck -S warning -e SC1091 -e SC2046 -f gcc \
-	    network/*.sh deps-check.sh \
-	    activemq/*.sh redis/*.sh smtp/*.sh jabber/*.sh tests/*.sh \
-	    linux/*.sh ot/*.sh graphql/examples/*.sh
+	    aranumtoolkit/network/*.sh deps-check.sh \
+	    standalones/activemq/*.sh standalones/redis/*.sh standalones/smtp/*.sh \
+	    standalones/jabber/*.sh aranumtoolkit/tests/*.sh \
+	    standalones/linux/*.sh standalones/ot/*.sh standalones/graphql/examples/*.sh
 
 .PHONY: unittest
 unittest:
-	python3 -m unittest discover -s tests -p 'test_*.py' -v
+	python3 -m unittest discover -s aranumtoolkit/tests -p 'test_*.py' -v
 
 .PHONY: smoke
 smoke:
-	bash tests/smoke.sh
+	bash aranumtoolkit/tests/smoke.sh
 
 .PHONY: deps-check
 deps-check:

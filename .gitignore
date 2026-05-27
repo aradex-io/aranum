@@ -10,20 +10,29 @@ __pycache__/
 **/.cache/
 
 # Test/enum output (operator-generated)
+outputs/*
 enum-results/
 network/enum-results/
+aranumtoolkit/network/enum-results/
 *.gnmap.tmp
 network/localscan*.gnmap
 network/localscan*.nmap
 network/localscan*.xml
 network/hosts_list
 network/localscanoutput/
+aranumtoolkit/network/localscan*.gnmap
+aranumtoolkit/network/localscan*.nmap
+aranumtoolkit/network/localscan*.xml
+aranumtoolkit/network/hosts_list
+aranumtoolkit/network/localscanoutput/
 
 # Regenerated example outputs (fixtures are committed; generated output is not)
 docs/examples/*/output/
+aranumtoolkit/docs/examples/*/output/
 
 # Build artifacts (redis module)
 redis/module/system.so
+standalones/redis/module/system.so
 
 # Editor / OS
 .DS_Store
@@ -44,6 +53,7 @@ redis/module/system.so
 creds.local
 *.local
 notes/
+error.log
 .env
 .env.*
 !.env.example

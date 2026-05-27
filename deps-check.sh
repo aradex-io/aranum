@@ -5,7 +5,7 @@ set -uo pipefail
 R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; N="\033[0m"
 [ -t 1 ] || { R=""; G=""; Y=""; N=""; }
 
-# Local copy of network/_lib.sh::have — this script is invoked stand-alone
+# Local copy of aranumtoolkit/network/_lib.sh::have — this script is invoked stand-alone
 # (e.g. before any dispatcher is sourced), so we cannot rely on _lib.sh.
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -97,7 +97,7 @@ check bloodhound.py      opt
 check certipy            opt
 check certipy-ad         opt
 check petitpotam.py      opt
-check pwsh               opt   # for windows/*.ps1 AST parse / smoke 11h
+check pwsh               opt   # for standalones/windows/*.ps1 AST parse / smoke 11h
 
 # Python: defusedxml hardens nmap-parse.py against XXE / billion-laughs.
 # Without it, nmap-parse.py uses a hardened stdlib fallback that pre-scans
@@ -109,7 +109,7 @@ else
     printf "[ ] %-22s (optional Python pkg — pip install defusedxml)\n" "defusedxml"
 fi
 
-# Iteration H — jabber/ helpers. Stdlib-only per ADR-001 D4, so no new pip
+# Iteration H — standalones/jabber/ helpers. Stdlib-only per ADR-001 D4, so no new pip
 # deps; we just sanity-check the system tools the dispatcher leans on.
 echo
 echo "=== JABBER / XMPP (iteration H) ==="
@@ -212,23 +212,23 @@ check python3        req
 
 echo
 echo "=== T4 OT/ICS READ-SIDE PROBES (iteration T4) ==="
-# OT dispatchers are NEVER auto-routed. They live in ot/ and require both the
-# --ics-confirm flag on ot/ot-enum.sh AND the typed-confirmation prompt
+# OT dispatchers are NEVER auto-routed. They live in standalones/ot/ and require both the
+# --ics-confirm flag on standalones/ot/ot-enum.sh AND the typed-confirmation prompt
 # (ICS-CONFIRMED). Tools used:
 #   - nmap NSE: modbus-discover, s7-info, enip-info, bacnet-info, opcua-info,
 #     dnp3-info — already required above; confirmed here for completeness.
-#   - python3 stdlib socket — already required above; used by ot/enum-iec104.sh
+#   - python3 stdlib socket — already required above; used by standalones/ot/enum-iec104.sh
 #     for the TESTFR (act) APDU probe.
-# Anchor: docs/ADR-005-22MAY2026-ot-ics-safety-scope.md
+# Anchor: aranumtoolkit/docs/ADR-005-22MAY2026-ot-ics-safety-scope.md
 check nmap           req
 check python3        req
 cat <<'EOF'
 [i] T4 OT/ICS dispatchers require typed-confirmation gate (ICS-CONFIRMED).
-    Read docs/ADR-005-22MAY2026-ot-ics-safety-scope.md before invoking any
-    script in ot/. NEVER set OT_CONFIRMED=1 directly unless you have
+    Read aranumtoolkit/docs/ADR-005-22MAY2026-ot-ics-safety-scope.md before invoking any
+    script in standalones/ot/. NEVER set OT_CONFIRMED=1 directly unless you have
     confirmed engagement OT scope in writing. Use:
 
-        bash ot/ot-enum.sh --ics-confirm --targets ot-targets.txt --output ./out
+        bash standalones/ot/ot-enum.sh --ics-confirm --targets ot-targets.txt --output ./out
 
 EOF
 
