@@ -27,9 +27,21 @@ parse_common_args() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 log()  { printf "[%s] %s\n" "$(date +%H:%M:%S)" "$*"; }
-hit()  { printf "\033[1;32m[+]\033[0m %s\n" "$*"; }
-miss() { printf "\033[1;33m[-]\033[0m %s\n" "$*"; }
-err()  { printf "\033[1;31m[!]\033[0m %s\n" "$*"; }
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    _ARANUM_GREEN=$'\033[1;32m'
+    _ARANUM_YELLOW=$'\033[1;33m'
+    _ARANUM_RED=$'\033[1;31m'
+    _ARANUM_RESET=$'\033[0m'
+else
+    _ARANUM_GREEN=""
+    _ARANUM_YELLOW=""
+    _ARANUM_RED=""
+    _ARANUM_RESET=""
+fi
+hit()  { printf "%s[+]%s %s\n" "$_ARANUM_GREEN" "$_ARANUM_RESET" "$*"; }
+miss() { printf "%s[-]%s %s\n" "$_ARANUM_YELLOW" "$_ARANUM_RESET" "$*"; }
+err()  { printf "%s[!]%s %s\n" "$_ARANUM_RED" "$_ARANUM_RESET" "$*"; }
 
 # split  ip:port  or  [v6]:port  -> echoes "<ip> <port>"
 split_ipport() {

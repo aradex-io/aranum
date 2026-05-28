@@ -210,7 +210,7 @@ def _structured_finding(
     cfg_defaults = _coerce_service_metadata_fields(service_metadata.get("defaults", {}))
     cfg_service = _coerce_service_metadata_fields(service_metadata.get("services", {}).get(service, {}))
     cfg = {**cfg_defaults, **cfg_service}
-    normalized_line = line.strip()[:300]
+    normalized_line = _clean_line(line).strip()[:300]
     finding_id = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(f"{service}|{host}|{port}|{severity}|{evidence_path}|{normalized_line}".encode()).hexdigest()[:14]}"
     return {
         "host": host,
@@ -389,13 +389,18 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
 
-# Markers we strip when the line is wrapped in dispatcher color codes
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+# Markers we strip when a line is wrapped in dispatcher color codes. Some
+# shells/log collectors drop the ESC byte and leave literal "[1;32m" fragments.
+_ANSI_RE = re.compile(r"(?:\x1b)?\[[0-9;]*m")
+
+
+def _clean_line(line: str) -> str:
+    return _ANSI_RE.sub("", line)
 
 
 def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
     """Return the severity for a line, or None if no rule matched."""
-    line = _ANSI_RE.sub("", line)
+    line = _clean_line(line)
     for pat, sev in rules:
         if pat.search(line):
             return sev

@@ -138,7 +138,13 @@ _PORT_IN_TEXT = re.compile(
 # Regex for extracting an IPv4 from arbitrary text (re-attribution of
 # `(dispatcher)`-bucketed findings to real hosts).
 _IPV4_IN_TEXT = re.compile(r"(?<![0-9.])((?:\d{1,3}\.){3}\d{1,3})(?![0-9.])")
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_ANSI_RE = re.compile(r"(?:\x1b)?\[[0-9;]*m")
+_EVIDENCE_PREVIEW_LIMIT = 2400
+_EVIDENCE_PREVIEW_MAX_FILE = 512 * 1024
+_EVIDENCE_PREVIEW_SUFFIXES = {
+    ".txt", ".log", ".json", ".xml", ".html", ".htm", ".csv", ".yaml", ".yml",
+    ".conf", ".config", ".ini", ".env", ".md",
+}
 
 # Scheme → default port mapping. Used when a finding line carries a URL
 # without an explicit port (e.g., `https://10.0.0.30/` → port 443).
@@ -183,6 +189,10 @@ def e(s) -> str:
     return _html.escape(str(s) if s is not None else "", quote=True)
 
 
+def clean_line(s: str) -> str:
+    return _ANSI_RE.sub("", str(s) if s is not None else "")
+
+
 def safe_name(s: str) -> str:
     """Map an arbitrary string (IP, hostname, service name) to a filesystem-safe
     filename component. Replaces `:`, `/`, `\\`, spaces, brackets."""
@@ -207,6 +217,29 @@ def severity_chip(sev: str) -> str:
 def truncate(s: str, n: int = 240) -> str:
     s = s.strip()
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
+def evidence_preview(out_dir: Path, rel_path: str) -> str:
+    """Return a small text preview for dashboard disclosure panes."""
+    try:
+        fp = (out_dir / rel_path).resolve()
+        root = out_dir.resolve()
+        if root not in fp.parents and fp != root:
+            return ""
+        if not fp.is_file() or fp.stat().st_size > _EVIDENCE_PREVIEW_MAX_FILE:
+            return ""
+        if fp.suffix.lower() not in _EVIDENCE_PREVIEW_SUFFIXES and not fp.name.startswith(("exposed_", "prod_", "headers_", "cors_")):
+            return ""
+        raw = fp.read_bytes()[:_EVIDENCE_PREVIEW_LIMIT]
+        if b"\x00" in raw:
+            return ""
+        text = raw.decode("utf-8", errors="replace")
+        text = clean_line(text).strip()
+        if fp.stat().st_size > len(raw):
+            text += "\n... truncated ..."
+        return text
+    except Exception:
+        return ""
 
 
 def max_severity(findings: list[dict]) -> str:
@@ -240,7 +273,7 @@ def finding_priority(f: dict) -> int:
 def finding_title(f: dict) -> str:
     if f.get("title"):
         return str(f["title"])
-    line = _ANSI_RE.sub("", str(f.get("line", ""))).strip()
+    line = clean_line(str(f.get("line", ""))).strip()
     return truncate(line, 110) or "Finding"
 
 
@@ -501,13 +534,28 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
         host_svc_findings = [f for f in by_host.get(host, []) if f["service"] == svc]
         evidence_files: list[str] = []
         if not bulk:
-            host_dir = out_dir / svc / host
-            if host_dir.is_dir():
-                evidence_files = sorted(
+            svc_dir = out_dir / svc
+            evidence_roots: list[Path] = []
+            exact_host_dir = svc_dir / host
+            if exact_host_dir.is_dir():
+                evidence_roots.append(exact_host_dir)
+            if svc_dir.is_dir():
+                for child in svc_dir.iterdir():
+                    if child.is_dir() and child.name.startswith(f"{host}_") and child.name.rsplit("_", 1)[-1].isdigit():
+                        evidence_roots.append(child)
+            evidence_files = sorted(
+                {
                     str(fp.relative_to(out_dir))
-                    for fp in host_dir.rglob("*")
+                    for root in evidence_roots
+                    for fp in root.rglob("*")
                     if fp.is_file()
-                )
+                }
+            )
+        evidence_previews = [
+            {"path": rel, "preview": preview}
+            for rel in evidence_files
+            if (preview := evidence_preview(out_dir, rel))
+        ][:20]
         # Pre-assign each finding to its best port (explicit > scheme > single
         # candidate). Findings that can't be pinned to a single port are
         # attributed to ALL candidate ports — better to over-report than to
@@ -530,6 +578,7 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
                 "max_severity": max_severity(row_findings),
                 "findings": row_findings,
                 "evidence_files": evidence_files,
+                "evidence_previews": evidence_previews,
                 "state": "findings" if row_findings else "probed",
             })
 
@@ -901,7 +950,7 @@ def _render_host_port_rows(model: dict, host: str, details_open: bool = True) ->
                 inner.append(f"""
                 <tr>
                   <td>{severity_chip(f['severity'])}</td>
-                  <td><code class="mono">{e(truncate(f['line'], 320))}</code></td>
+                  <td><code class="mono">{e(truncate(clean_line(f['line']), 320))}</code></td>
                   <td><code class="mono small">{e(f['evidence_path'])}</code></td>
                 </tr>""")
             finding_rows_html = f"""
@@ -919,7 +968,22 @@ def _render_host_port_rows(model: dict, host: str, details_open: bool = True) ->
         ]
         ev_html = ""
         if ev_files:
-            items = "".join(f'<li><code class="mono small">{e(ef)}</code></li>' for ef in ev_files[:50])
+            previews = {
+                p["path"]: p["preview"]
+                for p in r.get("evidence_previews", [])
+                if p["path"] in ev_files
+            }
+            items_parts = []
+            for ef in ev_files[:50]:
+                preview = previews.get(ef, "")
+                if preview:
+                    items_parts.append(
+                        f'<li><details class="evidence-preview"><summary><code class="mono small">{e(ef)}</code></summary>'
+                        f'<pre>{e(preview)}</pre></details></li>'
+                    )
+                else:
+                    items_parts.append(f'<li><code class="mono small">{e(ef)}</code></li>')
+            items = "".join(items_parts)
             extra = f'<li class="muted">+{len(ev_files) - 50} more not shown</li>' if len(ev_files) > 50 else ''
             ev_html = f'<details class="evidence-list"><summary>Evidence files ({len(ev_files)})</summary><ul>{items}{extra}</ul></details>'
 
@@ -1115,7 +1179,7 @@ def render_inventory(model: dict) -> str:
         # Top-finding preview (first finding line, truncated)
         preview = ""
         if r["findings"]:
-            preview = f'<code class="mono small">{e(truncate(r["findings"][0]["line"], 120))}</code>'
+            preview = f'<code class="mono small">{e(truncate(clean_line(r["findings"][0]["line"]), 120))}</code>'
         else:
             preview = '<span class="muted">no severity-tagged findings — probe artifacts only</span>'
         state_chip = (
@@ -1762,6 +1826,20 @@ details.evidence-list ul {
   font-family: var(--font-mono); font-size: 11.5px;
 }
 details.evidence-list li { padding: 1px 0; }
+details.evidence-preview > summary { display: inline-block; color: var(--text-muted); }
+details.evidence-preview pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow: auto;
+  margin: 8px 0 6px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  color: var(--text);
+  font: 11.5px/1.45 var(--font-mono);
+}
 
 /* inventory + port tables tweaks */
 #inventory-table td:nth-child(2),

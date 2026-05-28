@@ -374,9 +374,10 @@ section "10d. Iteration E — report.py + autoenum-diff.sh"
 # Build a tiny synthetic outdir
 fake=/tmp/e-test
 rm -rf "$fake"
-mkdir -p "$fake/docker" "$fake/http/10.0.0.7_80"
+mkdir -p "$fake/docker" "$fake/http/10.0.0.7_80" "$fake/mqtt/10.0.0.9_1883"
 echo "[!] CRITICAL: UNAUTH Docker daemon at http://10.0.0.5:2375" > "$fake/docker/_dispatcher.log"
 echo "EXPOSED: http://10.0.0.7/.git/HEAD (HTTP 200)" > "$fake/http/10.0.0.7_80/exposed.txt"
+echo "[1;32m[+][0m MQTT UNAUTH broker: 10.0.0.9:1883" > "$fake/mqtt/10.0.0.9_1883/mqtt.txt"
 echo "10.0.0.5:2375" > "$fake/_targets_docker.txt"
 echo "10.0.0.7:80"   > "$fake/_targets_http.txt"
 
@@ -396,6 +397,11 @@ if python3 aranumtoolkit/network/report.py "$fake" --label smoke >/dev/null 2>&1
         p "report.py: structured findings v2 fields present"
     else
         f "report.py: structured findings v2 fields missing"
+    fi
+    if python3 -c "import json,sys; d=json.load(open('$fake/findings.json')); sys.exit(0 if any('MQTT UNAUTH broker' in f['line'] and '[1;32m' not in f['line'] for f in d['findings']) else 1)"; then
+        p "report.py: strips broken ANSI marker fragments"
+    else
+        f "report.py: broken ANSI marker fragments leaked into findings"
     fi
     # Redact mode
     python3 aranumtoolkit/network/report.py "$fake" --redact --findings-only >/dev/null 2>&1
@@ -484,6 +490,12 @@ if python3 aranumtoolkit/network/report-dashboard.py --output "$dash" "$fake" >/
         p "report-dashboard.py: inbox + guidance pages present"
     else
         f "report-dashboard.py: inbox/guidance pages missing expected content"
+    fi
+    if grep -q 'class="evidence-preview"' "$dash/host_10.0.0.7.html" 2>/dev/null \
+       && grep -q "EXPOSED: http://10.0.0.7/.git/HEAD" "$dash/host_10.0.0.7.html" 2>/dev/null; then
+        p "report-dashboard.py: evidence dropdown includes inline preview"
+    else
+        f "report-dashboard.py: evidence dropdown missing inline preview"
     fi
 else
     f "report-dashboard.py: exit non-zero"

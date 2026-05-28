@@ -45,6 +45,108 @@ HTTP_CONNECT_TIMEOUT="${ENUM_HTTP_CONNECT_TIMEOUT:-3}"
 HTTP_MAX_TIME="${ENUM_HTTP_MAX_TIME:-6}"
 HTTP_PRODUCT_MAX_URLS="${ENUM_HTTP_PRODUCT_MAX_URLS:-200}"
 
+http_exposure_marker() {
+    local path="$1" body_file="$2" hdr_file="$3" wildcard_body="${4:-}" wildcard_path="${5:-}"
+    python3 - "$path" "$body_file" "$hdr_file" "$wildcard_body" "$wildcard_path" <<'PY'
+import re
+import sys
+
+path, body_file, hdr_file, wildcard_body, wildcard_path = sys.argv[1:]
+
+def read_bytes(p, limit):
+    try:
+        with open(p, "rb") as fh:
+            return fh.read(limit)
+    except Exception:
+        return b""
+
+raw = read_bytes(body_file, 2_000_000)
+wild_raw = read_bytes(wildcard_body, 2_000_000) if wildcard_body else b""
+hdr = read_bytes(hdr_file, 100_000).decode("latin1", "ignore").lower()
+text = raw[:500_000].decode("latin1", "ignore")
+low = text.lower()
+
+def norm(s: bytes) -> str:
+    t = s[:500_000].decode("latin1", "ignore").lower()
+    if path:
+        t = t.replace(path.lower(), "/__aranum_path__")
+    if wildcard_path:
+        t = t.replace(wildcard_path.lower(), "/__aranum_path__")
+    return re.sub(r"\s+", " ", t).strip()
+
+if raw and wild_raw and (raw == wild_raw or norm(raw) == norm(wild_raw)):
+    sys.exit(0)
+
+def m(pattern):
+    return re.search(pattern, text, re.I | re.M | re.S)
+
+label = ""
+if path == "/.git/HEAD":
+    if m(r"^(ref: refs/|[0-9a-f]{40}\s*$)"):
+        label = "git HEAD ref"
+elif path == "/.git/config":
+    if "[core]" in low and ("repositoryformatversion" in low or "[remote" in low):
+        label = "git config syntax"
+elif path == "/.svn/entries":
+    if m(r"(?m)^\d+\s*$") or "svn://" in low or "svn:entry" in low:
+        label = "svn entries syntax"
+elif path == "/.svn/wc.db":
+    if raw.startswith(b"SQLite format 3"):
+        label = "svn wc.db sqlite"
+elif path == "/.hg/store":
+    if "00manifest" in low or "requires" in low or "data/" in low and "hg" in low:
+        label = "mercurial store marker"
+elif path == "/.DS_Store":
+    if raw.startswith(b"Bud1"):
+        label = "DS_Store binary"
+elif path.startswith("/.env"):
+    if m(r"(?m)^[A-Z_][A-Z0-9_]{2,}\s*=\s*[^#\s].{2,}"):
+        label = "env assignment"
+elif path == "/web.config":
+    if "<configuration" in low and ("<system.web" in low or "<appsettings" in low or "<connectionstrings" in low):
+        label = "web.config XML"
+elif path == "/wp-config.php.bak":
+    if "db_name" in low and ("db_user" in low or "db_password" in low or "abspath" in low):
+        label = "wp-config constants"
+elif path == "/config.json":
+    if m(r'^\s*\{') and m(r'"(?:password|secret|token|api[_-]?key|database|host|port)"\s*:'):
+        label = "config JSON sensitive key"
+elif path == "/server-status":
+    if "apache server status" in low or "server uptime" in low and "scoreboard" in low:
+        label = "apache server-status"
+elif path == "/server-info":
+    if "apache server information" in low or ("module name" in low and "server settings" in low):
+        label = "apache server-info"
+elif path in {"/api/swagger.json", "/swagger.json", "/openapi.json"}:
+    if m(r'"(?:openapi|swagger)"\s*:') and m(r'"paths"\s*:'):
+        label = "OpenAPI schema"
+elif path == "/actuator/health":
+    if m(r'"status"\s*:\s*"(?:UP|DOWN|OUT_OF_SERVICE|UNKNOWN)"'):
+        label = "Spring actuator health JSON"
+elif path == "/actuator/env":
+    if '"propertysources"' in low or '"activeprofiles"' in low:
+        label = "Spring actuator env JSON"
+elif path == "/actuator/heapdump":
+    if raw.startswith(b"JAVA PROFILE") or ("content-type: application/octet-stream" in hdr and len(raw) > 1024):
+        label = "Spring actuator heapdump"
+elif path == "/wp-json/wp/v2/users":
+    if m(r'^\s*\[') and m(r'"(?:id|slug|name)"\s*:') and "wp:" in low:
+        label = "WordPress users JSON"
+elif path == "/admin":
+    if "admin" in low and (m(r"<form[^>]+") or m(r'name=["\'](?:username|user|password)["\']') or m(r"<title>[^<]*(?:admin|login)")):
+        label = "admin login marker"
+elif path == "/phpmyadmin/":
+    if "phpmyadmin" in low:
+        label = "phpMyAdmin marker"
+elif path == "/manager/html":
+    if "tomcat" in low and ("manager" in low or "catalina" in low):
+        label = "Tomcat manager marker"
+
+if label:
+    print(label)
+PY
+}
+
 if [ "${WEB_PROBE_ONLY:-0}" = "1" ]; then
     NO_NUCLEI=1; NO_FFUF=1; NO_WHATWEB=1
 fi
@@ -289,16 +391,35 @@ if [ -s "$LIVE_URLS" ]; then
         [ -z "$url" ] && continue
         safe=$(echo "$url" | sed 's|[:/]|_|g')
         : > "$OUT/exposed_${safe}.txt"
+        probe_tmp=$(mktemp -d)
+        wildcard_path="/.aranum-wildcard-${RANDOM}-${RANDOM}"
+        wildcard_body="$probe_tmp/wildcard.body"
+        wildcard_hdr="$probe_tmp/wildcard.hdr"
+        curl -ksL "${CURL_ARGS[@]}" --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
+            -D "$wildcard_hdr" -o "$wildcard_body" -w '%{http_code}' "${url}${wildcard_path}" >/dev/null 2>&1 || true
         for p in "${VCS_PATHS[@]}" "${API_PATHS[@]}"; do
-            code=$(curl -ksI --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
-                        -o /dev/null -w '%{http_code}' "${url}${p}" 2>/dev/null)
+            path_safe=$(echo "$p" | sed 's|[^A-Za-z0-9._-]|_|g')
+            body="$probe_tmp/${path_safe}.body"
+            hdr="$probe_tmp/${path_safe}.hdr"
+            code=$(curl -ksL "${CURL_ARGS[@]}" --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
+                        -D "$hdr" -o "$body" -w '%{http_code}' "${url}${p}" 2>/dev/null || true)
             [ "$code" = "000" ] && continue
-            # Anything 200/401/403 is interesting; 404 is not.
             case "$code" in
-                200) hit "EXPOSED: ${url}${p} (HTTP 200)" ; echo "$code  ${url}${p}" >> "$OUT/exposed_${safe}.txt" ;;
+                200)
+                    marker=$(http_exposure_marker "$p" "$body" "$hdr" "$wildcard_body" "$wildcard_path")
+                    if [ -n "$marker" ]; then
+                        hit "EXPOSED: ${url}${p} (HTTP 200, marker=${marker})"
+                        echo "$code  ${url}${p}  marker=${marker}" >> "$OUT/exposed_${safe}.txt"
+                        cp "$body" "$OUT/exposed_body_${safe}_${path_safe}.txt" 2>/dev/null || true
+                        cp "$hdr" "$OUT/exposed_headers_${safe}_${path_safe}.txt" 2>/dev/null || true
+                    else
+                        echo "SUPPRESSED  ${url}${p}  status=200  reason=no path-specific marker or wildcard body" >> "$OUT/exposed_${safe}.txt"
+                    fi
+                    ;;
                 401|403) echo "$code  ${url}${p}" >> "$OUT/exposed_${safe}.txt" ;;
             esac
         done
+        rm -rf "$probe_tmp"
     done < "$LIVE_URLS"
 
     # ----- C.8 CORS misconfig probe -----
@@ -667,13 +788,16 @@ elif [ -s "$LIVE_URLS" ]; then
             hit "BMC HPE iLO detected: ${url} — version=${ilo_version:-?}"
         fi
 
-        # Dell iDRAC: body contains "iDRAC" + "Integrated Dell Remote Access Controller"
-        # OR resource path /restgui/start.html (iDRAC 9+) returns 200.
+        # Dell iDRAC: require body text from the root or restgui endpoint.
         if echo "$bmc_root_body" | grep -qE 'Integrated Dell Remote Access Controller' \
-           || echo "$bmc_root_body" | grep -qE '"iDRAC[0-9]?"' \
-           || curl -ks "${CURL_ARGS[@]}" --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
-               -o /dev/null -w '%{http_code}' "${url}/restgui/start.html" 2>/dev/null | grep -q '^200$'; then
+           || echo "$bmc_root_body" | grep -qE '"iDRAC[0-9]?"'; then
             hit "BMC Dell iDRAC detected: ${url}"
+        else
+            idrac_rest=$(curl -ks "${CURL_ARGS[@]}" --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
+                "${url}/restgui/start.html" 2>/dev/null)
+            if echo "$idrac_rest" | grep -qiE '(iDRAC|Integrated Dell Remote Access Controller|Dell Remote Access Controller|restgui)'; then
+                hit "BMC Dell iDRAC detected: ${url}"
+            fi
         fi
 
         # Supermicro IPMI/BMC: body contains "ATEN International" (the OEM that
@@ -708,7 +832,7 @@ elif [ -s "$LIVE_URLS" ]; then
         cisco_anyconnect=$(curl -ks "${CURL_ARGS[@]}" \
             --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/+CSCOE+/logon.html" 2>/dev/null)
-        if echo "$cisco_anyconnect" | grep -qE '(AnyConnect|webvpn_logon|cisco_logon|CSCOE)'; then
+        if echo "$cisco_anyconnect" | grep -qE '(AnyConnect Secure Mobility Client|webvpn_logon|cisco_logon|SSL VPN Service|Cisco Systems SSL VPN)'; then
             hit "VPN Cisco AnyConnect/ASA SSL VPN detected: ${url}"
         fi
 
@@ -736,7 +860,7 @@ elif [ -s "$LIVE_URLS" ]; then
         pulse=$(curl -ks "${CURL_ARGS[@]}" \
             --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
             "${url}/dana-na/auth/url_default/welcome.cgi" 2>/dev/null)
-        if echo "$pulse" | grep -qE '(Pulse Secure|Ivanti Connect Secure|dana-na|/dana/)'; then
+        if echo "$pulse" | grep -qE '(Pulse Secure|Ivanti Connect Secure|Connect Secure|DSID|DSSIGNIN)'; then
             hit "VPN Pulse/Ivanti Connect Secure detected: ${url}"
         fi
 
@@ -998,8 +1122,8 @@ elif [ -s "$LIVE_URLS" ]; then
             -D "$minio_hdr" \
             -w "\n---HTTP-STATUS:%{http_code}---\n" \
             "${url}/minio/health/live" 2>/dev/null)
-        minio_status=$(echo "$minio_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
-        if [ "$minio_status" = "200" ] || grep -qiE '(x-minio|MinIO)' "$minio_hdr" 2>/dev/null; then
+        if grep -qiE '(x-minio|MinIO)' "$minio_hdr" 2>/dev/null \
+           || echo "$minio_body" | sed '/---HTTP-STATUS:/d' | grep -qiE '(MinIO Console|MinIO Browser|X-Minio|x-minio)'; then
             hit "Storage MinIO detected: ${url}"
         fi
 

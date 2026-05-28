@@ -171,6 +171,31 @@ def evil_product_headers_handler(c):
     except Exception: pass
     finally: c.close()
 
+
+def wildcard_200_handler(c):
+    """HTTP/200 for every path with a generic body.
+
+    Protects enum-http.sh C.9 from classifying every sensitive path as exposed
+    on routers, captive portals, and SPAs that return the same login page for
+    arbitrary URLs."""
+    try:
+        data = c.recv(4096) or b""
+        first = data.split(b"\r\n", 1)[0]
+        path = first.split()[1] if len(first.split()) > 1 else b"/"
+        body = (
+            b"<html><head><title>Router Login</title></head>"
+            b"<body><form><input name='password'></form>"
+            b"<p>not found: " + path[:120] + b"</p></body></html>"
+        )
+        c.sendall(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Server: generic-router\r\n"
+            b"Content-Type: text/html\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
+        )
+    except Exception: pass
+    finally: c.close()
+
 # ---- listener ----------------------------------------------------------------
 def serve(port, handler, name):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -187,7 +212,7 @@ def serve(port, handler, name):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FP test server — wrong-protocol scenarios")
     parser.add_argument("--port-base", type=int, default=19000,
-                        help="Base port (default 19000). Eight consecutive ports are used.")
+                        help="Base port (default 19000). Nine consecutive ports are used.")
     args = parser.parse_args()
     base = args.port_base
 
@@ -202,6 +227,7 @@ if __name__ == "__main__":
         (base + 6, evil_product_headers_handler, "evil-product-hdrs"),
         # evil-shape — v0.28.1 second-tier FP class (shape mimicry)
         (base + 7, evil_shape_handler,           "evil-shape"),
+        (base + 8, wildcard_200_handler,         "wildcard-200"),
     ]
     for port, h, name in flavors:
         threading.Thread(target=serve, args=(port, h, name), daemon=True).start()

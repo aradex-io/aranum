@@ -49,6 +49,7 @@ R="\033[1;31m"; G="\033[1;32m"; C="\033[1;36m"; N="\033[0m"
 ok()   { printf "${G}[+]${N} %s\n" "$*"; }
 bad()  { printf "${R}[-]${N} %s\n" "$*"; }
 info() { printf "${C}[i]${N} %s\n" "$*"; }
+HIT_PREFIX_RE=$'^(\033\\[1;32m)?\\[\\+\\](\033\\[0m)?'
 
 # ---- temp dir + server PIDs ---------------------------------------------------
 RUNDIR=$(mktemp -d /tmp/aratool-fp-harness.XXXXXX)
@@ -149,9 +150,9 @@ for svc in "${DISPATCHERS[@]}"; do
                 --targets "$tgt" --output "$out" > "$log" 2>&1 || true
         fi
 
-        hits=$(grep -c $'^\033\\[1;32m\\[+\\]\033\\[0m' "$log" 2>/dev/null | tr -d '[:space:]')
+        hits=$(grep -Ec "$HIT_PREFIX_RE" "$log" 2>/dev/null | tr -d '[:space:]')
         hits="${hits:-0}"
-        first=$(grep -m1 $'^\033\\[1;32m\\[+\\]\033\\[0m' "$log" 2>/dev/null \
+        first=$(grep -Em1 "$HIT_PREFIX_RE" "$log" 2>/dev/null \
                 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')
         [ -z "$first" ] && first="-"
 
@@ -189,7 +190,7 @@ _run_gate_test() {
     local rc=$?
 
     local hits
-    hits=$(grep -c $'^\033\\[1;32m\\[+\\]\033\\[0m' "$log" 2>/dev/null | tr -d '[:space:]')
+    hits=$(grep -Ec "$HIT_PREFIX_RE" "$log" 2>/dev/null | tr -d '[:space:]')
     hits="${hits:-0}"
 
     local has_msg=0
@@ -224,7 +225,7 @@ _run_ot_gate_test() {
 
     # Gate fires before any probe, so 0 hits expected and rc=2 (refused).
     local hits
-    hits=$(grep -c $'^\033\\[1;32m\\[+\\]\033\\[0m' "$log" 2>/dev/null | tr -d '[:space:]')
+    hits=$(grep -Ec "$HIT_PREFIX_RE" "$log" 2>/dev/null | tr -d '[:space:]')
     hits="${hits:-0}"
 
     local has_msg=0
@@ -262,7 +263,7 @@ rm -rf "$rsync_out"
 echo "127.0.0.1:${TP_BASE}" > "$rsync_tgt"
 timeout 30 bash "$REPO/aranumtoolkit/network/enum-rsync.sh" \
     --targets "$rsync_tgt" --output "$rsync_out" > "$rsync_log" 2>&1 || true
-rsync_hits=$(grep -c $'^\033\\[1;32m\\[+\\]\033\\[0m' "$rsync_log" 2>/dev/null | tr -d '[:space:]')
+rsync_hits=$(grep -Ec "$HIT_PREFIX_RE" "$rsync_log" 2>/dev/null | tr -d '[:space:]')
 rsync_hits="${rsync_hits:-0}"
 if [ "$rsync_hits" -gt 0 ]; then
     ok "rsync TP: $rsync_hits hit(s) — TP marker intact"
@@ -282,7 +283,7 @@ rm -rf "$telnet_out"
 echo "127.0.0.1:${telnet_tp_port}" > "$telnet_tgt"
 timeout 30 bash "$REPO/aranumtoolkit/network/enum-telnet.sh" \
     --targets "$telnet_tgt" --output "$telnet_out" > "$telnet_log" 2>&1 || true
-telnet_hits=$(grep -c $'^\033\\[1;32m\\[+\\]\033\\[0m' "$telnet_log" 2>/dev/null | tr -d '[:space:]')
+telnet_hits=$(grep -Ec "$HIT_PREFIX_RE" "$telnet_log" 2>/dev/null | tr -d '[:space:]')
 telnet_hits="${telnet_hits:-0}"
 if [ "$telnet_hits" -gt 0 ]; then
     ok "telnet TP: $telnet_hits hit(s) — TP marker intact"
@@ -347,6 +348,30 @@ else
     grep -E "(detected|UNAUTH:)" "$http_fp_log" 2>/dev/null | head -5 || true
     http_fp_failures=1
     HTTP_FP_CELLS+=("HTTP-product-detect: $http_fp_hits hits on evil-product-hdrs")
+fi
+
+# ---- HTTP exposed-path wildcard-200 FP check ------------------------------------
+printf "\n${C}=====[ HTTP EXPOSED-PATH FP CHECK — wildcard-200 ]=====${N}\n\n"
+wild_port=$((FP_BASE + 8))
+info "enum-http.sh vs wildcard-200 at 127.0.0.1:${wild_port}"
+wild_tgt="$RUNDIR/http-wild.targets"
+wild_out="$RUNDIR/http-wild-out"
+wild_log="$RUNDIR/http-wild.log"
+rm -rf "$wild_out"
+echo "127.0.0.1:${wild_port}" > "$wild_tgt"
+NO_NUCLEI=1 NO_FFUF=1 RUN_NIKTO=0 NO_WHATWEB=1 \
+    timeout 60 bash "$REPO/aranumtoolkit/network/enum-http.sh" \
+    --targets "$wild_tgt" --output "$wild_out" > "$wild_log" 2>&1 || true
+
+wild_hits=$(grep -cE "EXPOSED:" "$wild_log" 2>/dev/null | tr -d '[:space:]')
+wild_hits="${wild_hits:-0}"
+if [ "$wild_hits" -eq 0 ] && grep -q "SUPPRESSED" "$wild_out"/exposed_*.txt 2>/dev/null; then
+    ok "HTTP exposed-path FP: wildcard-200 suppressed without EXPOSED findings"
+else
+    bad "HTTP exposed-path FP: $wild_hits EXPOSED hit(s) against wildcard-200"
+    grep -E "EXPOSED:|SUPPRESSED" "$wild_log" "$wild_out"/exposed_*.txt 2>/dev/null | head -8 || true
+    http_fp_failures=1
+    HTTP_FP_CELLS+=("HTTP-exposed-path: $wild_hits hits on wildcard-200")
 fi
 
 # ---- product-detect TP checks (Jenkins / Grafana / Prometheus) --------------
@@ -473,7 +498,7 @@ fi
 # ---- summary -----------------------------------------------------------------
 printf "\n${C}=====[ SUMMARY ]=====${N}\n"
 printf "  FP cells:           %d / %d (expected 0)\n" "$fp_failures" "$((${#DISPATCHERS[@]} * NUM_SCENARIOS))"
-printf "  HTTP product FP:    %d / 1 (expected 0)\n"  "$http_fp_failures"
+printf "  HTTP FP cells:      %d / 2 (expected 0)\n"  "$http_fp_failures"
 printf "  ENV gates:          %d / 10 (expected 0)\n" "$env_gate_failures"
 printf "  TP regressions:     %d / 9 (expected 0)\n"  "$tp_failures"
 
@@ -488,7 +513,7 @@ if [ "$fp_failures" -gt 0 ]; then
 fi
 
 if [ "$http_fp_failures" -gt 0 ]; then
-    printf "\n${R}HTTP PRODUCT-DETECT FPs:${N}\n"
+    printf "\n${R}HTTP FPs:${N}\n"
     for cell in "${HTTP_FP_CELLS[@]}"; do
         printf "  ${R}FP${N}: %s\n" "$cell"
     done
