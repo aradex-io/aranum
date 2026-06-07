@@ -197,7 +197,7 @@ def _parse_phase_filter(raw: str | None, available: set[str]) -> list[str] | Non
         return None
     tokens = [x.strip() for x in raw.split(",") if x.strip()]
     if not tokens:
-        return []
+        raise ValueError(f"empty phase filter {raw!r}")
     out: list[str] = []
     for t in tokens:
         low = t.lower()
@@ -219,6 +219,13 @@ def _parse_phase_filter(raw: str | None, available: set[str]) -> list[str] | Non
             continue
         seen.add(p)
         deduped.append(p)
+    if not deduped and available:
+        # User named phases but none exist in this run — fail loud (consistent
+        # with --phase abc) instead of silently planning zero tasks, which is
+        # indistinguishable from "no targets".
+        raise ValueError(
+            f"phase filter {raw!r} matched no available phases "
+            f"(available: {sorted(available, key=lambda x: (len(x), x))})")
     return deduped
 
 

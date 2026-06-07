@@ -71,11 +71,18 @@ def _parse_xml_hardened(path: Path) -> _stdlib_ET.ElementTree:
     we refuse rather than risk a misparse."""
     if _XML_BACKEND == "defusedxml":
         return ET.parse(path)                          # type: ignore[return-value]
-    # Pre-scan the raw bytes. Cap the scan at the first 64KB — DTD constructs
-    # live in the prolog; if they aren't there, the rest of the document is fine.
+    # Pre-scan the raw bytes for dangerous DTD constructs. We scan the WHOLE
+    # file (not a fixed prolog cap): an attacker can pad the prolog with a large
+    # comment to push a DOCTYPE/ENTITY past any bounded scan. Refuse files above
+    # a generous safety cap rather than scan unbounded memory.
     with open(path, "rb") as f:
-        prolog = f.read(65536)
-    m = _DANGEROUS_DTD_RE.search(prolog)
+        content = f.read(100_000_000)
+        if f.read(1):
+            raise ValueError(
+                "refusing to parse XML — dangerous DTD scan: file exceeds the "
+                "100MB safety cap; install defusedxml for safe streaming parse"
+            )
+    m = _DANGEROUS_DTD_RE.search(content)
     if m:
         raise ValueError(
             f"refusing to parse XML — dangerous DTD construct detected "
@@ -237,8 +244,8 @@ def parse_xml(path: Path):
             if state_el is None or state_el.get("state") != "open":
                 continue
             portid = port.get("portid")
-            if portid is None or not portid.isdigit():
-                continue   # hand-edited / truncated scan — skip bogus port
+            if portid is None or not portid.isdigit() or not (1 <= int(portid) <= 65535):
+                continue   # hand-edited / truncated scan — skip bogus/out-of-range port
             svc = port.find("service")
             yield {
                 "ip":        ip,
@@ -378,7 +385,7 @@ def main():
         # DTDForbidden, and the stdlib fallback's _RejectDTD raises ValueError.
         name = type(e).__name__
         if name in ("EntitiesForbidden", "DTDForbidden", "ExternalReferenceForbidden") \
-           or "DOCTYPE" in str(e) or "Entit" in str(e):
+           or "DOCTYPE" in str(e) or "Entit" in str(e) or "dangerous DTD" in str(e):
             print(
                 f"error: refusing to parse XML — {name}: {e}\n"
                 f"       file may contain XXE / billion-laughs payload. "
@@ -390,6 +397,26 @@ def main():
             print(f"error: malformed XML in {path}: {e}", file=sys.stderr)
             return 2
         raise
+    if not entries:
+        # Distinguish "couldn't parse this" from "parsed fine, nothing open".
+        # A genuinely empty scan still carries a structural anchor (Host:,
+        # Nmap scan report, <nmaprun, Status:). None present = the input is not
+        # recognizable nmap output — fail loud (rc2) rather than emit an empty
+        # inventory that is byte-identical to a clean all-hosts-down scan.
+        sample = path.read_text(errors="replace")
+        anchored = (
+            "Host: " in sample or "Nmap scan report for" in sample
+            or "Nmap done" in sample or "Status: Up" in sample
+            or "Status: Down" in sample or "<nmaprun" in sample
+            or sample.lstrip().startswith("<?xml")
+        )
+        if not anchored:
+            print(
+                f"error: {path}: unrecognized or empty nmap output — no host / "
+                f"scan-report records found. Pass real .xml/.gnmap/.nmap output.",
+                file=sys.stderr,
+            )
+            return 2
     for e in entries:
         e["categories"] = [] if args.no_cat else categorize(e["port"], e["service"])
 
