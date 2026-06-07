@@ -219,5 +219,57 @@ class TestBulkEnumTraversal(unittest.TestCase):
             self.assertEqual(escaped, [])
 
 
+class TestEnumHttpAliveDetection(unittest.TestCase):
+    """enum-http must not treat a connectable non-HTTP port as a live web
+    endpoint (it previously queued such URLs for a 600s nuclei run)."""
+
+    def _serve_non_http(self):
+        # Tiny TCP server that accepts and sends a non-HTTP (ssh-like) banner.
+        import socket
+        import threading
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        port = srv.getsockname()[1]
+        stop = threading.Event()
+
+        def loop():
+            srv.settimeout(0.5)
+            while not stop.is_set():
+                try:
+                    c, _ = srv.accept()
+                except OSError:
+                    continue
+                try:
+                    c.sendall(b"SSH-2.0-OpenSSH_lab\r\n")
+                except OSError:
+                    pass
+                finally:
+                    c.close()
+            srv.close()
+
+        t = threading.Thread(target=loop, daemon=True)
+        t.start()
+        return port, stop
+
+    def test_non_http_port_skips_nuclei_and_alive_list(self):
+        port, stop = self._serve_non_http()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                tgt = Path(d) / "t.txt"
+                tgt.write_text(f"127.0.0.1:{port}\n")
+                out = Path(d) / "o"
+                r = run(["bash", str(NET / "enum-http.sh"),
+                         "--targets", str(tgt), "--output", str(out)], timeout=90)
+                self.assertEqual(r.returncode, 0)
+                alive = out / "_alive_urls.txt"
+                # No real HTTP response -> alive list empty (or absent).
+                if alive.exists():
+                    self.assertEqual(alive.read_text().strip(), "")
+        finally:
+            stop.set()
+
+
 if __name__ == "__main__":
     unittest.main()

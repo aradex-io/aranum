@@ -218,6 +218,19 @@ while read -r url; do
         > "$OUT/headers_${safe}.txt" 2>&1 || true
 done < "$URLS"
 
+# ---------- canonical alive-URL list ----------
+# A URL is a live HTTP endpoint ONLY if curl -I captured a real HTTP status
+# line. httpx/PD can mark a connectable but non-HTTP port (ssh, etc.) "alive";
+# gating on an actual HTTP response here keeps nuclei/ffuf/product probes from
+# being launched against a non-web service. Every downstream step consumes this.
+: > "$OUT/_alive_urls.txt"
+while read -r url; do
+    [ -z "$url" ] && continue
+    safe=$(echo "$url" | sed 's|[:/]|_|g')
+    grep -qiE '^HTTP/[0-9.]+ [0-9]{3}' "$OUT/headers_${safe}.txt" 2>/dev/null \
+        && printf '%s\n' "$url" >> "$OUT/_alive_urls.txt"
+done < "$URLS"
+
 # ---------- 4. nuclei (optional; off if no templates, NO_NUCLEI=1, or no live URLs) ----------
 if [ "${NO_NUCLEI:-0}" = "1" ]; then
     log "nuclei skipped (NO_NUCLEI=1)"
@@ -228,12 +241,16 @@ elif have nuclei; then
     if [ -z "$TPL_DIR" ] || [ ! -d "$TPL_DIR" ] || [ -z "$(ls -A "$TPL_DIR" 2>/dev/null)" ]; then
         miss "nuclei templates not found ($TPL_DIR) — skipping. Run 'nuclei -update-templates' once, or pass NO_NUCLEI=1 to silence."
     else
-        # Prefer alive-only URL list from httpx if available, else full URL list
-        NUC_TARGETS="$URLS"
-        if [ -s "$OUT/httpx.txt" ]; then
-            awk '{print $1}' "$OUT/httpx.txt" | sort -u > "$OUT/_alive_urls.txt"
-            [ -s "$OUT/_alive_urls.txt" ] && NUC_TARGETS="$OUT/_alive_urls.txt"
+        # Target the canonical headers-confirmed alive list (built after the curl
+        # headers step). If no URL returned a real HTTP response, skip nuclei —
+        # do NOT fall back to the raw port list, which would run nuclei against
+        # non-HTTP services (e.g. ssh).
+        if [ ! -s "$OUT/_alive_urls.txt" ]; then
+            log "nuclei skipped — no URL returned a real HTTP response"
+            NUC_TO=skip
         fi
+        if [ "${NUC_TO:-}" != "skip" ]; then
+        NUC_TARGETS="$OUT/_alive_urls.txt"
         NUC_TO="${NUCLEI_TIMEOUT:-600}"
         NUC_RATE="${NUCLEI_RATE:-150}"
         log "nuclei (severity high,critical; timeout ${NUC_TO}s; rate ${NUC_RATE}; $(wc -l < "$NUC_TARGETS") targets)"
@@ -248,7 +265,7 @@ elif have nuclei; then
         if   [ "$rc" -eq 124 ]; then err "nuclei wall-clock timeout (${NUC_TO}s) — partial results in $OUT/nuclei.txt"
         elif [ "$rc" -ne 0 ];   then miss "nuclei exited $rc (non-fatal)"
         fi
-        rm -f "$OUT/_alive_urls.txt"
+        fi   # end skip-guard
     fi
 fi
 
@@ -257,7 +274,8 @@ if [ "${NO_FFUF:-0}" != "1" ] && have ffuf; then
     WORDLIST="/usr/share/seclists/Discovery/Web-Content/common.txt"
     if [ -r "$WORDLIST" ]; then
         log "ffuf common.txt against alive URLs (top 30)"
-        head -30 "$OUT/httpx.txt" 2>/dev/null | awk '{print $1}' | while read -r url; do
+        # Headers-confirmed alive list only — never fuzz a non-HTTP port.
+        head -30 "$OUT/_alive_urls.txt" 2>/dev/null | awk '{print $1}' | while read -r url; do
             [ -z "$url" ] && continue
             safe=$(echo "$url" | sed 's|[:/]|_|g')
             timeout 120 ffuf -u "$url/FUZZ" -w "$WORDLIST" -mc 200,204,301,302,307,401,403 \
@@ -285,12 +303,10 @@ fi
 # ---------- 7. Bug-class checks (iteration C — read-only) ----------
 # Six small per-URL probes that don't fit any of the prior tools. Each is
 # best-effort; failure is silent. Operator inspects the per-URL files.
+# Canonical alive list (headers-confirmed, built after the curl headers step).
+# If empty, the bug-class/product probes below no-op — we never probe a
+# connectable non-HTTP port.
 LIVE_URLS="$OUT/_alive_urls.txt"
-if [ ! -s "$LIVE_URLS" ] && [ -s "$OUT/httpx.txt" ]; then
-    awk '{print $1}' "$OUT/httpx.txt" | sort -u > "$LIVE_URLS"
-fi
-# Fall back to the candidate-URL list if httpx didn't run / found nothing
-[ ! -s "$LIVE_URLS" ] && cp "$URLS" "$LIVE_URLS" 2>/dev/null || true
 
 # ---------- 7a. Source-code product fingerprints ----------
 # Pull root HTML and require product-specific DOM/asset markers. This gives
