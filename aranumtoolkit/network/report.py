@@ -37,6 +37,7 @@ import argparse
 import hashlib
 import datetime
 import html
+import ipaddress
 import json
 import re
 import sys
@@ -401,7 +402,11 @@ def _clean_line(line: str) -> str:
 
 def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
     """Return the severity for a line, or None if no rule matched."""
-    line = _clean_line(line)
+    # Cap length before regex: an operator-supplied --severity-rules pattern can
+    # backtrack catastrophically (e.g. (a+)+$) on a long line; bounding the input
+    # is a mitigation (Python re has no match timeout). Findings text we care
+    # about is short; the normalized line is truncated to 300 chars downstream.
+    line = _clean_line(line)[:4096]
     for pat, sev in rules:
         if pat.search(line):
             return sev
@@ -417,8 +422,12 @@ def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
                 continue
             try:
                 obj = json.loads(ln)
-                rules.append((re.compile(obj["pattern"], re.I), obj["severity"]))
-            except (json.JSONDecodeError, KeyError, re.error, TypeError) as exc:
+                sev = obj["severity"]
+                if sev not in _SEV_ORDER:
+                    raise ValueError(
+                        f"severity must be one of {sorted(_SEV_ORDER)}, got {sev!r}")
+                rules.append((re.compile(obj["pattern"], re.I), sev))
+            except (json.JSONDecodeError, KeyError, re.error, TypeError, ValueError) as exc:
                 print(f"error: {path}:{lineno}: invalid severity rule ({exc})",
                       file=sys.stderr)
                 sys.exit(2)
@@ -426,23 +435,64 @@ def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
 
 
 # ---------------------------------------------------- redaction
+def _looks_like_ip(token: str) -> bool:
+    """True if token is an IPv4/IPv6 literal (bracketed or bare) — used to keep
+    hostname redaction from re-matching IPs the IP patterns already cover."""
+    t = token.strip().strip("[]")
+    if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", t):
+        return True
+    return ":" in t and bool(re.fullmatch(r"[0-9A-Fa-f:.]+", t))
+
+
 class Redactor:
-    """Maintains a stable mapping from raw target tokens to <TARGET-N>."""
+    """Maintains a stable mapping from raw target tokens to <TARGET-N>.
+
+    Redacts IPv4, bracketed AND bare IPv6, and — when seeded via
+    set_known_hosts() — the exact hostnames discovered in the scan. Hostnames
+    are redacted only from the known-host set (never a broad FQDN regex) so
+    URLs, product strings, and CVE identifiers in evidence text are preserved.
+    """
     def __init__(self, enable: bool):
         self.enable = enable
         self._map: dict[str, str] = {}
         self._counter = 0
+        self._hosts: list[str] = []
+
+    def set_known_hosts(self, hosts) -> None:
+        # Longest-first so a parent domain never partially shadows a subdomain.
+        self._hosts = sorted(
+            {h.strip() for h in (hosts or []) if h and not _looks_like_ip(h)},
+            key=len, reverse=True,
+        )
 
     def _target_re(self) -> re.Pattern:
         ipv4 = r"(?<![0-9.])(?:\d{1,3}\.){3}\d{1,3}(?![0-9.])"
         bracketed_ipv6 = r"\[[0-9A-Fa-f:.]+\]"
-        return re.compile(f"{bracketed_ipv6}|{ipv4}")
+        # Bare IPv6 CANDIDATE — any hex run with >=2 colons (covers mid-string
+        # `::` compression like fe80::dead:beef). Over-matches on purpose; each
+        # hit is validated with ipaddress in _sub so MACs/time/hex strings that
+        # are not real addresses are left untouched.
+        bare_ipv6 = r"(?<![0-9A-Fa-f:.])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,}(?![0-9A-Fa-f:.])"
+        parts = [bracketed_ipv6, bare_ipv6, ipv4]
+        if self._hosts:
+            parts.append(r"\b(?:" + "|".join(re.escape(h) for h in self._hosts) + r")\b")
+        return re.compile("|".join(parts))
 
     def __call__(self, text: str) -> str:
         if not self.enable:
             return text
+        host_set = set(self._hosts)
         def _sub(m):
             key = m.group(0)
+            # A colon-bearing, non-bracketed match is a bare-IPv6 candidate:
+            # redact only if it is a real IP address or a known host, else leave
+            # it (avoids mangling MACs / hex tokens the loose regex catches).
+            if ":" in key and not key.startswith("["):
+                try:
+                    ipaddress.ip_address(key)
+                except ValueError:
+                    if key not in host_set:
+                        return key
             if key not in self._map:
                 self._counter += 1
                 self._map[key] = f"<TARGET-{self._counter}>"
@@ -656,6 +706,7 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
     """
     if service_metadata is None:
         service_metadata = _load_service_metadata(out_dir)
+    _root = out_dir.resolve()
     for svc_dir in sorted(p for p in out_dir.iterdir() if p.is_dir() and not _is_generated_dashboard_dir(p)):
         service = svc_dir.name
         # Two layouts in use across the toolkit:
@@ -668,6 +719,15 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
             else:
                 host, port = name, ""
             for fp in sorted(host_dir.rglob("*")):
+                # Containment (OPSEC §9): never read/report a file that resolves
+                # outside the scan tree — a symlink or .. inside an untrusted
+                # scan dir must not leak host filesystem content into findings.
+                # Resolve BEFORE stat/read so a symlink target is never touched.
+                try:
+                    if _root not in fp.resolve().parents:
+                        continue
+                except OSError:
+                    continue
                 if not fp.is_file() or fp.stat().st_size == 0:
                     continue
                 # Only scan text-ish files (skip JSON/XML — we'd re-parse them
@@ -1019,6 +1079,8 @@ def main() -> int:
                                     key=lambda kv: (_SEV_ORDER[kv[1]["verdict"]], kv[0]))
         }
     if args.redact:
+        # Seed hostname redaction from the discovered scan hosts (pre-redaction).
+        redactor.set_known_hosts(summary.get("hosts", []))
         for f in findings_json["findings"]:
             f["host"] = redactor(f["host"])
             f["line"] = redactor(f["line"])
