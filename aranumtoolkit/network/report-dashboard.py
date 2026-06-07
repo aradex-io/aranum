@@ -40,6 +40,17 @@ from pathlib import Path
 _THIS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_THIS_DIR))
 import report as rpt  # noqa: E402
+import wiki  # noqa: E402
+
+# Quick-win wiki pages, loaded once: {service_key: page}. alias→key lookup lets a
+# finding's service (incl. metadata aliases) resolve to its page.
+_WIKI_PAGES = wiki.load_pages()
+_WIKI_ALIAS = wiki.alias_map(_WIKI_PAGES)
+
+
+def _wiki_key_for(service: str) -> str | None:
+    """Return the wiki page key for a finding/service, or None if no page exists."""
+    return _WIKI_ALIAS.get((service or "").strip().lower())
 
 # --------------------------------------------------------------- constants
 SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
@@ -55,6 +66,7 @@ NAV_ITEMS = [
     ("Severity",  "severity.html"),
     ("Timeline",  "timeline.html"),
     ("Coverage",  "coverage.html"),
+    ("Wiki",      "wiki.html"),
 ]
 
 # Default ports for services where the dispatcher doesn't encode the port in
@@ -1138,6 +1150,13 @@ def render_service_detail(model: dict, svc: str) -> str:
         for s in SEVERITY_ORDER if (n := sev_counts.get(s, 0))
     )
 
+    wk = _wiki_key_for(svc)
+    wiki_cta = (
+        f'<p><a class="wiki-cta" href="{e(wiki.page_filename(wk))}">'
+        f'📖 {e(_WIKI_PAGES[wk]["title"])} — quick wins &amp; commands →</a></p>'
+        if wk else ""
+    )
+
     body = f"""
 <section class="hero">
   <p class="hero-sub">
@@ -1146,6 +1165,7 @@ def render_service_detail(model: dict, svc: str) -> str:
     · {len(hosts)} host{'s' if len(hosts) != 1 else ''} exercised.
   </p>
   <p>{sev_summary or '<span class="muted">no findings emitted for this service</span>'}</p>
+  {wiki_cta}
 </section>
 
 <section class="card">
@@ -1755,6 +1775,25 @@ code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; border:
   margin-right: 4px; margin-bottom: 4px; text-decoration: none;
 }
   .chip-svc:hover, .chip-host:hover { background: var(--bg-elev); color: var(--text-strong); text-decoration: none; }
+  /* wiki quick-win pages */
+  .wiki-cta {
+    display: inline-block; margin-top: 6px; padding: 6px 12px; border-radius: 6px;
+    background: var(--accent, #6ea8fe); color: #0b1020; font-weight: 600;
+    text-decoration: none; border: 1px solid var(--border);
+  }
+  .wiki-cta:hover { filter: brightness(1.08); text-decoration: none; }
+  .wiki-page h1 { font-size: 20px; margin: 4px 0 10px; }
+  .wiki-page h2 { font-size: 15px; margin: 18px 0 6px; color: var(--text-strong); border-bottom: 1px solid var(--border); padding-bottom: 3px; }
+  .wiki-page h3 { font-size: 13.5px; margin: 14px 0 4px; color: var(--text-strong); }
+  .wiki-page blockquote { margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--accent, #6ea8fe); background: var(--bg-elev-2); color: var(--text-muted); }
+  .wiki-page ul { margin: 4px 0 10px 18px; }
+  .wiki-page li { margin: 2px 0; }
+  pre.wiki-code {
+    background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; overflow-x: auto; margin: 6px 0 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.5;
+  }
+  pre.wiki-code code { background: none; border: none; padding: 0; color: var(--text); white-space: pre; }
   .priority { font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; }
   .status {
     display: inline-block; padding: 2px 7px; border-radius: 4px;
@@ -2053,6 +2092,44 @@ JS_TEMPLATE = r"""
 
 
 # --------------------------------------------------------------- main
+def render_wiki_page(page: dict) -> str:
+    """Render one quick-win wiki page (already HTML from wiki.md_to_html)."""
+    ports = f' <span class="muted">· {e(page["ports"])}</span>' if page.get("ports") else ""
+    body = f"""
+<section class="card wiki-page">
+  <p class="muted small">Authorized testing only — quick-win reference, not a substitute for judgement.</p>
+  {page["html"]}
+</section>
+"""
+    return render_page(
+        f'Wiki · {page["title"]}{ports}', body, "Wiki",
+        breadcrumbs=[("Wiki", "wiki.html"), (page["title"], "")],
+    )
+
+
+def render_wiki_index() -> str:
+    """Index of all quick-win wiki pages."""
+    cards = []
+    for key in sorted(_WIKI_PAGES):
+        p = _WIKI_PAGES[key]
+        ports = f'<span class="muted small"> · {e(p["ports"])}</span>' if p.get("ports") else ""
+        cards.append(
+            f'<a class="chip chip-svc" href="{e(wiki.page_filename(key))}">'
+            f'📖 {e(p["title"])}{ports}</a>')
+    grid = " ".join(cards) if cards else '<span class="muted">no wiki pages found in wiki/</span>'
+    body = f"""
+<section class="hero">
+  <p class="hero-sub">Quick-win playbooks — when a service is found, jump straight to the
+  concise commands for exploiting it. Service detail pages deep-link here.</p>
+</section>
+<section class="card">
+  <h2 class="card-title">Service &amp; privesc playbooks ({len(_WIKI_PAGES)})</h2>
+  <p>{grid}</p>
+</section>
+"""
+    return render_page("Wiki", body, "Wiki")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Generate a multi-page HTML dashboard from an aratool $OUTDIR.",
@@ -2095,6 +2172,11 @@ def main() -> int:
     all_services = sorted(set(list(model["by_service"].keys()) + list(model["hosts_per_service"].keys())))
     for svc in all_services:
         pages.append((f"service_{safe_name(svc)}.html", render_service_detail(model, svc)))
+
+    # Quick-win wiki pages (service detail pages deep-link to these by category).
+    pages.append(("wiki.html", render_wiki_index()))
+    for key, page in _WIKI_PAGES.items():
+        pages.append((wiki.page_filename(key), render_wiki_page(page)))
 
     for name, content in pages:
         (out / name).write_text(content, encoding="utf-8")
