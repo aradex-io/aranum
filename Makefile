@@ -1,4 +1,4 @@
-# Makefile — convenience targets for aratool (G.4 of iteration G).
+# Makefile — convenience targets for aranum (G.4 of iteration G).
 # All targets are POSIX-make + bash; no GNU-extensions assumed beyond `.PHONY`.
 
 SHELL := /usr/bin/env bash
@@ -6,7 +6,7 @@ SHELL := /usr/bin/env bash
 # Default — show what's available
 .PHONY: help
 help:
-	@printf "aratool — make targets\n\n"
+	@printf "aranum — make targets\n\n"
 	@printf "  make test         — full test pass: lint + unittest + smoke\n"
 	@printf "  make lint         — shellcheck -S warning across every .sh\n"
 	@printf "  make unittest     — python3 -m unittest discover aranumtoolkit/tests/\n"

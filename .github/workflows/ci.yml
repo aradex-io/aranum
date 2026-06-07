@@ -1,4 +1,4 @@
-name: aratool CI
+name: aranum CI
 
 # G.5 of iteration G. Runs on push + PR against main. The pipeline mirrors
 # `make test` (lint -> unittest -> smoke) so a green CI run is the same as

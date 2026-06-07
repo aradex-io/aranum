@@ -21,7 +21,7 @@ NetBIOS-NS follow-ups:
     (file/print sharing enabled); <1c> = domain controller.
   * MAC OUI prefix lookup: https://maclookup.app/
   * Scan an entire subnet range:
-      nbtscan -r 192.168.1.0/24
+      nbtscan -r 192.0.2.0/24
       nmblookup -A <ip>
   * ENUM_DOMAIN env var: set to expected domain name to trigger workgroup
     mismatch detection (rogue host or mis-joined workgroup alert).

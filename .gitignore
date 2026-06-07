@@ -42,6 +42,11 @@ standalones/redis/module/system.so
 *.swo
 *~
 
+# Internal agent memory context — never commit (claude-mem auto-dumps these,
+# and they can leak engagement findings/IPs). Public repo keeps them out.
+AGENTS.md
+**/AGENTS.md
+
 # Local secrets / engagement notes — never commit
 *.pat
 *.glpat
