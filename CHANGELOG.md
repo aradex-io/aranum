@@ -10,7 +10,20 @@ See `CLAUDE.md` §6 for the entry style guide.
 ## [Unreleased]
 
 ### Fixed
+- `aranumtoolkit/network/report.py`: replaced a same-quote nested f-string (finding-id line) that is a `SyntaxError` on Python 3.9–3.11 — the documented support floor. `report.py` (and `report-dashboard.py`, which imports it) failed to load on any interpreter below 3.12; the test suite only passed because it ran on 3.13.
+- `aranumtoolkit/network/report-dashboard.py`: `build_index` now appends `report._AD_DEPTH_RULES` like `report.py:main` does, so AD-depth CRITICAL findings (Kerberoast/AS-REP, ESC1, `cpassword`, LAPS-readable, PwnKit, writable-pipe) appear on the dashboard instead of being silently dropped versus `findings.json`.
+- `aranumtoolkit/network/nmap-parse.py`: catch `ElementTree.ParseError` on malformed/truncated XML (clean `error:` message + exit 2 instead of a traceback); skip `<port>` elements with a missing/non-numeric `portid` instead of crashing on `int(None)`.
+- `aranumtoolkit/network/merge-results.py`, `aranum.py` (`queue`), and `aranumtoolkit/network/report.py` (`_load_rules`): guard `json.loads`/`re.compile` on operator-supplied `findings.json`, `queue.jsonl`, and severity-rule files — fail loud with a clear message (or skip a bad line) instead of stacktracing.
+- `aranum.py`: reject session names containing path separators, `..`, or a leading dot so `--session-name` can never create directories outside `outputs/`.
+- `aranumtoolkit/network/enum-smtp.sh`: removed a dead `echo "$EHLO_OUT"` reference (variable never assigned) that emitted an `unbound variable` line under `set -u`; STARTTLS detection now reads the EHLO capture file directly.
 - `aranumtoolkit/network/_lib.sh`: added `nmap_bound_args()` helper emitting `--host-timeout`, `--script-timeout`, and `--max-retries` (all env-overridable); inserted `$(nmap_bound_args)` into the nmap scan invocations in `enum-ftp.sh`, `enum-smb.sh`, `enum-smtp.sh`, `enum-redis.sh`, `enum-mysql.sh`, `enum-mssql.sh`, `enum-postgres.sh`, `enum-rdp.sh`, `enum-snmp.sh`, `enum-ipmi.sh`, `enum-jmx.sh`, `enum-nfs.sh`, and `enum-kerberos.sh` to prevent unbounded hangs against tarpits and filtered hosts.
+
+### Changed
+- `.github/workflows/ci.yml`, `Makefile`, `CHANGELOG.md`, `aranumtoolkit/network/report-dashboard.py`: renamed the remaining user-facing `aratool` strings (CI workflow name, Makefile header, changelog title, generated dashboard brand/footer/title) to `aranum`. Functional internal identifiers (e.g. `/tmp/aratool-*` temp prefixes, the `aratool-probe` RADIUS account) were left unchanged.
+- `aranumtoolkit/network/enum-netbios-ns.sh`: genericized the example subnet in the hints text from a real-looking `192.168.1.0/24` to the RFC 5737 documentation range `192.0.2.0/24`.
+
+### Security
+- `.gitignore`: ignore `AGENTS.md` / `**/AGENTS.md` so auto-generated agent memory context (which can embed engagement findings and target IPs) is never committed to the public repository.
 
 ### Added
 - `aranumtoolkit/network/iterative-enum.sh` — second-pass enumeration that emits `/etc/hosts`-ready hostname mappings, HTTP source-code product fingerprints, SMB share spider/mount grep artifacts, low-rate default-credential checks, harvested usernames, and optional SSH stdin-piped filesystem scraping via `standalones/linux/juicy-files-hunt.sh`.

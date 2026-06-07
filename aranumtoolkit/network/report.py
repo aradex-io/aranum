@@ -211,7 +211,8 @@ def _structured_finding(
     cfg_service = _coerce_service_metadata_fields(service_metadata.get("services", {}).get(service, {}))
     cfg = {**cfg_defaults, **cfg_service}
     normalized_line = _clean_line(line).strip()[:300]
-    finding_id = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(f"{service}|{host}|{port}|{severity}|{evidence_path}|{normalized_line}".encode()).hexdigest()[:14]}"
+    _id_seed = f"{service}|{host}|{port}|{severity}|{evidence_path}|{normalized_line}"
+    finding_id = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(_id_seed.encode()).hexdigest()[:14]}"
     return {
         "host": host,
         "port": port,
@@ -410,12 +411,17 @@ def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
 def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
     rules: list[tuple[re.Pattern, str]] = list(_DEFAULT_RULES)
     if path:
-        for ln in path.read_text().splitlines():
+        for lineno, ln in enumerate(path.read_text().splitlines(), 1):
             ln = ln.strip()
             if not ln or ln.startswith("#"):
                 continue
-            obj = json.loads(ln)
-            rules.append((re.compile(obj["pattern"], re.I), obj["severity"]))
+            try:
+                obj = json.loads(ln)
+                rules.append((re.compile(obj["pattern"], re.I), obj["severity"]))
+            except (json.JSONDecodeError, KeyError, re.error, TypeError) as exc:
+                print(f"error: {path}:{lineno}: invalid severity rule ({exc})",
+                      file=sys.stderr)
+                sys.exit(2)
     return rules
 
 
