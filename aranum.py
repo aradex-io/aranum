@@ -135,7 +135,24 @@ def _strip_session_args(args: Sequence[str]) -> tuple[list[str], str, bool]:
     return out, session or _session_default(), explicit
 
 
+def _is_safe_session(session: str) -> bool:
+    """A session name must be a single, simple path component — no separators,
+    no traversal, no leading dot — so it can never escape OUTPUTS_DIR."""
+    return (
+        bool(session)
+        and session not in (".", "..")
+        and not session.startswith(".")
+        and not any(c in session for c in "/\\")
+        and all(c.isalnum() or c in "._-" for c in session)
+    )
+
+
 def _session_dirs(session: str) -> dict[str, Path]:
+    if not _is_safe_session(session):
+        print(f"[!] invalid session name: {session!r} "
+              "(use letters, digits, '.', '_', '-'; no '/' or '..')",
+              file=sys.stderr)
+        sys.exit(2)
     base = OUTPUTS_DIR / session
     dirs = {
         "base": base,
@@ -207,7 +224,11 @@ def _queue(args: Sequence[str]) -> int:
         for line in f:
             if not line.strip():
                 continue
-            item = json.loads(line)
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                print("[!] skipping malformed queue.jsonl line", file=sys.stderr)
+                continue
             if status and item.get("status") != status:
                 continue
             count += 1

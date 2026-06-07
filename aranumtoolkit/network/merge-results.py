@@ -37,7 +37,11 @@ def _read_findings_json(source: Path) -> dict[str, Any]:
     path = source / "findings.json"
     if not path.is_file():
         raise FileNotFoundError(f"findings.json missing: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"error: malformed findings.json: {path}: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def _hash_file(path: Path) -> str:

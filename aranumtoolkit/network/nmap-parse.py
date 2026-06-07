@@ -236,11 +236,14 @@ def parse_xml(path: Path):
             state_el = port.find("state")
             if state_el is None or state_el.get("state") != "open":
                 continue
+            portid = port.get("portid")
+            if portid is None or not portid.isdigit():
+                continue   # hand-edited / truncated scan — skip bogus port
             svc = port.find("service")
             yield {
                 "ip":        ip,
                 "hostname":  hostname,
-                "port":      int(port.get("portid")),
+                "port":      int(portid),
                 "proto":     port.get("protocol"),
                 "state":     "open",
                 "service":   (svc.get("name") if svc is not None else "") or "",
@@ -383,6 +386,9 @@ def main():
                 file=sys.stderr,
             )
             return 3
+        if isinstance(e, _stdlib_ET.ParseError):
+            print(f"error: malformed XML in {path}: {e}", file=sys.stderr)
+            return 2
         raise
     for e in entries:
         e["categories"] = [] if args.no_cat else categorize(e["port"], e["service"])
