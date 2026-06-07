@@ -9,6 +9,14 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
+### Added
+- `wiki/` — quick-win pentesting playbooks (one concise Markdown page per service: triage one-liners, exploitation quick wins as command + 1-line *why*, gotchas, sources). 34 pages covering redis, memcached, mongo, elastic, couchdb, rabbitmq, cassandra, mysql, postgres, mssql, oracle, smb, ldap, kerberos, rdp, winrm, http, ajp, jmx, docker, kubernetes, ftp, ssh, telnet, smtp, dns, snmp, nfs, rsync, vnc, ipmi, mqtt, plus `linux`/`windows` host privilege-escalation. Each page cross-links the toolkit's own `enum-*.sh` dispatcher and any `standalones/` exploit helper.
+- `aranumtoolkit/network/wiki.py` — stdlib Markdown→HTML renderer + page loader for the wiki.
+- `aranumtoolkit/network/report-dashboard.py` — renders each wiki page to `wiki_<service>.html`, adds a "Wiki" nav section + index, and deep-links every per-service detail page to its quick-win playbook by service category (so "redis found" → one click to the Redis playbook). Findings' service aliases (e.g. `elastic`→elasticsearch, `linenum`→linux) resolve to the right page.
+
+### Fixed
+- `aranumtoolkit/tests/test_phase1_hardening.py`: the `run()` subprocess helper hardcoded `timeout=60`, so the enum-http alive-detection test (which passes `timeout=90`) raised `TypeError: multiple values for keyword 'timeout'` and turned the suite red. `run()` now uses `setdefault` so callers can override the timeout.
+
 ### Security
 Hardening from the TESTPLAN-001 (07JUN2026) comprehensive functional test campaign.
 All findings have a regression test (`aranumtoolkit/tests/test_phase1_hardening.py`,
