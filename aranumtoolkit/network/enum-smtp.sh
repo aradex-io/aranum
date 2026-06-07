@@ -73,7 +73,7 @@ wait
 if have nmap; then
     log "nmap smtp-* NSE scripts"
     IPS=$(ips_only "$TARGETS")
-    nmap -Pn -p25,465,587,2525 --script 'smtp-commands,smtp-enum-users,smtp-open-relay,smtp-vuln-*,smtp-ntlm-info' \
+    nmap -Pn $(nmap_bound_args) -p25,465,587,2525 --script 'smtp-commands,smtp-enum-users,smtp-open-relay,smtp-vuln-*,smtp-ntlm-info' \
         -iL <(echo "$IPS") -oA "$OUT/nmap-smtp" >/dev/null 2>&1 || true
 fi
 

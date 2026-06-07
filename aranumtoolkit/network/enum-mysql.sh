@@ -21,7 +21,7 @@ IPS=$(ips_only "$TARGETS")
 # ---------- 1. nmap NSE ----------
 if have nmap; then
     log "nmap mysql-info + mysql-empty-password + mysql-users"
-    nmap -Pn -p3306 --script 'mysql-info,mysql-empty-password,mysql-users,mysql-databases,mysql-variables' \
+    nmap -Pn $(nmap_bound_args) -p3306 --script 'mysql-info,mysql-empty-password,mysql-users,mysql-databases,mysql-variables' \
          -iL <(echo "$IPS") -oA "$OUT/nmap-mysql" >/dev/null 2>&1 || true
 fi
 

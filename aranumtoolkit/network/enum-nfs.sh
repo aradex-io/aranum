@@ -19,7 +19,7 @@ fi
 # nmap rpcinfo + nfs-* scripts
 if have nmap; then
     log "nmap rpcinfo / nfs-showmount / nfs-ls"
-    nmap -Pn -p111,2049 --script 'rpcinfo,nfs-showmount,nfs-ls,nfs-statfs' \
+    nmap -Pn $(nmap_bound_args) -p111,2049 --script 'rpcinfo,nfs-showmount,nfs-ls,nfs-statfs' \
         -iL <(echo "$IPS") -oA "$OUT/nmap-nfs" >/dev/null 2>&1 || true
 fi
 

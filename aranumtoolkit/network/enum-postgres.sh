@@ -21,7 +21,7 @@ IPS=$(ips_only "$TARGETS")
 # ---------- 1. nmap NSE ----------
 if have nmap; then
     log "nmap pgsql-info + pgsql-empty-password"
-    nmap -Pn -p5432 --script 'pgsql-info,pgsql-empty-password,pgsql-brute' \
+    nmap -Pn $(nmap_bound_args) -p5432 --script 'pgsql-info,pgsql-empty-password,pgsql-brute' \
          -iL <(echo "$IPS") -oA "$OUT/nmap-pgsql" >/dev/null 2>&1 || true
 fi
 

@@ -18,7 +18,7 @@ IPS=$(ips_only "$TARGETS")
 if have nmap; then
     log "nmap rmi-dumpregistry + rmi-vuln-classloader"
     # Use --script on per-port so we don't probe ports that don't actually answer
-    nmap -Pn -p1099,9999,9010,11099,7199 \
+    nmap -Pn $(nmap_bound_args) -p1099,9999,9010,11099,7199 \
          --script 'rmi-dumpregistry,rmi-vuln-classloader' \
          -iL <(echo "$IPS") -oA "$OUT/nmap-jmx" >/dev/null 2>&1 || true
 

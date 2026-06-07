@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **aratool** will be documented in this file.
+All notable changes to **aranum** will be documented in this file.
 
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
+
+### Fixed
+- `aranumtoolkit/network/_lib.sh`: added `nmap_bound_args()` helper emitting `--host-timeout`, `--script-timeout`, and `--max-retries` (all env-overridable); inserted `$(nmap_bound_args)` into the nmap scan invocations in `enum-ftp.sh`, `enum-smb.sh`, `enum-smtp.sh`, `enum-redis.sh`, `enum-mysql.sh`, `enum-mssql.sh`, `enum-postgres.sh`, `enum-rdp.sh`, `enum-snmp.sh`, `enum-ipmi.sh`, `enum-jmx.sh`, `enum-nfs.sh`, and `enum-kerberos.sh` to prevent unbounded hangs against tarpits and filtered hosts.
 
 ### Added
 - `aranumtoolkit/network/iterative-enum.sh` — second-pass enumeration that emits `/etc/hosts`-ready hostname mappings, HTTP source-code product fingerprints, SMB share spider/mount grep artifacts, low-rate default-credential checks, harvested usernames, and optional SSH stdin-piped filesystem scraping via `standalones/linux/juicy-files-hunt.sh`.

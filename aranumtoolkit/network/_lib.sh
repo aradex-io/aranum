@@ -195,6 +195,14 @@ throttle_nmap_args() {
     fi
 }
 
+# Bounding args so NSE/UDP scans can't hang forever on a tarpit/filtered host.
+# Override via env. Echoed (word-split intentionally at call site, like throttle_nmap_args).
+nmap_bound_args() {
+    printf '%s ' --host-timeout "${ENUM_NMAP_HOST_TIMEOUT:-5m}" \
+                 --script-timeout "${ENUM_NMAP_SCRIPT_TIMEOUT:-60s}" \
+                 --max-retries "${ENUM_NMAP_MAX_RETRIES:-2}"
+}
+
 # shellcheck disable=SC2034  # sourced dispatchers consume this shared array.
 THROTTLE_NMAP_ARGS=()
 if [ "${ENUM_THROTTLE:-0}" = 1 ]; then

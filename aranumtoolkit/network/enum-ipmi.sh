@@ -19,7 +19,7 @@ IPS=$(ips_only "$TARGETS")
 
 if have nmap; then
     log "nmap ipmi-version + ipmi-cipher-zero + ipmi-brute"
-    nmap -Pn -sU -p623 \
+    nmap -Pn $(nmap_bound_args) -sU -p623 \
          --script 'ipmi-version,ipmi-cipher-zero,ipmi-brute' \
          -iL <(echo "$IPS") -oA "$OUT/nmap-ipmi" >/dev/null 2>&1 || true
 

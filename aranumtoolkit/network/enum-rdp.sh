@@ -11,7 +11,7 @@ IPS=$(ips_only "$TARGETS")
 # nmap rdp scripts (security level, NLA, encryption)
 if have nmap; then
     log "nmap rdp-enum-encryption + rdp-ntlm-info"
-    nmap -Pn -p3389 --script 'rdp-enum-encryption,rdp-ntlm-info,rdp-vuln-ms12-020' \
+    nmap -Pn $(nmap_bound_args) -p3389 --script 'rdp-enum-encryption,rdp-ntlm-info,rdp-vuln-ms12-020' \
          -iL <(echo "$IPS") -oA "$OUT/nmap-rdp" >/dev/null 2>&1 || true
 fi
 

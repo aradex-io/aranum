@@ -41,7 +41,7 @@ fi
 # nmap redis-info
 if have nmap; then
     IPS=$(ips_only "$TARGETS")
-    nmap -Pn -p6379 --script redis-info -iL <(echo "$IPS") \
+    nmap -Pn $(nmap_bound_args) -p6379 --script redis-info -iL <(echo "$IPS") \
         -oA "$OUT/nmap-redis" >/dev/null 2>&1 || true
 fi
 

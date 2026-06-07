@@ -41,7 +41,7 @@ if have nmap; then
         USERS_ARG="--script-args krb5-enum-users.realm=$ENUM_DOMAIN,userdb=$OUT/../_users.lst"
     fi
     # shellcheck disable=SC2086
-    nmap -Pn -p88 --script krb5-enum-users $USERS_ARG -iL <(echo "$IPS") \
+    nmap -Pn $(nmap_bound_args) -p88 --script krb5-enum-users $USERS_ARG -iL <(echo "$IPS") \
         -oA "$OUT/nmap-krb-enum" >/dev/null 2>&1 || true
 fi
 

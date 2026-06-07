@@ -66,7 +66,7 @@ fi
 # 4. nmap snmp-brute
 if have nmap; then
     log "nmap snmp-info + snmp-sysdescr"
-    nmap -Pn -sU -p161 --script 'snmp-info,snmp-sysdescr,snmp-interfaces' \
+    nmap -Pn $(nmap_bound_args) -sU -p161 --script 'snmp-info,snmp-sysdescr,snmp-interfaces' \
         -iL "$OUT/_hosts.txt" -oA "$OUT/nmap-snmp" >/dev/null 2>&1 || true
 fi
 

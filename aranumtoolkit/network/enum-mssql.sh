@@ -11,7 +11,7 @@ IPS=$(ips_only "$TARGETS")
 # nmap version + script
 if have nmap; then
     log "nmap ms-sql-info + ms-sql-empty-password"
-    nmap -Pn -p1433 --script 'ms-sql-info,ms-sql-empty-password,ms-sql-ntlm-info' \
+    nmap -Pn $(nmap_bound_args) -p1433 --script 'ms-sql-info,ms-sql-empty-password,ms-sql-ntlm-info' \
          -iL <(echo "$IPS") -oA "$OUT/nmap-mssql" >/dev/null 2>&1 || true
 fi
 

@@ -115,7 +115,7 @@ fi
 # ---------- 5. Vulnerability scan (nmap NSE) ----------
 if have nmap; then
     log "nmap smb-vuln-* scripts (slower; runs once across all hosts)"
-    nmap -Pn -p139,445 --script 'smb-vuln-*,smb-protocols,smb-security-mode,smb2-security-mode' \
+    nmap -Pn $(nmap_bound_args) -p139,445 --script 'smb-vuln-*,smb-protocols,smb-security-mode,smb2-security-mode' \
          -iL <(echo "$IPS") -oA "$OUT/nmap-smb-vuln" \
          >/dev/null 2>&1 || true
 fi

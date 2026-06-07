@@ -32,7 +32,7 @@ fi
 if have nmap; then
     log "nmap ftp-anon + ftp-syst"
     IPS=$(ips_only "$TARGETS")
-    nmap -Pn -p21 --script 'ftp-anon,ftp-syst,ftp-bounce,ftp-vsftpd-backdoor' \
+    nmap -Pn $(nmap_bound_args) -p21 --script 'ftp-anon,ftp-syst,ftp-bounce,ftp-vsftpd-backdoor' \
         -iL <(echo "$IPS") -oA "$OUT/nmap-ftp" >/dev/null 2>&1 || true
 fi
 
