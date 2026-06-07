@@ -173,7 +173,13 @@ def _smb_admin_run(target: Target, script_text: str, *, password: str,
 
 def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
                  out_dir: Path) -> HostResult:
-    hdir = out_dir / target.host
+    # Sanitise host into a single safe path component for the OUTPUT dir only —
+    # a hostile/malformed targets line (e.g. ../../x) must never make mkdir
+    # escape out_dir (OPSEC §9). The WinRM/SMB connection still uses target.host.
+    safe_host = re.sub(r"[^A-Za-z0-9._:-]", "_", target.host) or "host"
+    if safe_host in (".", ".."):
+        safe_host = "host"
+    hdir = out_dir / safe_host
     hdir.mkdir(parents=True, exist_ok=True)
     t0 = int(time.time())
     started = datetime.now(timezone.utc).isoformat()

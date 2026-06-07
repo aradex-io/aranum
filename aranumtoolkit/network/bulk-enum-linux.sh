@@ -220,7 +220,12 @@ run_one_host() {
     parsed=$(parse_spec "$spec") || return 0   # blank / comment line
     IFS=$'\t' read -r user host port <<< "$parsed"
 
-    local hdir="$OUTDIR/$host"
+    # Sanitise host into a single safe path component for the OUTPUT dir only —
+    # a hostile/malformed targets line (e.g. ../../x) must never make mkdir
+    # escape $OUTDIR (OPSEC §9). The ssh connection below still uses $host.
+    local safe_host="${host//[^A-Za-z0-9._:-]/_}"
+    case "$safe_host" in ""|"."|"..") safe_host="host" ;; esac
+    local hdir="$OUTDIR/$safe_host"
     mkdir -p "$hdir"
 
     if [ "$RESUME" = 1 ] && [ -e "$hdir/.done" ]; then

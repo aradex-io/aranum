@@ -8,8 +8,15 @@ parse_common_args() {
     OUT=""
     while [ $# -gt 0 ]; do
         case "$1" in
-            --targets) TARGETS="$2"; shift 2 ;;
-            --output)  OUT="$2";     shift 2 ;;
+            # Arity guard BEFORE touching $2: under the callers' `set -u`,
+            # `--targets` with no value would abort on the unbound $2, and a
+            # naive ${2:-} would infinite-loop (shift 2 with one arg is a no-op).
+            --targets)
+                [ $# -ge 2 ] || { echo "missing value for $1"; return 1; }
+                TARGETS="$2"; shift 2 ;;
+            --output)
+                [ $# -ge 2 ] || { echo "missing value for $1"; return 1; }
+                OUT="$2"; shift 2 ;;
             *) echo "unknown arg: $1"; return 1 ;;
         esac
     done
