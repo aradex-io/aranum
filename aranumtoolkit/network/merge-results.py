@@ -38,10 +38,14 @@ def _read_findings_json(source: Path) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"findings.json missing: {path}")
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        obj = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         print(f"error: malformed findings.json: {path}: {exc}", file=sys.stderr)
         sys.exit(2)
+    if not isinstance(obj, dict):
+        print(f"error: findings.json is not a JSON object: {path}", file=sys.stderr)
+        sys.exit(2)
+    return obj
 
 
 def _hash_file(path: Path) -> str:
@@ -118,6 +122,18 @@ def _merge_findings(source_dirs: list[Path], output: Path) -> tuple[list[dict], 
             merged_finding["line"] = line
 
             evidence = str(finding.get("evidence_path", "")).strip()
+            # Containment (OPSEC §9): an evidence_path is only ever a relative
+            # path inside the source tree. Reject absolute paths or any `..`
+            # component so a crafted findings.json cannot make merge read/copy a
+            # file from outside the source dir into the consolidated output.
+            if evidence and (Path(evidence).is_absolute() or ".." in Path(evidence).parts):
+                warnings.append(f"unsafe evidence_path skipped (escapes source): {evidence}")
+                merged_finding["evidence_path"] = ""
+                evidence = ""
+            if evidence and not (source / evidence).resolve().is_relative_to(source.resolve()):
+                warnings.append(f"unsafe evidence_path skipped (escapes source): {evidence}")
+                merged_finding["evidence_path"] = ""
+                evidence = ""
             if evidence:
                 src = source / evidence
                 if not src.exists():
