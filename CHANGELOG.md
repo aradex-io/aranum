@@ -9,7 +9,22 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
+### Security
+Hardening from the TESTPLAN-001 (07JUN2026) comprehensive functional test campaign.
+All findings have a regression test (`aranumtoolkit/tests/test_phase1_hardening.py`,
+`test_gql_hardening.py`, `test_creds_hardening.py`).
+- `aranumtoolkit/network/merge-results.py`: reject `evidence_path` values that are absolute or contain `..` (and verify resolved containment) so a crafted/untrusted `findings.json` can no longer make merge read or copy a file from outside the source tree into the consolidated output (OPSEC §9).
+- `aranumtoolkit/network/report.py`: `walk_findings` now resolves each scan file and skips any that escape the scan tree, so a symlink inside an untrusted scan dir can no longer leak host filesystem content into `findings.json`/dashboard (OPSEC §9).
+- `aranumtoolkit/network/bulk-enum-linux.sh`, `bulk-enum-windows.py`: sanitize the per-host output directory name to a single safe path component, so a hostile/malformed targets line (e.g. `../../x`) can no longer `mkdir` outside the output dir (it could previously escape even under `--dry-run`).
+- `aranumtoolkit/network/_lib.sh`: arity guard in `parse_common_args` — `--targets`/`--output` with a missing value now returns a clean usage error instead of aborting on the callers' `set -u` (affected all 61 `enum-*.sh` dispatchers).
+
 ### Fixed
+- `aranumtoolkit/network/nmap-parse.py`: fail loud (exit 2) on structurally-unparseable input (binary/non-XML/empty `.gnmap`/`.nmap`) instead of returning an empty inventory byte-identical to a clean scan; a genuinely empty but anchored scan still exits 0. XXE/DTD pre-scan now covers the whole file (not a 64KB prolog cap that a padded comment could bypass) and the refusal path returns exit 3; `portid` is range-checked (1–65535).
+- `aranumtoolkit/network/plan.py`: an out-of-range or empty `--phase` filter now fails loud (exit 5, consistent with `--phase abc`) instead of silently planning zero tasks.
+- `aranumtoolkit/network/report.py`: validate custom `--severity-rules` severities (unknown value → exit 2 instead of a later `KeyError` in bulk mode); cap line length before regex match to mitigate catastrophic backtracking from an operator rule; `--redact` now also masks bare (unbracketed) IPv6 and the discovered scan hostnames (validated via `ipaddress`, so MACs/hex strings are preserved).
+- `standalones/graphql/gql.py`: `raw` without `--url` and seven unguarded file/JSON reads (`--ua-rotate`, `--arg @json/@file`, `raw --variables/--query-file`, `loop --values-file`, `suggest --corpus`) now exit 2 cleanly instead of an uncaught traceback; invalid `--arg` GraphQL identifiers are rejected; duplicate `--arg` warns; `apq-probe` no longer reports a false verdict (exit 0) against an unreachable host.
+- `standalones/creds/default-creds-sweep.py`: `--threads 0` and malformed/missing catalog now exit 2 cleanly; IPv6 targets (`2001:db8::1`, `[::1]:8080`) are parsed correctly instead of silently producing a malformed URL that was swallowed as a no-op.
+- `standalones/creds/spray-scheduler.py`: `--dry-run` no longer performs a real lockout `sleep`, preserving the dry-run safety guarantee.
 - `aranumtoolkit/network/report.py`: replaced a same-quote nested f-string (finding-id line) that is a `SyntaxError` on Python 3.9–3.11 — the documented support floor. `report.py` (and `report-dashboard.py`, which imports it) failed to load on any interpreter below 3.12; the test suite only passed because it ran on 3.13.
 - `aranumtoolkit/network/report-dashboard.py`: `build_index` now appends `report._AD_DEPTH_RULES` like `report.py:main` does, so AD-depth CRITICAL findings (Kerberoast/AS-REP, ESC1, `cpassword`, LAPS-readable, PwnKit, writable-pipe) appear on the dashboard instead of being silently dropped versus `findings.json`.
 - `aranumtoolkit/network/nmap-parse.py`: catch `ElementTree.ParseError` on malformed/truncated XML (clean `error:` message + exit 2 instead of a traceback); skip `<port>` elements with a missing/non-numeric `portid` instead of crashing on `int(None)`.
