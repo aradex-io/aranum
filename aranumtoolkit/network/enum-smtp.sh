@@ -31,7 +31,7 @@ probe_one() {
     } > "$d/vrfy_expn.txt"
 
     # 4. STARTTLS probe — does the server offer encryption, and what cert?
-    if echo "$EHLO_OUT" 2>/dev/null | grep -qi starttls || grep -qi starttls "$d/ehlo.txt"; then
+    if grep -qi starttls "$d/ehlo.txt"; then
         echo | timeout 10 openssl s_client -connect "$ip:$port" -starttls smtp -servername "$ip" \
             > "$d/starttls.txt" 2>&1
     fi
