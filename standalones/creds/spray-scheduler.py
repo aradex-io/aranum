@@ -108,11 +108,15 @@ def main() -> int:
                 # need to wait until the oldest recent attempt ages out
                 wait_until = recent[0] + interval_sec
                 sleep_for = max(1.0, wait_until - now)
-                print(_c(f"[!] {user}: {len(recent)} attempts in last {args.interval}m — "
-                         f"sleeping {int(sleep_for)}s", "Y"))
-                time.sleep(sleep_for)
-                now = time.time()
-                state[user] = [t for t in state[user] if t > now - interval_sec]
+                if args.dry_run:
+                    print(_c(f"[DRY] would sleep {int(sleep_for)}s for {user} "
+                             f"({len(recent)} attempts in last {args.interval}m)", "Y"))
+                else:
+                    print(_c(f"[!] {user}: {len(recent)} attempts in last {args.interval}m — "
+                             f"sleeping {int(sleep_for)}s", "Y"))
+                    time.sleep(sleep_for)
+                    now = time.time()
+                    state[user] = [t for t in state[user] if t > now - interval_sec]
 
             cmd = [args.tool] + tool_extra + [args.user_flag, user, args.pass_flag, pw]
             cmd_str = " ".join(shlex.quote(x) for x in cmd)

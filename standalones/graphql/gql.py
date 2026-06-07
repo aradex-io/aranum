@@ -407,9 +407,17 @@ def build_query(op_kind: str, op_name: str, op_def: dict, args: dict[str, Any],
         # Value coercion
         if isinstance(v, str):
             if v.startswith("@json:"):
-                variables[k] = json.loads(v[6:])
+                try:
+                    variables[k] = json.loads(v[6:])
+                except json.JSONDecodeError as e:
+                    print(_color(f"[!] --arg {k}: invalid JSON in @json: value: {e}", "R"), file=sys.stderr)
+                    sys.exit(2)
             elif v.startswith("@file:"):
-                variables[k] = Path(v[6:]).read_text().rstrip("\n")
+                try:
+                    variables[k] = Path(v[6:]).read_text().rstrip("\n")
+                except OSError as e:
+                    print(_color(f"[!] --arg {k}: cannot read @file: path: {e}", "R"), file=sys.stderr)
+                    sys.exit(2)
             elif v == "true":  variables[k] = True
             elif v == "false": variables[k] = False
             elif v == "null":  variables[k] = None
@@ -552,6 +560,9 @@ def cmd_describe(args: argparse.Namespace) -> int:
 
 
 # =============================================================== Subcommand: call
+_GQL_IDENT_RE = re.compile(r"^[_A-Za-z][_A-Za-z0-9]*$")
+
+
 def parse_kv_args(kvs: list[str]) -> dict[str, str]:
     """Parse list of 'name=value' into dict. Value is always str at this stage."""
     out: dict[str, str] = {}
@@ -559,6 +570,12 @@ def parse_kv_args(kvs: list[str]) -> dict[str, str]:
         if "=" not in kv:
             print(_color(f"[!] bad --arg (need name=value): {kv}", "R"), file=sys.stderr); sys.exit(2)
         k, v = kv.split("=", 1)
+        if not _GQL_IDENT_RE.match(k):
+            print(_color(f"[!] bad --arg: invalid GraphQL variable name {k!r} "
+                         f"(must match ^[_A-Za-z][_A-Za-z0-9]*$)", "R"), file=sys.stderr)
+            sys.exit(2)
+        if k in out:
+            print(_color(f"[!] duplicate --arg {k!r} — last value wins", "Y"), file=sys.stderr)
         out[k] = v
     return out
 
@@ -656,7 +673,11 @@ def cmd_loop(args: argparse.Namespace) -> int:
     values: Iterable[str]            # type: ignore[name-defined]
     total: int | None
     if args.values_file:
-        vs = [l.strip() for l in Path(args.values_file).read_text().splitlines() if l.strip() and not l.strip().startswith("#")]
+        try:
+            vs = [l.strip() for l in Path(args.values_file).read_text().splitlines()
+                  if l.strip() and not l.strip().startswith("#")]
+        except OSError as e:
+            print(_color(f"[!] --values-file: cannot read file: {e}", "R"), file=sys.stderr); return 2
         values, total = vs, len(vs)
     elif args.values:
         values, total = args.values, len(args.values)
@@ -809,12 +830,21 @@ def cmd_diff(args: argparse.Namespace) -> int:
 def cmd_raw(args: argparse.Namespace) -> int:
     headers = build_headers(args)
     if args.query_file:
-        query = Path(args.query_file).read_text()
+        try:
+            query = Path(args.query_file).read_text()
+        except OSError as e:
+            print(_color(f"[!] --query-file: cannot read file: {e}", "R"), file=sys.stderr); return 2
     elif args.query:
         query = args.query
     else:
         print(_color("[!] need --query '...' or --query-file path", "R")); return 1
-    variables = json.loads(args.variables) if args.variables else {}
+    if args.variables:
+        try:
+            variables = json.loads(args.variables)
+        except json.JSONDecodeError as e:
+            print(_color(f"[!] --variables: invalid JSON: {e}", "R"), file=sys.stderr); return 2
+    else:
+        variables = {}
     body_dict = {"query": query, "variables": variables}
     # F.2 — batched body: send [body, body, body, ...]. Useful when the gateway
     # processes batches but applies rate-limits per-request, or when authz is
@@ -852,8 +882,11 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     headers = build_headers(args)
     corpus: list[str] = list(_BUILTIN_SUGGEST_CORPUS)
     if args.corpus:
-        corpus = [w.strip() for w in Path(args.corpus).read_text().splitlines()
-                  if w.strip() and not w.strip().startswith("#")]
+        try:
+            corpus = [w.strip() for w in Path(args.corpus).read_text().splitlines()
+                      if w.strip() and not w.strip().startswith("#")]
+        except OSError as e:
+            print(_color(f"[!] --corpus: cannot read file: {e}", "R"), file=sys.stderr); return 2
     print(_color(f"[*] field-suggestion harvest against {args.url} ({len(corpus)} guesses)", "C"))
     print(_color("    method: send malformed Query.<guess>; harvest Did-you-mean from errors", "C"))
     print()
@@ -908,6 +941,10 @@ def cmd_apq_probe(args: argparse.Namespace) -> int:
     errs1 = [e.get("message", "")[:80] for e in (r1.get("errors") or [])]
     pqnf = any("PersistedQueryNotFound" in m for m in errs1)
     print(f"  step1 hash-only             HTTP {s1}  errs={errs1[:1]}")
+    if s1 == 0 or "_error" in r1:
+        print(_color(f"[!] connection failed — cannot determine APQ support: "
+                     f"{r1.get('_error', 'unreachable')}", "R"), file=sys.stderr)
+        return 1
     if not pqnf:
         print(_color("  [-] no PersistedQueryNotFound — server does not implement APQ", "Y"))
         return 0
@@ -1104,7 +1141,7 @@ def main() -> int:
     p.set_defaults(func=cmd_csrf_probe)
 
     args = ap.parse_args()
-    if not args.url and args.cmd != "raw":
+    if not args.url:
         print(_color("[!] --url required (or set GQL_URL env)", "R"), file=sys.stderr); return 2
 
     # Apply --insecure / GQL_INSECURE to the module-level switch used by http_post.
@@ -1122,8 +1159,11 @@ def main() -> int:
     if args.user_agent:
         _UA = "gql.py/1.0" if args.user_agent == "gql" else args.user_agent
     if args.ua_rotate:
-        _UA_LIST = [l.strip() for l in Path(args.ua_rotate).read_text().splitlines()
-                    if l.strip() and not l.strip().startswith("#")]
+        try:
+            _UA_LIST = [l.strip() for l in Path(args.ua_rotate).read_text().splitlines()
+                        if l.strip() and not l.strip().startswith("#")]
+        except OSError as e:
+            print(_color(f"[!] --ua-rotate: cannot read file: {e}", "R"), file=sys.stderr); return 2
         if _UA_LIST:
             print(_color(f"[*] UA rotation: {len(_UA_LIST)} user-agents loaded", "C"), file=sys.stderr)
 

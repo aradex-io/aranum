@@ -49,23 +49,48 @@ def http(url, method="GET", headers=None, data=None, timeout=8):
 
 
 def parse_target(t: str) -> list[str]:
-    """Accept ip:port or http(s)://ip:port; expand bare ip:port to both http and https."""
+    """Accept ip:port or http(s)://ip:port; expand bare ip:port to both http and https.
+
+    IPv6 forms handled:
+      [::1]:8080         -> http://[::1]:8080
+      [2001:db8::1]      -> http://[2001:db8::1]:80  (no port → default 80)
+      2001:db8::1        -> http://[2001:db8::1]:80  (bare v6 addr, no port)
+    """
     if t.startswith(("http://","https://")):
         return [t.rstrip("/")]
-    # Strip brackets from IPv6
-    if t.startswith("[") and "]" in t:
-        ip = t[1:t.index("]")]
-        port = t.split("]:")[-1]
+
+    if t.startswith("["):
+        # Bracketed IPv6 — e.g. [::1]:8080 or [2001:db8::1]
+        close = t.find("]")
+        if close == -1:
+            print(f"[!] unparseable target (unmatched '['): {t!r}", file=sys.stderr)
+            return []
+        ip = t[1:close]
+        rest = t[close + 1:]          # '' or ':8080'
+        if rest.startswith(":") and rest[1:]:
+            port = rest[1:]
+        else:
+            port = "80"
+        host_part = f"[{ip}]"
+    elif t.count(":") > 1:
+        # Bare unbracketed IPv6 address (no port possible without brackets)
+        ip = t
+        port = "80"
+        host_part = f"[{ip}]"
     elif ":" in t:
+        # hostname:port or IPv4:port
         ip, port = t.rsplit(":", 1)
+        host_part = ip
     else:
         ip, port = t, "80"
+        host_part = ip
+
     # Choose http or https by port heuristic
     if port in ("443","8443","9443","4443","10443"):
-        return [f"https://{ip}:{port}"]
+        return [f"https://{host_part}:{port}"]
     if port in ("80","8080","8081","8000","8888","9000","3000","5000","5601","9200","15672","8161","8088","7001","7002","9990","4848","5050","5601","9090"):
-        return [f"http://{ip}:{port}"]
-    return [f"http://{ip}:{port}", f"https://{ip}:{port}"]
+        return [f"http://{host_part}:{port}"]
+    return [f"http://{host_part}:{port}", f"https://{host_part}:{port}"]
 
 
 def fingerprint(base_url: str, product: dict, timeout: int = 8) -> bool:
@@ -154,8 +179,18 @@ def main() -> int:
     ap.add_argument("--output",  default="findings.json")
     args = ap.parse_args()
 
-    catalog = json.loads(Path(args.catalog).read_text())
-    products = catalog["products"]
+    if args.threads < 1:
+        print("[!] --threads must be >= 1", file=sys.stderr); return 2
+
+    try:
+        catalog = json.loads(Path(args.catalog).read_text())
+        products = catalog["products"]
+    except FileNotFoundError as e:
+        print(f"[!] catalog unreadable: {e}", file=sys.stderr); return 2
+    except json.JSONDecodeError as e:
+        print(f"[!] catalog invalid JSON: {args.catalog}: {e}", file=sys.stderr); return 2
+    except KeyError:
+        print(f"[!] catalog missing 'products' key: {args.catalog}", file=sys.stderr); return 2
     if args.product:
         products = [p for p in products if p["name"].lower() == args.product.lower()]
         if not products:
