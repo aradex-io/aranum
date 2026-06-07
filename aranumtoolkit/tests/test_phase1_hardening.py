@@ -20,7 +20,8 @@ PY = sys.executable
 
 
 def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=60, **kw)
+    kw.setdefault("timeout", 60)
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
 class TestNmapParseHardening(unittest.TestCase):
