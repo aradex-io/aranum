@@ -304,7 +304,7 @@ python3 ./aranumtoolkit/network/report.py ./enum-results --redact
 
 `auto-enum.sh` also writes a central `run.log` capturing tool versions, per-dispatcher exit codes, and elapsed times; `--resume` skips services with a `.done` marker from a prior run.
 
-## Standalone dashboard (v0.29.0)
+## Standalone dashboard (since v0.29.0)
 
 For a polished multi-page view of the run — severity tiles, per-host detail, per-service detail, coverage matrix, timeline — generate the dashboard:
 
@@ -478,8 +478,8 @@ python3 ./aranumtoolkit/network/report.py ./estate    # one report, mixed-OS, wo
 
 Run `./deps-check.sh` to see what's installed/missing. Recommended:
 
-- **Required**: python3, nmap, ldapsearch, smbclient, rpcclient, dig, snmpwalk
-- **Highly recommended**: netexec (nxc), enum4linux-ng, impacket-scripts, kerbrute, ssh-audit, whatweb, httpx, ffuf, onesixtyone
+- **Required**: python3, nmap, curl, dig, ldapsearch, smbclient, rpcclient, showmount
+- **Highly recommended**: netexec (nxc), enum4linux-ng, impacket-scripts, kerbrute, ssh-audit, whatweb, httpx, ffuf, onesixtyone, snmpwalk
 - **Optional**: nuclei, nikto, evil-winrm, mssqlclient.py, rdp-sec-check, shellcheck (for `make lint`), sshpass (only for `bulk-enum-linux.sh --pass`), pywinrm (only for `bulk-enum-windows.py`; `pip install pywinrm`)
 - **AD depth (D1)**: `bloodhound-python` (`pipx install bloodhound-py`), `certipy-ad` (`pipx install certipy-ad`), impacket scripts (`pipx install impacket` provides `GetUserSPNs.py`/`GetNPUsers.py`/`petitpotam.py`/etc.). Each is OPTIONAL — the AD dispatchers detect-and-skip when a tool is missing per [ADR-004](aranumtoolkit/docs/ADR-004-20MAY2026-ad-depth-tool-deps.md) D3.
 

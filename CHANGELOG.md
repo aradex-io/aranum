@@ -9,6 +9,15 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
+## [v0.32.0] — 2026-06-07
+
+Repository restructure into `aranumtoolkit/` + `standalones/`, the unified `aranum.py`
+CLI with session-based output, operator planner/queue, iterative second-pass enumeration,
+bulk Linux/Windows privesc enumeration, the standalone HTML dashboard with the new
+quick-win playbook wiki, and the TESTPLAN-001 security/robustness hardening pass. (Rolls
+up all work since v0.31.0, which was changelogged but never tagged — now tagged
+retroactively.)
+
 ### Added
 - `wiki/` — quick-win pentesting playbooks (one concise Markdown page per service: triage one-liners, exploitation quick wins as command + 1-line *why*, gotchas, sources). 34 pages covering redis, memcached, mongo, elastic, couchdb, rabbitmq, cassandra, mysql, postgres, mssql, oracle, smb, ldap, kerberos, rdp, winrm, http, ajp, jmx, docker, kubernetes, ftp, ssh, telnet, smtp, dns, snmp, nfs, rsync, vnc, ipmi, mqtt, plus `linux`/`windows` host privilege-escalation. Each page cross-links the toolkit's own `enum-*.sh` dispatcher and any `standalones/` exploit helper.
 - `aranumtoolkit/network/wiki.py` — stdlib Markdown→HTML renderer + page loader for the wiki.
