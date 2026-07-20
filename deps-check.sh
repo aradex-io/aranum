@@ -81,6 +81,12 @@ check redis-cli          opt
 check dnsrecon           opt
 check shellcheck         opt  # G.6 — lint gate for `make lint`; pip install shellcheck-py also works
 check sshpass            opt  # J.1 — only required for `bulk-enum-linux.sh --pass`; ssh-agent / --key are preferred
+check parallel           rec  # load-bearing for bulk-enum-linux.sh / auto-enum.sh / enum-smb.sh host fan-out
+check psql               opt  # enum-postgres.sh credentialed recon (pg_roles)
+check mysql              opt  # enum-mysql.sh credentialed recon (mysql.user / secure_file_priv)
+check swaks              opt  # standalones/smtp/smtp-phish-send.sh
+check lmutil             opt  # enum-flexnet.sh — FlexNet/FLEXlm `lmstat -a`
+check amap               opt  # enum-unknown.sh fallback application fingerprint
 
 # K.1 — pywinrm Python package (only required for bulk-enum-windows.py)
 if python3 -c "import winrm" 2>/dev/null; then
