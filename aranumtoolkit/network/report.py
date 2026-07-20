@@ -256,6 +256,7 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bTFTP readable config", re.I),                      "critical"),
     (re.compile(r"\bUNAUTH Couchbase mgmt\b", re.I),                   "critical"),
     (re.compile(r"\bUNAUTH RethinkDB\b", re.I),                        "critical"),
+    (re.compile(r"\bUNAUTH Redis\b", re.I),                            "critical"),
     (re.compile(r"\bfinger responds with user info\b", re.I),         "medium"),
     (re.compile(r"\bAFP (?:server|shares)\b", re.I),                  "low"),
     (re.compile(r"\binsecure apiserver\b", re.I),                       "critical"),
@@ -312,8 +313,8 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     # redis-rce-lua.sh — Lua EVAL RCE surface on modern Redis.
     (re.compile(r"\bEVAL scripting REACHABLE\b", re.I),                "high"),
     (re.compile(r"\bLUA_RCE: CVE-2024-31449 candidate\b", re.I),       "high"),
-    # enum-redis.sh — reachability class + CVE-2022-0543.
-    (re.compile(r"\bUNAUTH Redis\b", re.I),                            "critical"),
+    # enum-redis.sh — CVE-2022-0543 + Sentinel (the UNAUTH Redis critical is
+    # hoisted above the generic UNAUTH→high rule; see near the git/couchbase block).
     (re.compile(r"\bCVE-2022-0543 candidate\b", re.I),                 "critical"),
     (re.compile(r"\bRedis Sentinel\b.*master topology", re.I),         "medium"),
     # proc-hardening-check.sh — weak sysctl/LSM/proc hardening (host audit).
