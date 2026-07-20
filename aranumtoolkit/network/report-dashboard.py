@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""report-dashboard.py — multi-page HTML dashboard for aratool runs.
+"""report-dashboard.py — multi-page HTML dashboard for aranum runs.
 
 Reads the $OUTDIR produced by `auto-enum.sh` (or a bulk-enum tree from
 `bulk-enum-linux.sh`/`bulk-enum-windows.py`) and emits a static HTML site
@@ -1563,7 +1563,7 @@ def export_data_json(model: dict) -> str:
 
 # --------------------------------------------------------------- assets (CSS + JS)
 CSS_TEMPLATE = r"""
-/* aratool dashboard — minimal, modern, dark-by-default. Light theme via [data-theme="light"].
+/* aranum dashboard — minimal, modern, dark-by-default. Light theme via [data-theme="light"].
    No external deps. All sizes use rem; severity colours are CSS custom props. */
 :root {
   --bg:           #0d1117;
@@ -1923,12 +1923,12 @@ details.evidence-preview pre {
 """
 
 JS_TEMPLATE = r"""
-// aratool dashboard — vanilla JS. No deps. ~150 lines.
+// aranum dashboard — vanilla JS. No deps. ~150 lines.
 (function () {
   "use strict";
 
   // ---- theme toggle (persists in localStorage) ----
-  const THEME_KEY = "aratool-theme";
+  const THEME_KEY = "aranum-theme";
   const root = document.documentElement;
   const saved = localStorage.getItem(THEME_KEY);
   if (saved === "light") root.setAttribute("data-theme", "light");
@@ -2132,10 +2132,10 @@ def render_wiki_index() -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Generate a multi-page HTML dashboard from an aratool $OUTDIR.",
+        description="Generate a multi-page HTML dashboard from an aranum $OUTDIR.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("outdir", type=Path, help="aratool output directory (the --output of auto-enum.sh).")
+    ap.add_argument("outdir", type=Path, help="aranum output directory (the --output of auto-enum.sh).")
     ap.add_argument("--output", required=True, type=Path, help="Destination directory for the dashboard.")
     ap.add_argument("--bulk", action="store_true", help="Treat OUTDIR as a bulk-enum-standalones/linux/-windows tree.")
     ap.add_argument("--rules", type=Path, default=None, help="Optional --rules FILE passed to report.py (one JSON-line per rule).")

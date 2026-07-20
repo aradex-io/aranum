@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# aranumtoolkit/tests/fp-harness.sh — FP/TP regression harness for aratool network dispatchers.
+# aranumtoolkit/tests/fp-harness.sh — FP/TP regression harness for aranum network dispatchers.
 #
 # Runs fp-server.py (7 wrong-service scenarios) and tp-server.py (rsync + telnet
 # true-positive stubs) in the background, exercises all 22 dispatchers, and

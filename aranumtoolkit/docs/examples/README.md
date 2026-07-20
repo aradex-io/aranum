@@ -1,6 +1,6 @@
 # Examples
 
-Small, self-contained example inputs for aratool tooling. Each subdirectory
+Small, self-contained example inputs for aranum tooling. Each subdirectory
 has a `fixture/` (committed) and an `output/` (gitignored — regenerated on
 demand). Run the command in each example's README to populate `output/`.
 

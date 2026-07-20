@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Multi-flavor FP test server. Listens on N ports, each running a different
-'wrong protocol' service so we can verify aratool dispatchers don't FP.
+'wrong protocol' service so we can verify aranum dispatchers don't FP.
 
 The "evil-*" flavors (added 2026-05-22 for v0.22.1) cover the v0.20.1
 known-gap class: specifically-crafted servers that embed dispatcher keywords
