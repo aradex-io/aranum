@@ -17,6 +17,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Test across the declared support floor (3.9), the dev baseline (3.11), and a
+    # current interpreter (3.13). The project claims 3.9+ but historically shipped a
+    # SyntaxError that only passed because CI ran a single newer interpreter — the
+    # matrix closes that gap. lint/smoke are Python-version-agnostic and run once.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.11', '3.13']
+
     steps:
       - name: Checkout (with tags — smoke.sh checks v0.x tags exist)
         uses: actions/checkout@v4
@@ -27,9 +36,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install shellcheck (apt)
+        if: matrix.python-version == '3.11'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends shellcheck
@@ -40,14 +50,20 @@ jobs:
       - name: Show tool versions
         run: |
           python3 --version
-          shellcheck --version | head -3
           bash --version | head -1
 
+      - name: py_compile sweep (fast syntax gate on every interpreter)
+        run: |
+          find . -path ./.git -prune -o -name '*.py' -print0 \
+            | xargs -0 python3 -m py_compile
+
       - name: make lint
+        if: matrix.python-version == '3.11'
         run: make lint
 
       - name: make unittest
         run: make unittest
 
       - name: make smoke
+        if: matrix.python-version == '3.11'
         run: make smoke
