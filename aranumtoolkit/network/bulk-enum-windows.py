@@ -33,9 +33,11 @@ VM is the validation; consider it part of engagement prep.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import shutil
@@ -153,22 +155,48 @@ def _winrm_run(target: Target, script_text: str, *, password: str, auth: str,
 
 def _smb_admin_run(target: Target, script_text: str, *, password: str,
                    timeout: int) -> tuple[int, str, str]:
-    """SMB+wmiexec fallback via impacket-wmiexec. Per ADR-003 D2 requires
-    admin creds; the operator MUST pass --use-smb-admin to enable this path."""
+    """SMB fallback via impacket-wmiexec. Per ADR-003 D2 requires admin creds; the
+    operator MUST pass --use-smb-admin to enable this path.
+
+    Delivery is an in-memory `powershell -EncodedCommand` (no file staged to disk —
+    same OPSEC property as the WinRM path). WMI Win32_Process.Create caps the
+    CommandLine near 8191 chars, so this only fits smaller --scripts; the default
+    Invoke-PrivEscEnum.ps1 is too large and returns a clear, actionable refusal
+    rather than silently staging to disk (which would need its own §9 consent).
+
+    NOTE (ADR-003): like the WinRM path, this transport is NOT exercised in CI —
+    the first real run against a known-good host is the validation."""
     wmiexec = shutil.which("impacket-wmiexec") or shutil.which("wmiexec.py")
     if not wmiexec:
-        return (127, "", "impacket-wmiexec not on PATH (pip install impacket)")
-    # We can't pipe arbitrary PowerShell over wmiexec cleanly — wmiexec's interactive
-    # shell wraps each command. The supported flow is: stage the script via SMB write,
-    # invoke it, clean up. We do NOT implement that here — it materially changes the
-    # OPSEC surface (disk write + service start). Operators who need that path should
-    # use impacket-psexec / impacket-smbexec directly with engagement-specific scoping.
-    return (126, "",
-            "--use-smb-admin path is documented-but-not-yet-implemented in this iteration\n"
-            "(would require staging the script via SMB write + service exec, which has\n"
-            "materially larger forensic footprint than the WinRM path — needs its own\n"
-            "explicit-consent dialogue per CLAUDE.md §9 invariant 1. Use WinRM, or run\n"
-            "impacket-wmiexec / -psexec directly with your engagement scoping.)")
+        return (127, "", "impacket-wmiexec not on PATH (pipx install impacket)")
+
+    enc = base64.b64encode(script_text.encode("utf-16-le")).decode("ascii")
+    ps_cmd = f"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {enc}"
+    if len(ps_cmd) > 8000:
+        return (126, "",
+                f"--script too large for the SMB/WMI command line "
+                f"({len(ps_cmd)} chars > 8000). The default Invoke-PrivEscEnum.ps1 does not "
+                "fit inline. Options: (a) use the WinRM transport, (b) pass a smaller "
+                "--script, or (c) run impacket-psexec/-smbexec manually with a staged "
+                "script + engagement scoping (disk write needs its own §9 consent).")
+
+    # impacket target string: [DOMAIN/]user:password@host  (user may arrive as CORP\jay)
+    user = target.user
+    dom = ""
+    if "\\" in user:
+        dom, user = user.split("\\", 1)
+    elif "/" in user:
+        dom, user = user.split("/", 1)
+    principal = f"{dom}/{user}" if dom else user
+    conn = f"{principal}:{password}@{target.host}"
+    try:
+        p = subprocess.run([wmiexec, conn, ps_cmd],
+                           capture_output=True, text=True, timeout=max(timeout * 4, 60))
+        return (p.returncode, p.stdout or "", p.stderr or "")
+    except subprocess.TimeoutExpired:
+        return (255, "", f"impacket-wmiexec timed out after {max(timeout * 4, 60)}s")
+    except Exception as e:                    # noqa: BLE001  surface as winenum.err
+        return (255, "", f"{type(e).__name__}: {e}")
 
 
 def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
@@ -281,9 +309,10 @@ def main() -> int:
     ap.add_argument("--script", default=str(DEFAULT_SCRIPT),
                     help=f"PowerShell script to ship (default: {DEFAULT_SCRIPT.name})")
     ap.add_argument("--use-smb-admin", action="store_true",
-                    help="SMB+wmiexec fallback (REQUIRES admin creds; per ADR-003 D2 — "
-                         "documented but not implemented in this iteration; refuses "
-                         "with rc=126 + reason)")
+                    help="SMB fallback via impacket-wmiexec when WinRM fails (REQUIRES admin "
+                         "creds + --pass; per ADR-003 D2). Delivers the script as an in-memory "
+                         "powershell -EncodedCommand; fits smaller --scripts only (the default "
+                         "is too large for the WMI cmdline — it then returns rc=126 + guidance)")
     ap.add_argument("-o", "--output", required=True, help="results dir")
     ap.add_argument("-P", "--parallel", type=int, default=4,
                     help=f"parallel workers (default 4, capped at {PARALLEL_CAP})")

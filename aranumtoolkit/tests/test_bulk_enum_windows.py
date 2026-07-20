@@ -164,6 +164,35 @@ class TestEndToEndMocked(unittest.TestCase):
                 rc = W.main()
             self.assertEqual(rc, 2)
 
+    def test_smb_admin_no_impacket_returns_127(self):
+        tgt = W.Target(user="jay", host="1.2.3.4", port=5985, raw_spec="jay@1.2.3.4")
+        with mock.patch.object(W.shutil, "which", return_value=None):
+            rc, _out, err = W._smb_admin_run(tgt, "small", password="p", timeout=10)
+        self.assertEqual(rc, 127)
+        self.assertIn("impacket-wmiexec", err)
+
+    def test_smb_admin_oversized_script_refused_126(self):
+        # With impacket present, an oversized script hits the WMI cmdline-size guard.
+        tgt = W.Target(user="CORP\\jay", host="1.2.3.4", port=5985, raw_spec="raw")
+        with mock.patch.object(W.shutil, "which", return_value="/usr/bin/impacket-wmiexec"):
+            rc, _out, err = W._smb_admin_run(tgt, "X" * 20000, password="p", timeout=10)
+        self.assertEqual(rc, 126)
+        self.assertIn("too large", err)
+
+    def test_smb_admin_small_script_invokes_wmiexec(self):
+        # A small script fits inline; verify wmiexec is invoked with a powershell
+        # -EncodedCommand and the DOMAIN/user:pass@host principal (no live host).
+        tgt = W.Target(user="CORP\\jay", host="1.2.3.4", port=5985, raw_spec="raw")
+        fake = mock.Mock(returncode=0, stdout="OK", stderr="")
+        with mock.patch.object(W.shutil, "which", return_value="/usr/bin/impacket-wmiexec"), \
+             mock.patch.object(W.subprocess, "run", return_value=fake) as run:
+            rc, out, _err = W._smb_admin_run(tgt, "Write-Output hi", password="pw", timeout=10)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "OK")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[1], "CORP/jay:pw@1.2.3.4")
+        self.assertIn("-EncodedCommand", argv[2])
+
     def test_parallel_cap_refused(self):
         with tempfile.TemporaryDirectory() as td:
             tgts = Path(td) / "t.txt"; tgts.write_text("a.example\n")
