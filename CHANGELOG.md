@@ -13,6 +13,7 @@ Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 `aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md`.
 
 ### Added
+- `wiki/` — 30 new quick-win playbook pages closing the gap between the wiki and the dispatcher fleet: activemq, artifact, backup, clickhouse, consul, etcd, flexnet, hpc, ike, imap, influxdb, ipp, jabber, kafka, monitoring, msrpc, nats, neo4j, netbios-ns, platform, pop3, print, radius, sip, slp, solr, storage, unknown, vault, zookeeper. Every routable `enum-<svc>.sh` dispatcher now has a dashboard-linkable playbook; `test_wiki.py` gained a coverage assertion so a new dispatcher can't ship without one.
 - `aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md` — the Fable-5 whole-toolkit audit that drove this remediation, with a §9 remediation-status ledger (done vs deferred).
 - `aranumtoolkit/docs/README.md` — index of the dated ADR/REVIEW/ROADMAP/TESTPLAN docs (status/date/topic).
 - `requirements-optional.txt` + `make install`: minimal packaging/onboarding — `make install` chmod's the entrypoints and symlinks `aranum` into `~/.local/bin`; `requirements-optional.txt` (`defusedxml`, `pywinrm`) lets an operator pre-stage the optional python deps before going offline. README gained an install/offline-prep block.
