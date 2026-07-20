@@ -20,7 +20,9 @@ help:
 install:
 	@# Make the entrypoints executable and expose `aranum` on PATH. Core is
 	@# stdlib-only; optional python deps: pip install -r requirements-optional.txt
-	@chmod +x aranum.py deps-check.sh aranumtoolkit/network/*.sh standalones/*/*.sh 2>/dev/null || true
+	@# Skip _*-prefixed files — they are sourced libraries, not entrypoints.
+	@chmod +x aranum.py deps-check.sh 2>/dev/null || true
+	@find aranumtoolkit/network standalones -name '*.sh' -not -name '_*' -exec chmod +x {} + 2>/dev/null || true
 	@mkdir -p "$$HOME/.local/bin"
 	@ln -sf "$$(pwd)/aranum.py" "$$HOME/.local/bin/aranum"
 	@printf "Linked %s/aranum -> %s/aranum.py\n" "$$HOME/.local/bin" "$$(pwd)"
