@@ -7,22 +7,41 @@ set -u
 echo "=== sudo version ==="
 sudo -V 2>/dev/null | head -3
 
-VER=$(sudo -V 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+# Keep the pN patchlevel — it is version-significant (e.g. the fix for several
+# CVEs is a pN bump like 1.9.17p1) and sort -V orders it correctly.
+VER=$(sudo -V 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(p[0-9]+)?' | head -1)
 echo "Parsed: $VER"
 
+# ver_between LOW MID HIGH — true iff LOW <= MID <= HIGH under version sort.
+ver_between() {
+    [ -n "$2" ] || return 1
+    [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ] && \
+    [ "$(printf '%s\n%s\n' "$2" "$3" | sort -V | head -1)" = "$2" ]
+}
+
 cve_check() {
-    case "$VER" in
-        # Baron Samedit — affected: 1.8.2 to 1.8.31p2 and 1.9.0 to 1.9.5p1
-        1.8.[2-9]|1.8.[12][0-9]|1.8.3[01]*|1.9.[0-4]|1.9.5p[01]) echo "[!!] CVE-2021-3156 Baron Samedit candidate" ;;
-    esac
-    case "$VER" in
-        # sudo -u#-1
-        1.8.[0-9]|1.8.1[0-9]|1.8.2[0-7]) echo "[!!] CVE-2019-14287 (sudo -u#-1) candidate" ;;
-    esac
-    case "$VER" in
-        # CVE-2023-22809 — env var editor escape (1.8.0 - 1.9.12p1)
-        1.8.*|1.9.[0-9]|1.9.1[01]|1.9.12*) echo "[!!] CVE-2023-22809 (sudoedit env-var escape) candidate" ;;
-    esac
+    [ -n "$VER" ] || { echo "(could not parse sudo version — skipping CVE signals)"; return; }
+    # Baron Samedit — affected 1.8.2–1.8.31p2 and 1.9.0–1.9.5p1 (fixed 1.9.5p2).
+    if ver_between 1.8.2 "$VER" 1.8.31p2 || ver_between 1.9.0 "$VER" 1.9.5p1; then
+        echo "[!!] CVE-2021-3156 Baron Samedit candidate"
+    fi
+    # sudo -u#-1 — affected 1.8.0–1.8.27 (fixed 1.8.28).
+    if ver_between 1.8.0 "$VER" 1.8.27; then
+        echo "[!!] CVE-2019-14287 (sudo -u#-1) candidate"
+    fi
+    # sudoedit env-var escape — affected 1.8.0–1.9.12p1 (fixed 1.9.12p2).
+    if ver_between 1.8.0 "$VER" 1.9.12p1; then
+        echo "[!!] CVE-2023-22809 (sudoedit env-var escape) candidate"
+    fi
+    # CVE-2025-32463 — `sudo -R/--chroot` local root — affected 1.9.14–1.9.17 (fixed 1.9.17p1).
+    if ver_between 1.9.14 "$VER" 1.9.17; then
+        echo "[!!] CVE-2025-32463 (sudo --chroot local root) candidate"
+    fi
+    # CVE-2025-32462 — `sudo -h/--host` honors rules meant for other hosts — affected 1.8.8–1.9.17 (fixed 1.9.17p1).
+    if ver_between 1.8.8 "$VER" 1.9.17; then
+        echo "[!!] CVE-2025-32462 (sudo --host rule leak) candidate"
+    fi
+    echo "  (version-based signals — a distro may have backported the fix without bumping the version; confirm the package revision)"
 }
 cve_check
 
