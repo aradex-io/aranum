@@ -85,6 +85,31 @@ class TestStructuredFindingDefaults(unittest.TestCase):
             self.assertEqual(findings[0]["host"], "10.0.0.5")
 
 
+class TestClassifyPrefilter(unittest.TestCase):
+    """The perf prefilter must never change a classification vs the brute loop."""
+
+    def _brute(self, line, rules):
+        line = R._clean_line(line)[:4096]
+        for pat, sev in rules:
+            if pat.search(line):
+                return sev
+        return None
+
+    def test_prefilter_matches_brute_force(self):
+        rules = R._load_rules(None)
+        samples = [
+            "[!] CRITICAL: UNAUTH NATS monitoring http://x/varz",
+            "UNAUTH etcd v2/keys", "OPEN PROXY: 1.2.3.4:3128 forwarded",
+            "X11 OPEN DISPLAY: 1.2.3.4:6000", "polkit 0.105 < 0.120 — PwnKit candidate",
+            "HARDENING: ptrace_scope=0 — unrestricted", "[+] WRITABLE PIPE: x",
+            "EVAL scripting REACHABLE on h", "NTP AMPLIFICATION VECTOR (CVE-2013-5211 monlist): x",
+            "some banner OpenSSH_9.6", "nothing interesting", "random 12345",
+            "CVE-2024-6387 (regreSSHion) pre-auth RCE candidate",
+        ]
+        for s in samples:
+            self.assertEqual(R._classify(s, rules), self._brute(s, rules), f"mismatch: {s!r}")
+
+
 class TestWindowsBulkGrading(unittest.TestCase):
     """REVIEW-004 §5 — the winenum grader must actually classify AD-depth signals."""
 
