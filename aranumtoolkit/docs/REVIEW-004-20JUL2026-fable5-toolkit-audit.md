@@ -485,22 +485,43 @@ change committed granularly with tests where applicable. The full unittest suite
   via `git ls-files`; `deps-check.sh` tool gaps; `aranum version`/`selftest`/`deps-check`
   + `VERSION`; `make install` + `requirements-optional.txt`; `docs/README.md` index.
 
-**Deferred (larger feature-work, not yet implemented — tracked here):**
-- **Windows P0** — `Invoke-PrivEscEnum.ps1` orchestrating the D1.4 standalones, ADCS
-  ESC6/7/8/9/10/13/15, CLM/PSv2 survivability, WSUS/UAC/LSASS/SCCM registry checks,
-  coercion additions, credential-store + autorun/COM expansion. (Large PowerShell rework;
-  deferred because this repo has no Windows host in CI to validate PowerShell behavior —
-  per ADR-003 the first real run is the transport validation. Should be done + lab-verified
-  as a dedicated pass.)
-- **Network** — UDP amplification cluster (NTP/SSDP/mDNS); further service-additions
-  (Git daemon, X11, TFTP, AFP, Couchbase, RethinkDB, Squid, legacy trust); ADCS ESC8 HTTP
-  detector; `enum-redis`/`enum-smtp`/`enum-nfs` depth; report.py substring pre-gate;
-  queue-state resume; cross-service parallelism; `--session` handling for plan/report/merge.
-- **Exploit helpers** — Redis 7.x Lua RCE helper; Tomcat WAR-deploy helper;
-  `activemq-cve-2023-46604.py` evidence callback; `spray-scheduler.py` timeout/stop-on;
-  smtp relay variants + per-command reply tracking.
-- **Linux** — LD/systemd/cron/IMDS depth; report.py rules for standalone `[+]`/`[!!]`
-  markers; explicit NFS-export emitter; busybox/dash guards on bash-only scripts.
-- **Docs/infra** — `SCHEMA.md` + `report.py --sarif`; dispatcher true-positive tests +
-  `test_report_dashboard.py`; wiki pages for the ~29 uncovered services; GTFOBins/data
-  provenance fields; `aratool`→`aranum` operator-string rename.
+## 10. Second remediation pass (2026-07-20) — backlog cleared
+
+The §9 "deferred" list and all literal `TODO`/"not implemented" markers were then
+completed on the same branch. Full unittest suite (minus the pre-existing
+`pywinrm`-absent errors), `py_compile` sweep, `bash -n` over every tracked `.sh`,
+and `smoke.sh` are green.
+
+**Literal TODOs eliminated:** redis `--keep`/`--passlist` wiring; activemq
+`--max-msgs` (Jolokia `maxCollectionSize`); jabber SCRAM-SHA-256/1 fallback
+(RFC-5802-verified); `bulk-enum-windows.py --use-smb-admin` (impacket-wmiexec,
+size-guarded); redis README polyglot dead-end; `aratool`→`aranum` rename.
+
+**Windows P0 done:** `Invoke-PrivEscEnum.ps1` now emits WSUS-over-HTTP, UAC
+token-filter, LSASS posture, SCCM NAA, MachineAccountQuota/Certifried, LAPS
+readability, and WebClient coercion-relay — all graded on the bulk winenum path;
+`Get-ADCSMisconfig.ps1` per-template try/catch + ESC1 approval gate + ESC1-16.
+
+**Network done:** UDP cluster (ntp/ssdp/mdns, gated) + 8 TCP dispatchers
+(git/finger/squid/tftp/x11/afp/couchbase/rethinkdb) fully wired with wiki pages;
+ADCS-ESC8/Exchange/ADFS HTTP detectors; `enum-redis`/`enum-nfs`/`enum-smtp` depth;
+report.py combined-alternation prefilter (perf); queue-state writeback + live
+`aranum queue` overlay; `--service-parallel`; `--session` surfaced.
+
+**Exploit helpers done:** `redis-rce-lua.sh`; `standalones/tomcat/tomcat-war-deploy.sh`;
+activemq PROGRESSED/CONFIRMED verdicts + `--callback`; spray-scheduler
+`--timeout`/`--stop-on`; smtp relay variants + robust per-command reply parsing.
+
+**Linux done:** `imds-check.sh`; LD.so.conf.d + systemd drop-ins/timers +
+writable-ExecStart + PATH-`.`/relative; cron periods/at/allow-deny/wildcard;
+report.py rules for the container-detect/capabilities/group markers; NFS
+`no_root_squash` emitter + NFSv4-only detect; bash guards.
+
+**Docs/infra done:** `SCHEMA.md` + `report.py --sarif`; `test_report_dashboard.py`
++ new-dispatcher true-positive tests (which caught a real `crit()`-undefined bug);
+all wiki pages (every dispatcher covered, asserted); `DATA-SOURCES.md` +
+`make data-audit`; packaging + docs index (in the first pass).
+
+Residual, genuinely out of scope for a Linux-hosted CI: the Windows and WinRM/SMB
+**transports** remain CI-unvalidated per ADR-003 — the first real run against a
+known-good Windows host is the transport validation.
