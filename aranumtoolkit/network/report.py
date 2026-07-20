@@ -239,6 +239,12 @@ def _structured_finding(
 _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bCRITICAL\b", re.I),                                 "critical"),
     (re.compile(r"\bUNAUTH (?:Docker|etcd|/v2/keys|kubelet|apiserver)\b", re.I), "critical"),
+    # REVIEW-004 service-additions: NATS + ClickHouse (unauth-by-default).
+    (re.compile(r"\bCRITICAL: UNAUTH NATS\b", re.I),                    "critical"),
+    (re.compile(r"\bNATS auth_required=false\b", re.I),                "critical"),
+    (re.compile(r"\bCRITICAL: UNAUTH ClickHouse\b", re.I),             "critical"),
+    (re.compile(r"\bClickHouse HTTP interface alive\b", re.I),         "low"),
+    (re.compile(r"\bNATS INFO banner\b", re.I),                        "low"),
     (re.compile(r"\binsecure apiserver\b", re.I),                       "critical"),
     (re.compile(r"\bauth bypass\b", re.I),                              "critical"),
     (re.compile(r"\bcipher 0\b", re.I),                                 "critical"),

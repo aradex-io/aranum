@@ -135,6 +135,11 @@ SERVICE_MAP = {
     "memcached":   ({11211},                    r"^memcached"),
     "couchdb":     ({5984, 6984},               r"a^"),  # nmap fingerprints as http
     "etcd":        ({2379, 2380},               r"a^"),  # nmap fingerprints as ssl/http or http
+    # Modern cloud-native services (REVIEW-004). NATS 4222 (client INFO banner) +
+    # 8222 (monitoring /varz leaks full server config incl. routes/creds).
+    # ClickHouse 8123 HTTP is unauth on the default `default` user out of the box.
+    "nats":        ({4222, 8222},               r"^nats"),
+    "clickhouse":  ({8123},                      r"a^"),  # fingerprints as http
     # Container-orchestration APIs added in iteration B. docker_api is the
     # remote Docker daemon (2375 unauth = direct host RCE — flag as CRITICAL);
     # 2376 is TLS-authenticated. Kubernetes splits into apiserver (6443 TLS,

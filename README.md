@@ -127,6 +127,8 @@ Each subsystem ships its own README documenting the per-tool surface — `standa
 | `aranumtoolkit/network/enum-memcached.sh` | `stats` + key inventory via cachedump |
 | `aranumtoolkit/network/enum-couchdb.sh` | _all_dbs + _config + CVE-2017-12635 version signal |
 | `aranumtoolkit/network/enum-etcd.sh` | /v2/keys + /metrics — CRITICAL on unauth k8s control-plane KV |
+| `aranumtoolkit/network/enum-nats.sh` | NATS (4222 client INFO banner + 8222 monitoring) — unauth `/varz` config exposure + `auth_required=false` anonymous pub/sub → CRITICAL |
+| `aranumtoolkit/network/enum-clickhouse.sh` | ClickHouse HTTP (8123) — `/ping` liveness + unauth `SHOW DATABASES`/`system.users` on the default no-password user → CRITICAL |
 | `aranumtoolkit/network/enum-activemq.sh` | 61616 (OpenWire — CVE-2023-46604 candidate) + 8161 (web console / Jolokia — admin:admin → RCE) + 5672 (AMQP) + 61613 (STOMP) banner + version |
 | `aranumtoolkit/network/enum-https.sh` | symlink → `enum-http.sh`; routed by nmap-parse for ssl/http services. No separate logic — auto-enum dispatches via service name |
 | `aranumtoolkit/network/enum-unknown.sh` | nmap-parse catch-all for services that did not match any port/regex bucket — banner + HTTP/HTTPS probe, baseline `nmap -sV -sC`, then targeted NSE follow-ups (`http-*`, `ssl-*`, SSH/FTP/SMTP/Redis/VNC/RDP scripts) when the first pass suggests a protocol |
