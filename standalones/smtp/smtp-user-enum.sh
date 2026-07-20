@@ -102,15 +102,13 @@ probe_user() {
     t1=$(date +%s%N)
     dur=$(( (t1 - t0) / 1000000 ))   # ms
 
-    # Pull the response code matching the probing command (NOT the EHLO 250)
+    # Pull the response code for the probing command. SMTP *final* reply lines have
+    # a SPACE after the 3-digit code (multiline continuations use '-'), so filtering
+    # to space-form lines and dropping the 221 QUIT reply leaves the probe's reply
+    # as the last one — robust to the variable number of 250- EHLO extension lines
+    # (the old positional head/tail counted an EHLO extension as the probe reply).
     local code
-    case "$METHOD" in
-        vrfy|expn)
-            code=$(echo "$response" | grep -E '^[2-5][0-9][0-9]' | grep -v '250.*Hello\|250.*at your service\|220 ' | head -1 | grep -oE '^[2-5][0-9][0-9]') ;;
-        rcpt)
-            # Walk to the third 25x/55x (after EHLO and MAIL FROM)
-            code=$(echo "$response" | grep -E '^[2-5][0-9][0-9]' | head -3 | tail -1 | grep -oE '^[2-5][0-9][0-9]') ;;
-    esac
+    code=$(printf '%s\n' "$response" | grep -E '^[2-5][0-9][0-9] ' | grep -vE '^221 ' | tail -1 | grep -oE '^[2-5][0-9][0-9]')
     [ -z "$code" ] && code="???"
 
     echo "$u|$code|${dur}ms"

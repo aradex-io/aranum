@@ -36,16 +36,31 @@ probe_one() {
             > "$d/starttls.txt" 2>&1
     fi
 
-    # 5. Open-relay smoke test (single canonical form — relay if accepted)
-    {
-        printf 'EHLO recon.local\r\nMAIL FROM:<probe@external.example>\r\nRCPT TO:<target@external.example>\r\nQUIT\r\n' \
-            | timeout 5 nc -nv "$ip" "$port" 2>&1
-    } > "$d/relay_probe.txt"
+    # 5. Open-relay smoke test — a few high-value variants (the standalones/smtp/
+    #    toolkit runs the full 19-variant matrix). external->external acceptance of
+    #    the RCPT = open relay. Detection uses the SMTP final-reply convention (space
+    #    after the code) and takes the last reply before QUIT, so multi-line EHLO
+    #    extension lines don't get mistaken for the RCPT outcome.
+    : > "$d/relay_probe.txt"
+    relay_hit=""
+    for variant in \
+        "canonical|MAIL FROM:<probe@external.example>|RCPT TO:<target@external.example>" \
+        "null-sender|MAIL FROM:<>|RCPT TO:<target@external.example>" \
+        "percent-hack|MAIL FROM:<probe@external.example>|RCPT TO:<target%external.example@${ip}>" \
+        "source-route|MAIL FROM:<probe@external.example>|RCPT TO:<@${ip}:target@external.example>"; do
+        vid=${variant%%|*}; rest=${variant#*|}; mfrom=${rest%%|*}; rcpt=${rest#*|}
+        resp=$(printf 'EHLO recon.local\r\n%s\r\n%s\r\nQUIT\r\n' "$mfrom" "$rcpt" \
+                 | timeout 5 nc -nv "$ip" "$port" 2>&1)
+        printf -- '--- variant: %s ---\n%s\n\n' "$vid" "$resp" >> "$d/relay_probe.txt"
+        code=$(printf '%s\n' "$resp" | grep -E '^[2-5][0-9][0-9] ' | grep -vE '^221 ' | tail -1 | grep -oE '^[2-5][0-9][0-9]')
+        case "$code" in 250|251) relay_hit="$relay_hit $vid" ;; esac
+    done
 
-    # 6. Flag if it accepted the RCPT (250) — that's strong open-relay signal
-    if grep -E '^250.*Ok|^250.*Accepted|^250.*OK' "$d/relay_probe.txt" >/dev/null; then
-        hit "$ip:$port  OPEN RELAY CANDIDATE — see $d/relay_probe.txt"
-        echo "$ip:$port" >> "$OUT/_open_relay_candidates.txt"
+    # 6. Flag if any external->external variant accepted the RCPT — open-relay signal
+    if [ -n "$relay_hit" ]; then
+        hit "$ip:$port  OPEN RELAY CANDIDATE (variants:$relay_hit) — see $d/relay_probe.txt"
+        echo "$ip:$port relay-variants:$relay_hit" >> "$OUT/_open_relay_candidates.txt"
+        echo "follow up: standalones/smtp/smtp-relay-test.sh for the full 19-variant matrix" >> "$d/relay_probe.txt"
     fi
 
     # 7. Flag VRFY enabled

@@ -80,8 +80,12 @@ for tt in "${TESTS[@]}"; do
     IFS='|' read -r id mailfrom rcptto extra <<< "$tt"
     dialog=$(smtp_dialog "EHLO $EHLO_NAME" "$mailfrom" "$rcptto" ${extra:+"$extra"} "QUIT")
     resp=$(smtp_send "$HOST" "$PORT" "$dialog" 5)
-    # The third response code is the RCPT TO outcome
-    rcpt_code=$(echo "$resp" | grep -E '^[2-5][0-9][0-9]' | sed -n '3p' | grep -oE '^[2-5][0-9][0-9]')
+    # RCPT TO outcome: SMTP *final* reply lines have a SPACE after the 3-digit code
+    # (multiline continuations use '-'), and the dialog is EHLO/MAIL FROM/RCPT/QUIT,
+    # so the RCPT reply is the last final-reply before the 221 QUIT reply. This is
+    # robust to the variable number of 250- EHLO extension lines (the old positional
+    # `sed -n 3p` counted an EHLO extension line as the RCPT reply).
+    rcpt_code=$(printf '%s\n' "$resp" | grep -E '^[2-5][0-9][0-9] ' | grep -vE '^221 ' | tail -1 | grep -oE '^[2-5][0-9][0-9]')
     [ -z "$rcpt_code" ] && rcpt_code="???"
     interp=""
     case "$rcpt_code" in
