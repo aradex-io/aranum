@@ -287,6 +287,9 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"Solr reachable:.+ — (1\.|2\.|3\.|4\.|5\.|6\.|7\.|8\.[0-9]\.|8\.10|8\.11\.[0-3])", re.I), "medium"),
     (re.compile(r"\bSolr cores exposed:", re.I),                        "medium"),
     (re.compile(r"\bMSRPC anonymous srvinfo:", re.I),                   "medium"),
+    # redis-rce-lua.sh — Lua EVAL RCE surface on modern Redis.
+    (re.compile(r"\bEVAL scripting REACHABLE\b", re.I),                "high"),
+    (re.compile(r"\bLUA_RCE: CVE-2024-31449 candidate\b", re.I),       "high"),
     # proc-hardening-check.sh — weak sysctl/LSM/proc hardening (host audit).
     (re.compile(r"HARDENING:.*(ptrace_scope=0|unprivileged_bpf_disabled=0|suid_dumpable)", re.I), "medium"),
     (re.compile(r"\bHARDENING:\b", re.I),                              "low"),
