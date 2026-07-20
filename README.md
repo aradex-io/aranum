@@ -79,6 +79,7 @@ Each subsystem ships its own README documenting the per-tool surface — `standa
 | `standalones/linux/io-uring-check.sh` (D2.1) | io_uring availability + restrictions; flags reachable surface for multi-CVE history |
 | `standalones/linux/namespaces-check.sh` (D2.1) | Unprivileged user-namespace creation (precondition for many recent kernel CVEs) |
 | `standalones/linux/apt-source-check.sh` (D2.1) | apt-get writable config / hooks (`/etc/apt/apt.conf.d`, `sources.list.d`) — root runs scripts from there on `apt-get install` |
+| `standalones/linux/proc-hardening-check.sh` | Read-only sysctl + LSM + `/proc` hardening audit (`ptrace_scope`, `dmesg_restrict`, `kptr_restrict`, `unprivileged_bpf_disabled`, `fs.protected_*`, `suid_dumpable`, SELinux/AppArmor, `/proc` `hidepid`). No-dependency CIS/Lynis-style precondition scan |
 
 ## Credential helpers
 

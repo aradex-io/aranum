@@ -13,6 +13,7 @@ Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 `aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md`.
 
 ### Added
+- `standalones/linux/proc-hardening-check.sh` — new read-only host-hardening auditor covering an entire previously-uncovered CIS/Lynis class: sysctl knobs (`ptrace_scope`, `dmesg_restrict`, `kptr_restrict`, `perf_event_paranoid`, `unprivileged_bpf_disabled`, `kexec_load_disabled`, `randomize_va_space`, `fs.protected_*`, `suid_dumpable`), LSM/MAC posture (SELinux/AppArmor, `/sys/kernel/security/lsm`, `/proc/self/attr/current`), and `/proc` `hidepid`. Pure `/proc`+`/sys` reads (no dependencies, dash/busybox-safe); each weak setting prints a `HARDENING:` marker graded by `report.py` (`report.py` rules added).
 - `VERSION` — canonical single-source version string (`0.32.0`); `smoke.sh` asserts it matches the CHANGELOG top released block.
 - `aranum.py`: `version` / `--version` / `-V` (prints the version + `git describe`), `selftest` (runs `smoke.sh`), and `deps-check` (runs `deps-check.sh`) subcommands, so the single entrypoint can report its own version and verify its environment. Version resolves from the `VERSION` file, falling back to the CHANGELOG top block.
 
