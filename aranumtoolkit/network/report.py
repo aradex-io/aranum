@@ -245,6 +245,10 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bCRITICAL: UNAUTH ClickHouse\b", re.I),             "critical"),
     (re.compile(r"\bClickHouse HTTP interface alive\b", re.I),         "low"),
     (re.compile(r"\bNATS INFO banner\b", re.I),                        "low"),
+    # enum-http.sh AD-surface detectors (ESC8 / Exchange / ADFS).
+    (re.compile(r"\bESC8 relay target\b", re.I),                       "high"),
+    (re.compile(r"\bExchange endpoint .* detected\b", re.I),           "medium"),
+    (re.compile(r"\bADFS sign-on page detected\b", re.I),              "medium"),
     # REVIEW-004 TCP service-additions.
     (re.compile(r"\bUNAUTH git daemon\b", re.I),                       "critical"),
     (re.compile(r"\bOPEN PROXY:", re.I),                               "critical"),
