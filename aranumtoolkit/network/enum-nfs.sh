@@ -8,11 +8,25 @@ log "nfs: $(wc -l < "$TARGETS") targets -> $OUT"
 
 IPS=$(ips_only "$TARGETS")
 
-# showmount -e
+# showmount -e (MOUNT protocol via rpcbind/111 — returns nothing on NFSv4-only)
 if have showmount; then
     for ip in $IPS; do
         mkdir -p "$OUT/$ip"
         showmount -e "$ip" 2>&1 | tee "$OUT/$ip/exports.txt" || true
+        ex="$OUT/$ip/exports.txt"
+        # Deterministic dangerous-export markers so report.py grades them (the
+        # no_root_squash HIGH rule previously relied on the string appearing by luck).
+        if grep -qiE '\bno_root_squash\b' "$ex" 2>/dev/null; then
+            crit "NFS no_root_squash export on $ip — mount + setuid-root = local root:"
+            grep -iE '\bno_root_squash\b' "$ex" | sed "s/^/    /"
+        fi
+        grep -qiE '\bno_all_squash\b' "$ex" 2>/dev/null && hit "NFS no_all_squash export on $ip (uid-preserving writes)"
+        grep -qiE '\binsecure\b' "$ex" 2>/dev/null && hit "NFS insecure export on $ip (allows >1024 source ports)"
+        # NFSv4-only servers have no rpcbind, so showmount fails — flag it so an
+        # empty result isn't misread as "no shares".
+        if grep -qiE 'RPC: Program not registered|clnt_create|Connection refused|no such' "$ex" 2>/dev/null; then
+            hit "NFS: showmount failed on $ip — likely NFSv4-only (no MOUNT/rpcbind). Try: mount -t nfs4 -o ro $ip:/ /mnt"
+        fi
     done
 fi
 
