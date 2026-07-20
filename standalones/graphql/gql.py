@@ -766,22 +766,6 @@ def cmd_diff(args: argparse.Namespace) -> int:
     arg_values = parse_kv_args(args.arg)
     doc, variables = build_query(kind, args.operation, op, arg_values, schema, args.select, depth=args.depth)
 
-    # F.4 — directive-bypass: wrap every selected field in @skip(if: $skip)
-    # and pass $skip=false for one profile, true for another. If the server's
-    # authz check is keyed on "did this field appear in the AST" rather than
-    # "is this field resolved", the two profiles will see different data.
-    if getattr(args, "directive_bypass", False):
-        # Append directive var declaration and a @skip(if:$gqlSkip) on the
-        # selection block. We do this by string injection because gql.py's
-        # build_query already returned a flat doc string; this is the cheapest
-        # way to thread a directive through without re-parsing.
-        if "$gqlSkip" not in doc:
-            doc = doc.replace(f"{kind} GqlPy", f"{kind} GqlPy($gqlSkip: Boolean!)", 1)
-        variables["gqlSkip"] = False  # default: include the field
-        # We also produce a second variant for the loop below where $gqlSkip=true
-        # — but the diff loop sends the same doc, so we set per-profile vars below.
-        print(_color("[*] --directive-bypass: each profile sends @skip(if:$gqlSkip); ref profile sets false, others true", "C"))
-
     print(_color(f"[*] {kind} {args.operation} as {[p[0] for p in profiles]}", "C"))
     print(_color(f"    args: {arg_values}", "C"))
     print()
@@ -789,10 +773,6 @@ def cmd_diff(args: argparse.Namespace) -> int:
     results: list[tuple[str, int, dict]] = []
     for i, (label, h) in enumerate(profiles):
         per_vars = dict(variables)
-        # For --directive-bypass: ref profile (index 0) keeps gqlSkip=false;
-        # subsequent profiles flip it true to exercise the alternate AST path.
-        if getattr(args, "directive_bypass", False) and "gqlSkip" in per_vars and i > 0:
-            per_vars["gqlSkip"] = True
         status, _, body = http_post(args.url, {"query": doc, "variables": per_vars}, h)
         results.append((label, status, body))
         ok = "ERR" if "errors" in body else "OK"
@@ -1106,11 +1086,6 @@ def main() -> int:
     p.add_argument("--select")
     p.add_argument("--depth", type=int, default=2)
     p.add_argument("--no-schema", action="store_true")
-    # F.4 — directive bypass: wrap each field in @skip(if:$gqlSkip); ref profile
-    # sends false, others true, testing whether authz is keyed on AST-presence
-    # or resolver-execution.
-    p.add_argument("--directive-bypass", action="store_true",
-                   help="thread @skip(if:$gqlSkip) directive — ref profile keeps fields, others skip them (authz-by-AST detection)")
     p.set_defaults(func=cmd_diff)
 
     p = sub.add_parser("raw", help="send a literal GraphQL document")
