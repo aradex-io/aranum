@@ -15,7 +15,7 @@ Usage:
     default-creds-sweep.py --targets ip-ports.txt --threads 5 --delay 0.5
 """
 from __future__ import annotations
-import argparse, base64, json, os, re, ssl, sys, time, urllib.request, urllib.error
+import argparse, base64, json, os, re, ssl, sys, time, urllib.request, urllib.error, urllib.parse
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -113,11 +113,17 @@ def try_creds(base_url: str, product: dict, user: str, password: str,
     post_tpl = product.get("post")
 
     if post_tpl:
-        data = post_tpl.replace("{USER}", user).replace("{PASS}", password).encode()
+        # Encode the substituted values for the target body type so a credential
+        # containing &/=/"/\\ can't corrupt the request (silent false negative).
         if post_tpl.lstrip().startswith("{"):
+            u = json.dumps(user)[1:-1]        # JSON-escape (strip the outer quotes)
+            p = json.dumps(password)[1:-1]
             hdrs = {"Content-Type": "application/json"}
         else:
+            u = urllib.parse.quote(user, safe="")     # form-urlencode
+            p = urllib.parse.quote(password, safe="")
             hdrs = {"Content-Type": "application/x-www-form-urlencoded"}
+        data = post_tpl.replace("{USER}", u).replace("{PASS}", p).encode()
         status, rhdrs, body = http(url, method="POST", headers=hdrs, data=data, timeout=timeout)
     else:
         auth = base64.b64encode(f"{user}:{password}".encode()).decode()
