@@ -2,10 +2,15 @@
 .SYNOPSIS
     One-shot Windows privilege escalation enumerator.
 .DESCRIPTION
-    Collects OS info, user/group/token data, services, scheduled tasks, registry
-    autoruns, AlwaysInstallElevated, saved credentials, WSUS config, LAPS, AV,
-    AppLocker, UAC, network info, and writable PATH dirs. Output is grouped and
-    colored when running interactively.
+    Collects OS info, user/group/token data, services, scheduled tasks,
+    AlwaysInstallElevated, saved credentials, AV/EDR, AppLocker/WDAC, network
+    info, writable PATH dirs, PowerShell LanguageMode, WSUS-over-HTTP + UAC
+    token-filter + LSASS credential posture (WDigest/RunAsPPL/LmCompat/CredGuard),
+    SCCM/MECM (NAA path), and — when domain-joined and FullLanguage — pure-ADSI
+    AD-depth (MachineAccountQuota/Certifried, LAPS readability, WebClient coercion
+    relay). Grouped + colored when interactive.
+    NOTE (ADR-003): the WinRM/SMB transport is not exercised in CI — the first
+    real run against a known-good host is the validation.
 .PARAMETER OutFile
     Optional path to also write transcript output (TXT).
 .EXAMPLE
@@ -210,6 +215,80 @@ foreach ($p in $searchPaths) {
             Select-String -Pattern 'password|passwd|secret|api[_-]?key|token=' -SimpleMatch -ErrorAction SilentlyContinue |
             Select-Object -First 200 Path, LineNumber, Line
     }
+}
+
+# ---------- 12. LANGUAGE MODE / DOWNLEVEL SURVIVABILITY ----------
+Section "PowerShell posture"
+$lm = $ExecutionContext.SessionState.LanguageMode
+Write-Host "  LanguageMode: $lm   PSVersion: $($PSVersionTable.PSVersion)"
+if ($lm -ne 'FullLanguage') {
+    Miss "Constrained/Restricted Language Mode — .NET/[ADSI] sections may be blocked; native EXEs (reg/sc/schtasks/whoami) still work"
+}
+
+# ---------- 13. WSUS / UAC / LSASS CREDENTIAL POSTURE (registry, CLM-safe) ----------
+Section "PATCH / UAC / CREDENTIAL POSTURE"
+function RegVal($path, $name) {
+    try { (Get-ItemProperty -Path $path -Name $name -ErrorAction Stop).$name } catch { $null }
+}
+# WSUS over HTTP (CVE-2020-1013 / PyWSUS) — only dangerous when the URL is http://
+$wu = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+$wuServer = RegVal $wu 'WUServer'
+$useWU    = RegVal "$wu\AU" 'UseWUServer'
+if ($wuServer) {
+    Write-Host "  WUServer: $wuServer  (UseWUServer=$useWU)"
+    if ($wuServer -match '^http://') { Hit "WSUS over HTTP: $wuServer — WSUS-spoofing (PyWSUS) MITM to SYSTEM" }
+}
+# UAC / token-filter — LocalAccountTokenFilterPolicy=1 = local-admin-over-network w/o UAC filtering
+$sys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+$latfp = RegVal $sys 'LocalAccountTokenFilterPolicy'
+if ($latfp -eq 1) { Hit "LocalAccountTokenFilterPolicy=1 — local admins usable over the network without UAC filtering" }
+Write-Host "  EnableLUA=$(RegVal $sys 'EnableLUA')  ConsentPromptBehaviorAdmin=$(RegVal $sys 'ConsentPromptBehaviorAdmin')  FilterAdministratorToken=$(RegVal $sys 'FilterAdministratorToken')"
+# LSASS posture (informs later mimikatz decisions)
+$wdig = RegVal 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' 'UseLogonCredential'
+if ($wdig -eq 1) { Hit "WDigest UseLogonCredential=1 — cleartext creds recoverable from LSASS" }
+$lsa = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+Write-Host "  RunAsPPL=$(RegVal $lsa 'RunAsPPL')  LmCompatibilityLevel=$(RegVal $lsa 'LmCompatibilityLevel')  LsaCfgFlags(CredGuard)=$(RegVal "$lsa\..\DeviceGuard" 'LsaCfgFlags')"
+
+# ---------- 14. SCCM / MECM (NAA credential path) ----------
+Section "SCCM / MECM"
+if (Test-Path 'C:\Windows\CCM' -PathType Container) {
+    $ccm = 'HKLM:\SOFTWARE\Microsoft\CCM'
+    Hit "SCCM client present (C:\Windows\CCM) — Network Access Account (NAA) credential path"
+    Write-Host "  Site/MP: $(RegVal $ccm 'DisableSiteOptIn')  $(RegVal 'HKLM:\SOFTWARE\Microsoft\SMS\Mobile Client' 'AssignedSiteCode')"
+    Write-Host "  Loot: NAA blobs in CIM/WMI (root\ccm\policy\Machine\ActualConfig CCM_NetworkAccessAccount) or CCM\Logs; decrypt with SharpDPAPI/SCCMHunter"
+} else { Miss "No SCCM client (C:\Windows\CCM absent)" }
+
+# ---------- 15. DOMAIN-JOINED AD DEPTH (applicability-gated, pure ADSI) ----------
+$domainJoined = $false
+try { $domainJoined = (Get-WmiObject Win32_ComputerSystem -ErrorAction Stop).PartOfDomain } catch {}
+if ($domainJoined) {
+    Section "AD DEPTH (domain-joined)"
+    if ($lm -ne 'FullLanguage') {
+        Miss "Constrained Language Mode — [ADSI] AD-depth checks skipped; run the standalone Get-*.ps1 or route via WinRM with FullLanguage"
+    } else {
+        try {
+            $root = ([ADSI]"LDAP://RootDSE").defaultNamingContext
+            # MachineAccountQuota — Certifried (CVE-2022-26923) precondition when > 0
+            try {
+                $maq = ([ADSI]"LDAP://$root").Properties['ms-DS-MachineAccountQuota'].Value
+                if ($maq -and $maq -gt 0) { Hit "ms-DS-MachineAccountQuota=$maq — any user can join $maq machine accounts (Certifried / RBCD precondition)" }
+            } catch {}
+            # LAPS readability — the whole point of the standalone Get-LAPSPassword.ps1
+            try {
+                $ds = New-Object DirectoryServices.DirectorySearcher([ADSI]"LDAP://$root")
+                $ds.Filter = "(&(objectCategory=computer)(|(ms-Mcs-AdmPwd=*)(msLAPS-Password=*)))"
+                $null = $ds.PropertiesToLoad.Add('name')
+                $lapsCount = @($ds.FindAll()).Count
+                if ($lapsCount -gt 0) { Hit "LAPS: $lapsCount computer object(s) expose ms-Mcs-AdmPwd/msLAPS-Password to this user (CRITICAL — cleartext local-admin). Run Get-LAPSPassword.ps1 to read them." }
+            } catch {}
+        } catch { Miss "AD-depth ADSI query failed: $($_.Exception.Message)" }
+    }
+    # Coercion-relay enabler: a running WebClient turns coercion into relayable HTTP auth
+    try {
+        $wc = Get-Service WebClient -ErrorAction Stop
+        if ($wc.Status -eq 'Running') { Hit "WebClient service running — coercion (PetitPotam/PrinterBug) becomes relayable to LDAP/ADCS (ESC8)" }
+    } catch {}
+    Write-Host "  Deep AD-depth: run standalones/windows/Get-ADCSMisconfig.ps1, Get-GPPCPassword.ps1, Get-DPAPIBlobs.ps1, Get-PetitPotamSignals.ps1, Test-CoercedAuth.ps1"
 }
 
 if ($OutFile) { Stop-Transcript | Out-Null; Write-Host "`nWrote transcript to $OutFile" -ForegroundColor Cyan }

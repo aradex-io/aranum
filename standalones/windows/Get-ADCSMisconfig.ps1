@@ -60,16 +60,20 @@ $EKU = @{
 
 # msPKI-Certificate-Name-Flag — bit 0x00000001 = ENROLLEE_SUPPLIES_SUBJECT
 $ESC1_BIT = 0x1
+$CT_FLAG_PEND_ALL_REQUESTS = 0x2   # manager-approval gate — approval-required != ESC1
 
 $esc1_hits = 0
 $esc2_hits = 0
 $esc4_hits = 0
 
 foreach ($tmpl in $templates.Children) {
+  try {
     $name      = $tmpl.cn[0]
     $nameFlag  = [int]($tmpl."msPKI-Certificate-Name-Flag"[0] -bor 0)
     $ekuList   = @($tmpl.pkiExtendedKeyUsage)
     $enrollSig = [int]($tmpl."msPKI-RA-Signature"[0] -bor 0)
+    $enrollFlag = [int]($tmpl."msPKI-Enrollment-Flag"[0] -bor 0)
+    $needsApproval = ($enrollFlag -band $CT_FLAG_PEND_ALL_REQUESTS) -ne 0
 
     # Resolve EKUs to friendly names
     $ekuFriendly = $ekuList | ForEach-Object { $EKU[$_] ; if (-not $EKU.ContainsKey($_)) { $_ } }
@@ -85,9 +89,10 @@ foreach ($tmpl in $templates.Children) {
         $acl += "$($a.IdentityReference) $($a.ActiveDirectoryRights)"
     }
 
-    # ESC1 — ENROLLEE_SUPPLIES_SUBJECT + Client Auth EKU + RA signature == 0
-    if (($nameFlag -band $ESC1_BIT) -and $hasClientAuth -and $enrollSig -eq 0) {
-        Hit "ESC1 (Vulnerable): $name (ENROLLEE_SUPPLIES_SUBJECT + Client Auth, no enrollment-agent signature required)"
+    # ESC1 — ENROLLEE_SUPPLIES_SUBJECT + Client Auth EKU + RA signature == 0 AND
+    # not gated by manager approval (an approval-required template isn't ESC1).
+    if (($nameFlag -band $ESC1_BIT) -and $hasClientAuth -and $enrollSig -eq 0 -and (-not $needsApproval)) {
+        Hit "ESC1 (Vulnerable): $name (ENROLLEE_SUPPLIES_SUBJECT + Client Auth, no enrollment-agent signature required, no manager approval)"
         $esc1_hits++
     }
     # ESC2 — Any Purpose / No EKU on a template that anyone-Authenticated can enroll
@@ -108,6 +113,10 @@ foreach ($tmpl in $templates.Children) {
             break
         }
     }
+  } catch {
+    # One unreadable/odd template SD must not abort the whole enumeration.
+    Miss "template '$($tmpl.cn)' skipped: $($_.Exception.Message)"
+  }
 }
 
 ""

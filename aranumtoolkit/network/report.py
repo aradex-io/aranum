@@ -708,7 +708,15 @@ _AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
     # --- Certipy AD CS ---
     # Certipy's "ESCN (Vulnerable)" header is the canonical hit — and our
     # ADSI-based Get-ADCSMisconfig.ps1 mirrors that format for parity.
-    (re.compile(r"ESC([1-9]|1[0-1])\s*\(Vulnerable\)", re.I),                    "critical"),
+    (re.compile(r"ESC([1-9]|1[0-6])\s*\(Vulnerable\)", re.I),                    "critical"),
+    # --- Invoke-PrivEscEnum.ps1 registry/AD-depth posture (REVIEW-004) ---
+    (re.compile(r"\bWSUS over HTTP:", re.I),                                     "high"),
+    (re.compile(r"\bLocalAccountTokenFilterPolicy=1\b", re.I),                   "high"),
+    (re.compile(r"\bWDigest UseLogonCredential=1\b", re.I),                      "medium"),
+    (re.compile(r"\bSCCM client present\b", re.I),                              "medium"),
+    (re.compile(r"\bms-DS-MachineAccountQuota=\d", re.I),                        "medium"),
+    (re.compile(r"\bLAPS: \d+ computer object\(s\) expose\b", re.I),             "critical"),
+    (re.compile(r"\bWebClient service running — coercion\b", re.I),              "high"),
     # --- BloodHound collection presence — informational HIGH (signals to the
     # operator that a graph file exists worth importing into BloodHound CE)
     (re.compile(r"^BLOODHOUND_ZIP:", re.M),                                       "high"),
