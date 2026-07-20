@@ -33,11 +33,10 @@ lint:
 	@#         helpers in aranumtoolkit/network/_lib.sh, which intentionally emit 0-or-2 args
 	@#         via $(helper). Refactor to bash arrays is tracked separately
 	@#         (deferred to v0.32.0 — see CHANGELOG).
-	shellcheck -S warning -e SC1091 -e SC2046 -f gcc \
-	    aranumtoolkit/network/*.sh deps-check.sh \
-	    standalones/activemq/*.sh standalones/redis/*.sh standalones/smtp/*.sh \
-	    standalones/jabber/*.sh aranumtoolkit/tests/*.sh \
-	    standalones/linux/*.sh standalones/ot/*.sh standalones/graphql/examples/*.sh
+	@# Lint every tracked .sh via `git ls-files` so a new standalones/<svc>/ dir
+	@# can't silently escape shellcheck (the smoke.sh syntax gate already uses a
+	@# dynamic find, so this keeps lint and syntax on the same file set).
+	git ls-files '*.sh' | xargs -r shellcheck -S warning -e SC1091 -e SC2046 -f gcc
 
 .PHONY: unittest
 unittest:
