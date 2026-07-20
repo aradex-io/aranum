@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # group-enum.sh — privesc-via-group membership.
 set -u
+[ -n "${BASH_VERSION:-}" ] || { echo "group-enum.sh needs bash (uses associative arrays); run with bash" >&2; exit 2; }
 GROUPS_OUT=$(id -nG 2>/dev/null)
 echo "Groups: $GROUPS_OUT"
 echo
