@@ -35,6 +35,9 @@ about who can authenticate, not about path-traversal admin bypass.
 from __future__ import annotations
 import argparse
 import base64
+import hashlib
+import hmac
+import os
 import re
 import socket
 import ssl
@@ -87,6 +90,10 @@ _FEATURES_END = re.compile(rb"</stream:features>|<failure ")
 _PROCEED_RE   = re.compile(rb"<proceed ")
 _FAILURE_RE   = re.compile(rb"<failure[\s\S]*?</failure>")
 _SUCCESS_RE   = re.compile(rb"<success ")
+_CHALLENGE_RE = re.compile(rb"<challenge[\s\S]*?</challenge>")
+# For the SCRAM client-first step the server replies with EITHER a challenge
+# (server-first-message) or an immediate failure.
+_SCRAM_STEP_RE = re.compile(rb"<challenge[\s\S]*?</challenge>|<failure[\s\S]*?</failure>|<success ")
 
 
 def _open_stream(ip: str, port: int, domain: str, want_starttls: bool, timeout: float):
@@ -129,10 +136,14 @@ def _probe_user(ip: str, port: int, domain: str, user: str,
                 "elapsed_ms": int((time.monotonic() - started) * 1000)}
 
     if b"<mechanism>PLAIN</mechanism>" not in feats:
+        # No PLAIN — fall back to a SCRAM-SHA-256/1 handshake probe if offered.
+        mech = _scram_mech(feats)
+        if mech:
+            return _probe_user_scram(s, mech, user, timeout, started)
         try: s.close()
         except: pass
-        return {"user": user, "verdict": "NO_PLAIN",
-                "detail": "server doesn't offer SASL PLAIN — try SCRAM-based probe (not implemented yet)",
+        return {"user": user, "verdict": "NO_MECH",
+                "detail": "server offers neither SASL PLAIN nor SCRAM-SHA-1/256 — cannot probe",
                 "elapsed_ms": int((time.monotonic() - started) * 1000)}
 
     bogus_pw = "wrong-password-for-enumeration-probe-only"
@@ -142,36 +153,113 @@ def _probe_user(ip: str, port: int, domain: str, user: str,
     try: s.close()
     except: pass
 
+    return _classify_sasl_response(user, resp, started)
+
+
+# Map SASL failure conditions per RFC 6120 §6.5 to enumeration verdicts.
+_FAILURE_MAP = [
+    (re.compile(r"<not-authorized\s*/>"),          "USER_EXISTS"),
+    (re.compile(r"<account-disabled\s*/>"),        "EXISTS_DISABLED"),
+    (re.compile(r"<credentials-expired\s*/>"),     "EXISTS_EXPIRED"),
+    (re.compile(r"<temporary-auth-failure\s*/>"),  "SERVER_ERROR"),
+    (re.compile(r"<invalid-authzid\s*/>"),         "INVALID_FORMAT"),
+    (re.compile(r"<invalid-mechanism\s*/>"),       "NO_MECH"),
+    (re.compile(r"<malformed-request\s*/>"),       "MALFORMED"),
+    (re.compile(r"<encryption-required\s*/>"),     "ENCRYPTION_REQUIRED"),
+    (re.compile(r"<aborted\s*/>"),                 "ABORTED"),
+]
+
+
+def _classify_sasl_response(user: str, resp: bytes, started: float, mech: str = "PLAIN") -> dict:
+    """Classify a SASL <failure>/<success> response into an enumeration verdict."""
     elapsed_ms = int((time.monotonic() - started) * 1000)
     text = resp.decode("utf-8", errors="replace")
-
+    detail = "" if mech == "PLAIN" else f"via {mech}"
     if _SUCCESS_RE.search(resp):
-        # This shouldn't ever happen (we sent a bogus pw) but if it does:
+        # Shouldn't happen (we sent a bogus pw) but if it does:
         return {"user": user, "verdict": "AUTH_OK_BUG?", "detail": "server accepted bogus password — investigate",
                 "elapsed_ms": elapsed_ms, "raw": text}
-
-    # Map SASL failure conditions per RFC 6120 §6.5
-    failure_map = [
-        (re.compile(r"<not-authorized\s*/>"),          "USER_EXISTS"),
-        (re.compile(r"<account-disabled\s*/>"),        "EXISTS_DISABLED"),
-        (re.compile(r"<credentials-expired\s*/>"),     "EXISTS_EXPIRED"),
-        (re.compile(r"<temporary-auth-failure\s*/>"),  "SERVER_ERROR"),
-        (re.compile(r"<invalid-authzid\s*/>"),         "INVALID_FORMAT"),
-        (re.compile(r"<invalid-mechanism\s*/>"),       "NO_PLAIN"),
-        (re.compile(r"<malformed-request\s*/>"),       "MALFORMED"),
-        (re.compile(r"<encryption-required\s*/>"),     "ENCRYPTION_REQUIRED"),
-        (re.compile(r"<aborted\s*/>"),                 "ABORTED"),
-    ]
-    for pat, verdict in failure_map:
+    for pat, verdict in _FAILURE_MAP:
         if pat.search(text):
-            return {"user": user, "verdict": verdict, "detail": "",
+            return {"user": user, "verdict": verdict, "detail": detail,
                     "elapsed_ms": elapsed_ms, "raw": text[:200]}
     if "<failure" in text:
         return {"user": user, "verdict": "UNCLASSIFIED_FAILURE",
-                "detail": "<failure> with unknown child", "elapsed_ms": elapsed_ms,
+                "detail": ("<failure> with unknown child " + detail).strip(), "elapsed_ms": elapsed_ms,
                 "raw": text[:200]}
-    return {"user": user, "verdict": "NO_RESPONSE", "detail": "no <failure/> seen before timeout",
+    return {"user": user, "verdict": "NO_RESPONSE", "detail": ("no <failure/> seen before timeout " + detail).strip(),
             "elapsed_ms": elapsed_ms, "raw": text[:200]}
+
+
+def _scram_mech(feats: bytes) -> str | None:
+    """Return the strongest offered SCRAM mechanism name, or None."""
+    for m in (b"SCRAM-SHA-256", b"SCRAM-SHA-1"):
+        if b"<mechanism>" + m + b"</mechanism>" in feats:
+            return m.decode("ascii")
+    return None
+
+
+def _probe_user_scram(s, mech: str, user: str, timeout: float, started: float) -> dict:
+    """SCRAM client-first -> server-first -> bogus client-final enumeration probe.
+
+    A server that engages the SCRAM handshake (returns a server-first challenge)
+    for a real user but rejects the client-first for a non-existent one is
+    enumerable; the bogus client-final then maps to the same RFC-6120 verdicts as
+    PLAIN. NOTE: hardened servers (ejabberd/prosody with anti-enum) return a
+    fabricated challenge for every username, so a USER_EXISTS verdict over SCRAM
+    is lower-confidence than over PLAIN — corroborate with response timing.
+    """
+    hashname = "sha256" if mech.endswith("256") else "sha1"
+    try:
+        cnonce = base64.b64encode(os.urandom(18)).decode("ascii")
+        # SASLprep is approximated by identity here — usernames with RFC-4013
+        # mapped/prohibited codepoints are rare in enumeration lists.
+        client_first_bare = f"n={user.replace('=', '=3D').replace(',', '=2C')},r={cnonce}"
+        initial = base64.b64encode(("n,," + client_first_bare).encode()).decode("ascii")
+        _send(s, f"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='{mech}'>{initial}</auth>")
+        resp = _recv_until(s, _SCRAM_STEP_RE, timeout)
+
+        # Immediate failure to client-first -> classify directly.
+        if _FAILURE_RE.search(resp) or _SUCCESS_RE.search(resp):
+            try: s.close()
+            except Exception: pass
+            return _classify_sasl_response(user, resp, started, mech)
+
+        m = _CHALLENGE_RE.search(resp)
+        if not m:
+            try: s.close()
+            except Exception: pass
+            return {"user": user, "verdict": "NO_RESPONSE", "detail": f"no SCRAM challenge via {mech}",
+                    "elapsed_ms": int((time.monotonic() - started) * 1000), "raw": resp.decode("utf-8", "replace")[:200]}
+
+        inner = re.search(rb"<challenge[^>]*>([\s\S]*?)</challenge>", resp)
+        server_first = base64.b64decode(inner.group(1)).decode("utf-8", "replace")
+        attrs = dict(kv.split("=", 1) for kv in server_first.split(",") if "=" in kv)
+        snonce, salt_b64, iters = attrs.get("r", ""), attrs.get("s", ""), int(attrs.get("i", "0") or "0")
+
+        # Bogus client-final (wrong password) to elicit the auth-result failure.
+        bogus = "wrong-password-for-enumeration-probe-only"
+        salt = base64.b64decode(salt_b64)
+        salted = hashlib.pbkdf2_hmac(hashname, bogus.encode(), salt, iters or 4096)
+        digest = getattr(hashlib, hashname)
+        client_key = hmac.new(salted, b"Client Key", digest).digest()
+        stored_key = digest(client_key).digest()
+        channel = base64.b64encode(b"n,,").decode("ascii")
+        client_final_bare = f"c={channel},r={snonce}"
+        auth_message = f"{client_first_bare},{server_first},{client_final_bare}"
+        client_sig = hmac.new(stored_key, auth_message.encode(), digest).digest()
+        proof = base64.b64encode(bytes(a ^ b for a, b in zip(client_key, client_sig))).decode("ascii")
+        client_final = base64.b64encode(f"{client_final_bare},p={proof}".encode()).decode("ascii")
+        _send(s, f"<response xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>{client_final}</response>")
+        resp2 = _recv_until(s, _FAILURE_RE, timeout)
+        try: s.close()
+        except Exception: pass
+        return _classify_sasl_response(user, resp2, started, mech)
+    except Exception as e:
+        try: s.close()
+        except Exception: pass
+        return {"user": user, "verdict": "STREAM_FAIL", "detail": f"SCRAM probe error: {e}",
+                "elapsed_ms": int((time.monotonic() - started) * 1000)}
 
 
 # --------------------------------------------------- CLI
@@ -215,7 +303,7 @@ def main() -> int:
         timings.setdefault(v, []).append(r["elapsed_ms"])
         flag = {"USER_EXISTS": _c("+", "G"), "EXISTS_DISABLED": _c("!", "Y"),
                 "EXISTS_EXPIRED": _c("!", "Y"), "STREAM_FAIL": _c("X", "R"),
-                "NO_PLAIN": _c("?", "Y")}.get(v, " ")
+                "NO_MECH": _c("?", "Y")}.get(v, " ")
         print(f"  [{flag}] {user:30s}  {v:24s}  {r['elapsed_ms']:5d}ms  {r['detail']}")
         if out_fh:
             import json as _json
