@@ -52,6 +52,7 @@ _COMMANDS = {
 _LOCAL_COMMANDS = {"queue"}
 _RUN_REPORT_FLAGS = {"-report", "--report"}
 _RUN_DASHBOARD_FLAGS = {"-dashboard", "--dashboard"}
+_RUN_SERVE_FLAGS = {"-serve", "--serve"}
 _NMAP_SUFFIXES = (".xml", ".gnmap", ".nmap")
 _DEFAULT_DASHBOARD_BIND = "127.0.0.1"
 _DEFAULT_DASHBOARD_PORT = 8765
@@ -79,7 +80,8 @@ def _build_help() -> str:
         "Usage: aranum <subcommand> [args...]\n"
         "\n"
         "Examples:\n"
-        "  aranum run scan01 -report --session-name acme\n"
+        "  aranum run scan01 -report --session-name acme   # generates artifacts, non-blocking\n"
+        "  aranum run scan01 -serve  --session-name acme   # also serves the dashboard (blocks)\n"
         "  aranum iter --session-name acme\n"
         "  aranum dashboard               # newest outputs/<session>/raw + reports/dashboard\n"
         "\n"
@@ -568,9 +570,10 @@ def _first_bare_arg(args: Sequence[str]) -> tuple[int, str] | None:
     return None
 
 
-def _prepare_run_args(args: Sequence[str]) -> tuple[list[str], bool]:
+def _prepare_run_args(args: Sequence[str]) -> tuple[list[str], bool, bool]:
     run_args: list[str] = []
     generate_report = False
+    serve_dashboard = False
     i = 0
     while i < len(args):
         arg = args[i]
@@ -579,6 +582,11 @@ def _prepare_run_args(args: Sequence[str]) -> tuple[list[str], bool]:
             i += 1
         elif arg in _RUN_DASHBOARD_FLAGS:
             generate_report = True
+            i += 1
+        elif arg in _RUN_SERVE_FLAGS:
+            # Opt-in: chain report + dashboard AND start the blocking report server.
+            generate_report = True
+            serve_dashboard = True
             i += 1
         else:
             run_args.append(arg)
@@ -592,12 +600,12 @@ def _prepare_run_args(args: Sequence[str]) -> tuple[list[str], bool]:
             del run_args[idx]
             run_args = ["-i", str(resolved)] + run_args
 
-    return run_args, generate_report
+    return run_args, generate_report, serve_dashboard
 
 
 def _run_auto_enum(args: Sequence[str], session: str) -> int:
     dirs = _session_dirs(session)
-    run_args, generate_report = _prepare_run_args(args)
+    run_args, generate_report, serve_dashboard = _prepare_run_args(args)
     run_args = _add_default_output(run_args, dirs["raw"])
     _copy_input_artifact(_extract_option(run_args, {"-i", "--input"}), dirs["inputs"])
     rc = subprocess.run(build_command("run", run_args)).returncode
@@ -610,7 +618,18 @@ def _run_auto_enum(args: Sequence[str], session: str) -> int:
     if rc != 0:
         return rc
     _copy_report_artifacts(outdir, dirs["reports"])
-    return _run_dashboard([str(outdir), "--output", str(dirs["reports"] / "dashboard")])
+    # Generate-only by default so `aranum run … -report` stays non-interactive
+    # (a scheduled/CI wrapper must not block on http.server). Opt into the blocking
+    # report server with `-serve`/`--serve`.
+    dash_dir = dirs["reports"] / "dashboard"
+    dash_args = [str(outdir), "--output", str(dash_dir)]
+    if not serve_dashboard:
+        dash_args.append("--no-serve")
+    rc = _run_dashboard(dash_args)
+    if not serve_dashboard:
+        index = dash_dir / "index.html"
+        print(f"[*] dashboard generated: file://{index}", file=sys.stderr)
+    return rc
 
 
 def _run_iterative(args: Sequence[str], session: str) -> int:
@@ -656,7 +675,7 @@ def print_help() -> None:
         elif c == "dashboard":
             print("  - dashboard: wrapper for report-dashboard.py with safe defaults")
         elif c == "run":
-            print("  - run: bash auto-enum.sh; add -report to chain report + dashboard")
+            print("  - run: bash auto-enum.sh; -report chains report + dashboard (non-blocking), -serve also serves it")
         else:
             runner, script = _COMMANDS[c]
             print(f"  - {c}: {runner} {script.name}")

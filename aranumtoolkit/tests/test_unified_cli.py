@@ -91,6 +91,9 @@ class TestSubcommandDelegation(unittest.TestCase):
         self.assertEqual(server.kwargs["cwd"], str(outdir.parent / "enum-results-dashboard"))
 
     def test_run_report_flag_chains_report_and_dashboard(self):
+        # -report chains report + dashboard but is NON-BLOCKING: it generates the
+        # dashboard (--no-serve) and does not start http.server, so a scheduled/CI
+        # wrapper doesn't hang. See test_run_serve_flag_also_serves for the opt-in.
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             scan = root / "scan01.xml"
@@ -107,7 +110,7 @@ class TestSubcommandDelegation(unittest.TestCase):
                     os.chdir(old_cwd)
         self.assertEqual(rc, 0)
         calls = [c.args[0] for c in run_call.call_args_list]
-        self.assertEqual(len(calls), 4)
+        self.assertEqual(len(calls), 3)  # auto-enum, report.py, report-dashboard.py — NO http.server
         self.assertEqual(calls[0][1].endswith("auto-enum.sh"), True)
         self.assertIn("-i", calls[0])
         self.assertIn("scan01.xml", calls[0])
@@ -119,6 +122,30 @@ class TestSubcommandDelegation(unittest.TestCase):
         self.assertEqual(calls[2][1].endswith("report-dashboard.py"), True)
         self.assertIn("--output", calls[2])
         self.assertIn(str(REPO / "outputs" / "scan01" / "reports" / "dashboard"), calls[2])
+        # No 4th http.server call ⇒ non-blocking (the --no-serve is consumed by
+        # _run_dashboard to skip the server, not forwarded to the generator).
+
+    def test_run_serve_flag_also_serves(self):
+        # -serve opts into the blocking report server on top of the report+dashboard chain.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scan = root / "scan01.xml"
+            scan.write_text("<nmaprun/>")
+            (root / "scan01").mkdir()
+            with mock.patch.object(ARANUM_MOD.subprocess, "run") as run_call, \
+                 mock.patch.object(ARANUM_MOD, "_first_free_port", return_value=8765):
+                run_call.return_value = mock.Mock(returncode=0)
+                old_cwd = Path.cwd()
+                os.chdir(root)
+                try:
+                    rc = ARANUM_MOD.main(["run", "scan01", "-serve", "--session-name", "scan01"])
+                finally:
+                    os.chdir(old_cwd)
+        self.assertEqual(rc, 0)
+        calls = [c.args[0] for c in run_call.call_args_list]
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(calls[2][1].endswith("report-dashboard.py"), True)
+        self.assertNotIn("--no-serve", calls[2])
         self.assertEqual(calls[3][:3], [sys.executable, "-m", "http.server"])
 
     def test_dashboard_no_serve_only_generates(self):
