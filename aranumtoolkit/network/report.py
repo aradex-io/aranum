@@ -659,7 +659,9 @@ _AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"SeImpersonate \+ Spooler running.*PrintSpoofer", re.I),         "critical"),
     (re.compile(r"SeImpersonate \+ DCOM reachable.*RoguePotato", re.I),           "high"),
     # --- Named pipe writable to current user (Get-NamedPipes.ps1) ---
-    (re.compile(r"^WRITABLE PIPE:", re.M),                                        "high"),
+    # Get-NamedPipes emits via Hit(), which prepends "[+] ", so a "^"-anchored
+    # pattern never matched. Match the marker anywhere on the (per-line) input.
+    (re.compile(r"WRITABLE PIPE:", re.I),                                         "high"),
     # --- D2.1 Linux CVE-check outputs ---
     # pwnkit: polkit < 0.120 banner. HIGH (not critical): version-only detection
     # can't distinguish a distro backport-patched revision from a vulnerable one.
@@ -795,8 +797,12 @@ def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None
     if service_metadata is None:
         service_metadata = _load_service_metadata(out_dir)
     extras = list(extra_rules or [])
-    linux_rules = list(_BULK_RULES) + extras
-    win_rules   = list(_BULK_RULES_WIN) + extras
+    # Fold in the AD-depth / CVE-signal rules so bulk (winenum/linenum) findings —
+    # LAPS, ADCS/ESC, PrintNightmare, writable pipes, coercion primitives — actually
+    # get graded. They were only wired into the auto-enum classifier path, so a
+    # bulk-windows sweep produced ungraded (LOW-looking) AD-depth signals.
+    linux_rules = list(_BULK_RULES) + list(_AD_DEPTH_RULES) + extras
+    win_rules   = list(_BULK_RULES_WIN) + list(_AD_DEPTH_RULES) + extras
     for host_dir in sorted(p for p in out_dir.iterdir() if p.is_dir()):
         meta = host_dir / "_meta.json"
         if not meta.is_file():
