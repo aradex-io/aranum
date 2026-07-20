@@ -140,6 +140,16 @@ SERVICE_MAP = {
     # ClickHouse 8123 HTTP is unauth on the default `default` user out of the box.
     "nats":        ({4222, 8222},               r"^nats"),
     "clickhouse":  ({8123},                      r"a^"),  # fingerprints as http
+    # Additional service dispatchers (REVIEW-004): source/CI, legacy-trust,
+    # open-proxy, network-gear config, X11, Mac filesharing, and two NoSQL DBs.
+    "git":         ({9418},                      r"^git"),
+    "finger":      ({79},                        r"^finger"),
+    "squid":       ({3128},                      r"^(squid|http-proxy)"),
+    "tftp":        ({69},                        r"^tftp"),
+    "x11":         ({6000, 6001, 6002, 6003, 6004, 6005, 6006, 6007, 6008, 6009}, r"^x11"),
+    "afp":         ({548},                       r"^afp"),
+    "couchbase":   ({8091},                      r"a^"),  # fingerprints as http
+    "rethinkdb":   ({28015, 29015},              r"^rethinkdb"),
     # Container-orchestration APIs added in iteration B. docker_api is the
     # remote Docker daemon (2375 unauth = direct host RCE — flag as CRITICAL);
     # 2376 is TLS-authenticated. Kubernetes splits into apiserver (6443 TLS,
@@ -212,6 +222,11 @@ SERVICE_MAP = {
     "ike":        ({500, 4500},              r"^(isakmp|ike)"),
     "slp":        ({427},                    r"^svrloc"),
     "radius":     ({1812, 1813, 1645, 1646}, r"^radius"),
+    # UDP amplification/discovery cluster (REVIEW-004). ntp/ssdp are reflection-
+    # capable → opt-in aggressive; mdns is a single unicast discovery query.
+    "ntp":        ({123},                    r"^ntp"),
+    "ssdp":       ({1900},                   r"^(ssdp|upnp)"),
+    "mdns":       ({5353},                   r"^(mdns|zeroconf|dns-sd)"),
 }
 
 
