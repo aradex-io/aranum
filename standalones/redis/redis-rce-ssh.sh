@@ -124,10 +124,11 @@ for d in $SSH_DIRS; do
     # valid authorized_keys line regardless of whatever RDB cruft precedes it. If you
     # ever genuinely need a minimal RDB, gate it behind an explicit, disclosed --flush.
     rcmd SET sshpwn "$KEY_BLOB" >/dev/null
-    rcmd CONFIG SET dir "$d" 2>/dev/null
-    setrc=$?
-    if [ "$setrc" -ne 0 ]; then
-        miss "  CONFIG SET dir failed (path likely doesn't exist on target)"
+    # redis-cli exits 0 even on `(error) ERR ...`, so branch on the reply text,
+    # not $? — a non-writable/absent dir returns an error string, not a bad rc.
+    dir_out=$(rcmd CONFIG SET dir "$d" 2>&1)
+    if ! printf '%s' "$dir_out" | grep -qi '^OK'; then
+        miss "  CONFIG SET dir failed (path likely doesn't exist on target): ${dir_out:-no response}"
         continue
     fi
     rcmd CONFIG SET dbfilename authorized_keys >/dev/null
