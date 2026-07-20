@@ -341,10 +341,21 @@ run_dispatcher() {
         return
     fi
 
+    # A category is dispatched by convention to enum-<category>.sh. When a category
+    # name diverges from its dispatcher filename (see service-metadata.json's
+    # `dispatcher` field, e.g. https/xmpp -> enum-http.sh/enum-jabber.sh) the repo
+    # ships a symlink (enum-https.sh, enum-xmpp.sh) so this lookup still resolves.
     local script="$SCRIPT_DIR/enum-${svc}.sh"
     if [ ! -f "$script" ]; then
-        echo "[-] no dispatcher for $svc (looked for $script)"
-        run_log "skip: $svc (no dispatcher)"
+        if [ "$svc" = "openfire-admin" ]; then
+            echo "[!] $svc detected — manual handling. Openfire admin console (9090/9091)."
+            echo "    Detect/exploit CVE-2023-32315 via standalones/jabber/openfire-cve-2023-32315.py"
+            echo "    (read standalones/jabber/README.md + ADR-001 first)."
+            run_log "manual: $svc — see standalones/jabber/openfire-cve-2023-32315.py"
+        else
+            echo "[-] no dispatcher for $svc (looked for $script)"
+            run_log "skip: $svc (no dispatcher)"
+        fi
         RUN_SKIP+=1
         return
     fi
