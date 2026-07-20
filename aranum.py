@@ -49,7 +49,7 @@ _COMMANDS = {
     "bulk-linux": ("bash", _script_path("bulk-enum-linux.sh")),
     "bulk-windows": ("python", _script_path("bulk-enum-windows.py")),
 }
-_LOCAL_COMMANDS = {"queue"}
+_LOCAL_COMMANDS = {"queue", "version", "selftest", "deps-check"}
 _RUN_REPORT_FLAGS = {"-report", "--report"}
 _RUN_DASHBOARD_FLAGS = {"-dashboard", "--dashboard"}
 _RUN_SERVE_FLAGS = {"-serve", "--serve"}
@@ -647,9 +647,66 @@ def _run_bulk(command: str, args: Sequence[str], session: str) -> int:
     return subprocess.run(build_command(command, bulk_args)).returncode
 
 
+def _read_version() -> str:
+    """Canonical version: the VERSION file, else the CHANGELOG top released block."""
+    vf = PROJECT_ROOT / "VERSION"
+    if vf.is_file():
+        base = vf.read_text().strip()
+        if base:
+            return base
+    ch = PROJECT_ROOT / "CHANGELOG.md"
+    if ch.is_file():
+        for line in ch.read_text().splitlines():
+            s = line.strip()
+            if s.startswith("## [v"):
+                # "## [v0.32.0] — 2026-06-07" -> "0.32.0"
+                return s[len("## [v"):].split("]", 1)[0]
+    return "unknown"
+
+
+def _version_string() -> str:
+    v = _read_version()
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "describe", "--tags", "--always", "--dirty"],
+            capture_output=True, text=True,
+        )
+        desc = out.stdout.strip() if out.returncode == 0 else ""
+    except OSError:
+        desc = ""
+    return f"aranum {v} ({desc})" if desc else f"aranum {v}"
+
+
+def _cmd_version(_args: Sequence[str]) -> int:
+    print(_version_string())
+    return 0
+
+
+def _cmd_selftest(args: Sequence[str]) -> int:
+    smoke = PROJECT_ROOT / "aranumtoolkit" / "tests" / "smoke.sh"
+    if not smoke.is_file():
+        print(f"[!] selftest script not found: {smoke}", file=sys.stderr)
+        return 2
+    return subprocess.run(["bash", str(smoke), *args]).returncode
+
+
+def _cmd_deps_check(args: Sequence[str]) -> int:
+    dc = PROJECT_ROOT / "deps-check.sh"
+    if not dc.is_file():
+        print(f"[!] deps-check.sh not found: {dc}", file=sys.stderr)
+        return 2
+    return subprocess.run(["bash", str(dc), *args]).returncode
+
+
 def run(command: str, args: Sequence[str], session: str, session_explicit: bool = False) -> int:
     if command == "queue":
         return _queue(args)
+    if command == "version":
+        return _cmd_version(args)
+    if command == "selftest":
+        return _cmd_selftest(args)
+    if command == "deps-check":
+        return _cmd_deps_check(args)
     if command == "run":
         return _run_auto_enum(args, session)
     if command == "iter":
@@ -669,9 +726,15 @@ def run(command: str, args: Sequence[str], session: str, session_explicit: bool 
 
 def print_help() -> None:
     print(_build_help().rstrip())
+    _local_desc = {
+        "queue": "built-in queue viewer",
+        "version": "print the aranum version (also: aranum --version)",
+        "selftest": "run the smoke.sh self-test suite",
+        "deps-check": "run deps-check.sh — verify enumeration tooling",
+    }
     for c in sorted(set(_COMMANDS) | _LOCAL_COMMANDS):
         if c in _LOCAL_COMMANDS:
-            print(f"  - {c}: built-in queue viewer")
+            print(f"  - {c}: {_local_desc.get(c, 'built-in')}")
         elif c == "dashboard":
             print("  - dashboard: wrapper for report-dashboard.py with safe defaults")
         elif c == "run":
@@ -685,6 +748,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] in {"-h", "--help", "help"}:
         print_help()
+        return 0
+    if args[0] in {"-V", "--version"}:
+        print(_version_string())
         return 0
 
     cmd = args[0]

@@ -854,6 +854,16 @@ else
     s "git: could not derive latest released version from CHANGELOG.md"
 fi
 
+# VERSION file is the canonical version — must match the CHANGELOG top released block.
+if [ -f VERSION ] && [ -n "$latest_ver" ]; then
+    vfile=$(tr -d '[:space:]' < VERSION)
+    if [ "v$vfile" = "$latest_ver" ]; then
+        p "version: VERSION ($vfile) matches CHANGELOG latest release"
+    else
+        f "version: VERSION ($vfile) != CHANGELOG latest release ($latest_ver)"
+    fi
+fi
+
 # -----------------------------------------------------------------
 section "13. False-positive / true-positive regression harness"
 # -----------------------------------------------------------------
