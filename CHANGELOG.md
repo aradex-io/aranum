@@ -87,6 +87,7 @@ Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 - `standalones/graphql/gql.py`: removed the non-functional `diff --directive-bypass` flag. It injected only the `$gqlSkip: Boolean!` variable *declaration* and never threaded an actual `@skip(if:$gqlSkip)` directive onto any field, so (a) the intended authz-by-AST test never ran and (b) a declared-but-unused variable made any spec-compliant server reject the whole document — i.e. passing the flag actively broke the otherwise-working `diff`. Removed until it can be reimplemented correctly against the string-built document (tracked in REVIEW-004 §4).
 
 ### Testing
+- `aranumtoolkit/tests/test_new_dispatchers_tp.py` — true-positive tests (stub HTTP servers) proving the new ClickHouse/Couchbase dispatchers detect their own service. These caught a real bug: `crit` was undefined in `aranumtoolkit/network/_lib.sh`, so every CRITICAL marker in the REVIEW-004 dispatchers (couchbase/rethinkdb/git/squid/tftp/x11/ntp) and in `enum-redis.sh`/`enum-nfs.sh` silently failed with `crit: command not found`. Added `crit()` to `_lib.sh`.
 - `aranumtoolkit/tests/test_report_dashboard.py` — first unit test for the largest module (`report-dashboard.py`, ~91 KB, previously untested and already regressed once): asserts CRITICAL-parity with `report.py`, the `data.json` search payload, and per-service→wiki deep-links from a fixture.
 
 ### Security

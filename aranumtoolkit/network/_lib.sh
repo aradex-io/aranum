@@ -49,6 +49,7 @@ fi
 hit()  { printf "%s[+]%s %s\n" "$_ARANUM_GREEN" "$_ARANUM_RESET" "$*"; }
 miss() { printf "%s[-]%s %s\n" "$_ARANUM_YELLOW" "$_ARANUM_RESET" "$*"; }
 err()  { printf "%s[!]%s %s\n" "$_ARANUM_RED" "$_ARANUM_RESET" "$*"; }
+crit() { printf "%s[!!]%s %s\n" "$_ARANUM_RED" "$_ARANUM_RESET" "$*"; }
 
 # split  ip:port  or  [v6]:port  -> echoes "<ip> <port>"
 split_ipport() {
