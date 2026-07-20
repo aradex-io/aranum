@@ -1042,7 +1042,7 @@ def render_html(md_text: str) -> str:
         out.append(_inline(line))
     close_para(); close_list(); close_table()
 
-    return (f"<!doctype html><html><head><meta charset='utf-8'><title>aratool report</title>"
+    return (f"<!doctype html><html><head><meta charset='utf-8'><title>aranum report</title>"
             f"<style>{_HTML_STYLE}</style></head><body>" + "\n".join(out) + "</body></html>")
 
 

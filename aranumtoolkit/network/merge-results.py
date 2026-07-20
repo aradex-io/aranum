@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""merge-results.py — merge findings.json exports from multiple aratool runs.
+"""merge-results.py — merge findings.json exports from multiple aranum runs.
 
 The script only manipulates `findings.json` plus referenced evidence files:
 - Reads findings.json from each output directory.
@@ -27,7 +27,7 @@ _SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("sources", nargs="+", help="Input aratool output directories")
+    p.add_argument("sources", nargs="+", help="Input aranum output directories")
     p.add_argument("-o", "--output", required=True, type=Path, help="Output directory")
     p.add_argument("--label", default="merged", help="Merged report label")
     return p.parse_args()

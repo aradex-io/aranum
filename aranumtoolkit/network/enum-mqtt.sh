@@ -65,7 +65,7 @@ MQTT follow-ups:
     authorization. Publishing to an OT/ICS control topic (e.g. a setpoint
     or relay command) can cause physical harm.
   * Publish to a test topic (authorized lab only):
-    mosquitto_pub -h <ip> -p 1883 -t 'test/aratool' -m 'probe'
+    mosquitto_pub -h <ip> -p 1883 -t 'test/aranum' -m 'probe'
   * Interesting $SYS topics: $SYS/broker/clients/connected,
     $SYS/broker/messages/received, $SYS/broker/subscriptions/count
   * Check broker ACL config: if no auth + no ACL -> any client reads/writes

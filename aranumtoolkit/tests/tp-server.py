@@ -246,7 +246,7 @@ def serve(port, handler, name):
             break
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="TP stub server for aratool dispatcher regression tests")
+    parser = argparse.ArgumentParser(description="TP stub server for aranum dispatcher regression tests")
     parser.add_argument("--port-base", type=int, default=19010,
                         help="Base port (default 19010). Two consecutive ports are used.")
     args = parser.parse_args()

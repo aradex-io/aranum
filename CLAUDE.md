@@ -1,4 +1,4 @@
-# aratool — Agent Mandates
+# aranum — Agent Mandates
 
 Project instructions for any Claude/agent session operating inside this repo.
 **These rules override defaults. Follow them exactly.**
@@ -7,7 +7,7 @@ Project instructions for any Claude/agent session operating inside this repo.
 
 ## 1. Scope
 
-`aratool` is an authorized-testing-only collection of:
+`aranum` is an authorized-testing-only collection of:
 - Privilege-escalation enumeration scripts (Windows + Linux)
 - Network service enumeration dispatchers driven from nmap output
 - Targeted post-discovery exploitation helpers (ActiveMQ, Redis, SMTP, GraphQL)
