@@ -85,6 +85,29 @@ class TestStructuredFindingDefaults(unittest.TestCase):
             self.assertEqual(findings[0]["host"], "10.0.0.5")
 
 
+class TestWindowsBulkGrading(unittest.TestCase):
+    """REVIEW-004 §5 — the winenum grader must actually classify AD-depth signals."""
+
+    def test_writable_pipe_line_classifies(self):
+        # Get-NamedPipes.ps1 emits via Hit() which prepends "[+] "; the old
+        # "^WRITABLE PIPE:" rule never matched that prefix.
+        rules = list(R._BULK_RULES_WIN) + list(R._AD_DEPTH_RULES)
+        line = "[+] WRITABLE PIPE: \\\\.\\pipe\\spoolss — FullControl granted to Everyone"
+        self.assertEqual(R._classify(line, rules), "high")
+
+    def test_bulk_winenum_grades_writable_pipe(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            host = out / "WIN-DC01"
+            host.mkdir()
+            (host / "_meta.json").write_text(json.dumps({"rc": 0, "os": "windows"}))
+            (host / "winenum.txt").write_text(
+                "[+] WRITABLE PIPE: \\\\.\\pipe\\spoolss — FullControl granted to Everyone\n"
+            )
+            findings = list(R.walk_findings_bulk(out, []))
+            self.assertIn("high", {f["severity"] for f in findings})
+
+
 class TestServiceMetadataIntegration(unittest.TestCase):
     def test_service_metadata_file_is_loaded_when_present(self):
         with tempfile.TemporaryDirectory() as td:
