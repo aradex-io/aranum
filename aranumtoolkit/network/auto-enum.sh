@@ -26,6 +26,7 @@ NTLM_HASH=""
 DOMAIN=""
 DC_IP=""
 PARALLEL=4
+SERVICE_PARALLEL=1   # cross-service concurrency (1 = serial); --service-parallel N
 ONLY=""
 EXCLUDE=""
 DRY_RUN=0
@@ -59,6 +60,9 @@ Auth (optional — falls back to unauth):
 
 Tuning:
   -P, --parallel N    parallel hosts per service (default: 4)
+  --service-parallel N  run N service dispatchers concurrently (default: 1 =
+                      serial). Overlaps disjoint host:port sets; keep 1 for
+                      throttled/OT runs. Batched — waits every N launches.
   --only LIST         comma-sep services to run (e.g. smb,ldap,winrm)
   --exclude LIST      comma-sep services to skip
   --dry-run           print plan, don't execute
@@ -134,6 +138,7 @@ while [ $# -gt 0 ]; do
         -d|--domain)    DOMAIN="$2"; shift 2 ;;
         --dc-ip)        DC_IP="$2"; shift 2 ;;
         -P|--parallel)  PARALLEL="$2"; THROTTLE_EXPLICIT_PARALLEL=1; shift 2 ;;
+        --service-parallel) SERVICE_PARALLEL="$2"; shift 2 ;;
         --only)         ONLY="$2"; shift 2 ;;
         --exclude)      EXCLUDE="$2"; shift 2 ;;
         --dry-run)      DRY_RUN=1; shift ;;
@@ -440,11 +445,37 @@ PY
         RUN_FAIL+=1
         FAILED_SERVICES+=("$svc(rc=$rc)")
     fi
+    # Persist rc so the parallel path (backgrounded subshells) can tally outcomes.
+    echo "$rc" > "$svc_out/.rc" 2>/dev/null || true
 }
 
-for svc in $SERVICES; do
-    run_dispatcher "$svc"
-done
+# Cross-service dispatch. Default is serial (globals tally directly). With
+# --service-parallel N, run N dispatchers concurrently in batches; because the
+# backgrounded run_dispatcher runs in a subshell (globals don't propagate), the
+# OK/FAIL tally is recomputed from each service's .rc afterward.
+if [ "${SERVICE_PARALLEL:-1}" -gt 1 ] 2>/dev/null; then
+    echo "[*] cross-service parallelism enabled: $SERVICE_PARALLEL concurrent dispatchers"
+    run_log "cross-service parallelism: $SERVICE_PARALLEL"
+    running=0
+    for svc in $SERVICES; do
+        run_dispatcher "$svc" &
+        running=$((running + 1))
+        if [ "$running" -ge "$SERVICE_PARALLEL" ]; then wait; running=0; fi
+    done
+    wait
+    RUN_OK=0; RUN_FAIL=0; FAILED_SERVICES=()
+    for svc in $SERVICES; do
+        rcf="$OUTDIR/$svc/.rc"
+        [ -f "$rcf" ] || continue
+        rc=$(cat "$rcf" 2>/dev/null)
+        if [ "$rc" = "0" ]; then RUN_OK=$((RUN_OK + 1))
+        else RUN_FAIL=$((RUN_FAIL + 1)); FAILED_SERVICES+=("$svc(rc=$rc)"); fi
+    done
+else
+    for svc in $SERVICES; do
+        run_dispatcher "$svc"
+    done
+fi
 
 # ---------- 4. summary ----------
 echo
