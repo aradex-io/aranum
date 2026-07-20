@@ -27,6 +27,7 @@ aranum/
 │   ├── creds/                  # default creds, spray scheduling, hash formatting
 │   ├── graphql/                # GraphQL toolkit
 │   ├── activemq/ redis/ smtp/  # service-specific helpers
+│   ├── tomcat/                 # Manager WAR-deploy RCE (bring-your-own-WAR, gated)
 │   ├── jabber/                 # XMPP/Jabber helpers
 │   └── ot/                     # gated OT/ICS read-side ID
 └── outputs/<session>/          # generated engagement data
