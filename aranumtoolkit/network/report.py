@@ -300,6 +300,15 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"Solr reachable:.+ — (1\.|2\.|3\.|4\.|5\.|6\.|7\.|8\.[0-9]\.|8\.10|8\.11\.[0-3])", re.I), "medium"),
     (re.compile(r"\bSolr cores exposed:", re.I),                        "medium"),
     (re.compile(r"\bMSRPC anonymous srvinfo:", re.I),                   "medium"),
+    # Linux standalone privesc markers (container-detect / capabilities / group)
+    # so they grade when run individually and fed to report.py (auto-enum path).
+    (re.compile(r"\bdocker\.sock present\b", re.I),                    "critical"),
+    (re.compile(r"\b(release_agent|notify_on_release|core_pattern|sysrq-trigger) writable\b", re.I), "critical"),
+    (re.compile(r"\bCAP_SYS_ADMIN held\b|\blooks privileged\b", re.I), "critical"),
+    (re.compile(r"\bpossible host PID namespace\b", re.I),             "high"),
+    (re.compile(r"serviceaccount/token\b", re.I),                      "high"),
+    (re.compile(r"\bcap_(setuid|setgid|dac_read_search|dac_override|sys_admin|sys_ptrace|sys_module|sys_rawio)\S*\+ep", re.I), "high"),
+    (re.compile(r"^\s*\[\+\]\s*(docker|lxd|lxc|disk|shadow|adm)\b", re.I | re.M), "high"),
     # redis-rce-lua.sh — Lua EVAL RCE surface on modern Redis.
     (re.compile(r"\bEVAL scripting REACHABLE\b", re.I),                "high"),
     (re.compile(r"\bLUA_RCE: CVE-2024-31449 candidate\b", re.I),       "high"),
