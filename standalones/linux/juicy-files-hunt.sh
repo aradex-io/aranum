@@ -2,6 +2,7 @@
 # juicy-files-hunt.sh — local filesystem regex sweep for credentials and ops data.
 # Intended for authorized post-credential use via SSH stdin-pipe or mounted shares.
 set -uo pipefail
+[ -n "${BASH_VERSION:-}" ] || { echo "juicy-files-hunt.sh needs bash (uses mapfile/process-substitution); run with bash" >&2; exit 2; }
 
 PATHS="/etc /opt /srv /var/www /var/log /home /root /usr/local"
 MAX_HITS="${JUICY_MAX_HITS:-300}"
