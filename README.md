@@ -130,6 +130,15 @@ Each subsystem ships its own README documenting the per-tool surface — `standa
 | `aranumtoolkit/network/enum-etcd.sh` | /v2/keys + /metrics — CRITICAL on unauth k8s control-plane KV |
 | `aranumtoolkit/network/enum-nats.sh` | NATS (4222 client INFO banner + 8222 monitoring) — unauth `/varz` config exposure + `auth_required=false` anonymous pub/sub → CRITICAL |
 | `aranumtoolkit/network/enum-clickhouse.sh` | ClickHouse HTTP (8123) — `/ping` liveness + unauth `SHOW DATABASES`/`system.users` on the default no-password user → CRITICAL |
+| `aranumtoolkit/network/enum-mdns.sh` | mDNS/DNS-SD (5353/udp) — `_services._dns-sd._udp.local` PTR → advertised service catalog + real hostnames |
+| `aranumtoolkit/network/enum-git.sh` | git daemon (9418) — anonymous `git ls-remote` / ref advertisement → source + secret-history disclosure (CRITICAL) |
+| `aranumtoolkit/network/enum-finger.sh` | finger (79) — logged-in + common-account user enumeration |
+| `aranumtoolkit/network/enum-squid.sh` | Squid / open forward proxy (3128) — CONNECT test to a controllable URL; open proxy = internal pivot (CRITICAL). Override target with `ENUM_PROXY_TEST_URL` |
+| `aranumtoolkit/network/enum-tftp.sh` | TFTP (69/udp) — blind RRQ for canonical device configs (`running-config`, `pxelinux.cfg/default`, …); readable config = CRITICAL |
+| `aranumtoolkit/network/enum-x11.sh` | X11 (6000-6009) — `x11-access` open-display check (unauth screenshot/keylog surface → CRITICAL) |
+| `aranumtoolkit/network/enum-afp.sh` | AFP (548) — `afp-serverinfo`/`afp-showmount` server model + shares + guest UAM |
+| `aranumtoolkit/network/enum-couchbase.sh` | Couchbase mgmt (8091) — unauth `/pools` version/topology + bucket list (CRITICAL) |
+| `aranumtoolkit/network/enum-rethinkdb.sh` | RethinkDB (28015 driver / admin) — unauth driver handshake + admin UI (CRITICAL) |
 | `aranumtoolkit/network/enum-activemq.sh` | 61616 (OpenWire — CVE-2023-46604 candidate) + 8161 (web console / Jolokia — admin:admin → RCE) + 5672 (AMQP) + 61613 (STOMP) banner + version |
 | `aranumtoolkit/network/enum-https.sh` | symlink → `enum-http.sh`; routed by nmap-parse for ssl/http services. No separate logic — auto-enum dispatches via service name |
 | `aranumtoolkit/network/enum-unknown.sh` | nmap-parse catch-all for services that did not match any port/regex bucket — banner + HTTP/HTTPS probe, baseline `nmap -sV -sC`, then targeted NSE follow-ups (`http-*`, `ssl-*`, SSH/FTP/SMTP/Redis/VNC/RDP scripts) when the first pass suggests a protocol |
@@ -203,7 +212,9 @@ Three dispatchers cover high-risk UDP services that can cause operational disrup
 ./aranumtoolkit/network/auto-enum.sh -i scan.xml --ike          # IKE/IPsec UDP 500
 ./aranumtoolkit/network/auto-enum.sh -i scan.xml --slp          # SLP UDP 427
 ./aranumtoolkit/network/auto-enum.sh -i scan.xml --radius       # RADIUS UDP 1812/1813
-./aranumtoolkit/network/auto-enum.sh -i scan.xml --aggressive   # all three
+./aranumtoolkit/network/auto-enum.sh -i scan.xml --ntp          # NTP UDP 123 (mode-6/7 monlist)
+./aranumtoolkit/network/auto-enum.sh -i scan.xml --ssdp         # SSDP/UPnP UDP 1900
+./aranumtoolkit/network/auto-enum.sh -i scan.xml --aggressive   # all five
 
 # IKE aggressive-mode PSK hash harvest is doubly-gated within --ike:
 ENUM_IKE_AGGRESSIVE_MODE=1 ./aranumtoolkit/network/auto-enum.sh -i scan.xml --ike

@@ -88,6 +88,10 @@ Opt-in aggressive probes (E4 — disabled by default):
                       also setting ENUM_IKE_AGGRESSIVE_MODE=1.
   --slp               enable enum-slp.sh (UDP 427 — SLP discovery).
                       Amplification surface; NOT for arbitrary internet hosts.
+  --ntp               enable enum-ntp.sh (UDP 123 — mode-6 readvar + mode-7
+                      monlist; CVE-2013-5211 amplification precondition).
+  --ssdp              enable enum-ssdp.sh (UDP 1900 — UPnP M-SEARCH discovery;
+                      CVE-2020-12695 CallStranger surface).
   --radius            enable enum-radius.sh (UDP 1812/1813 — RADIUS probe +
                       BlastRADIUS CVE-2024-3596 precondition check).
   --aggressive        shorthand for --ike --slp --radius (all three).
@@ -143,7 +147,9 @@ while [ $# -gt 0 ]; do
         --ike)          AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED ike"; shift ;;
         --slp)          AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED slp"; shift ;;
         --radius)       AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED radius"; shift ;;
-        --aggressive)   AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED ike slp radius"; shift ;;
+        --ntp)          AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED ntp"; shift ;;
+        --ssdp)         AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED ssdp"; shift ;;
+        --aggressive)   AGGRESSIVE_ENABLED="$AGGRESSIVE_ENABLED ike slp radius ntp ssdp"; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "unknown arg: $1"; usage; exit 1 ;;
     esac
@@ -286,7 +292,7 @@ fi
 # Each flag (--ike / --slp / --radius / --aggressive) adds the name to
 # AGGRESSIVE_ENABLED; any not opted-in are stripped from the dispatch list.
 # The env gates in each dispatcher are a second independent check.
-AGGRESSIVE_SERVICES="ike slp radius"
+AGGRESSIVE_SERVICES="ike slp radius ntp ssdp"
 for svc in $AGGRESSIVE_SERVICES; do
     case " $AGGRESSIVE_ENABLED " in
         *" $svc "*)
@@ -307,6 +313,8 @@ for svc in $AGGRESSIVE_ENABLED; do
         ike)    export ENUM_RUN_IKE=1 ;;
         slp)    export ENUM_RUN_SLP=1 ;;
         radius) export ENUM_RUN_RADIUS=1 ;;
+        ntp)    export ENUM_RUN_NTP=1 ;;
+        ssdp)   export ENUM_RUN_SSDP=1 ;;
     esac
 done
 
