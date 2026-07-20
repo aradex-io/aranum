@@ -240,6 +240,22 @@
         {"id": "2", "name": "enumeration", "description": "KV and metrics checks"}
       ]
     },
+    "nats": {
+      "dispatcher": "enum-nats.sh",
+      "manual": false,
+      "phases": [
+        {"id": "1", "name": "discovery", "description": "NATS monitoring + client INFO discovery"},
+        {"id": "2", "name": "enumeration", "description": "unauth /varz config + auth_required check"}
+      ]
+    },
+    "clickhouse": {
+      "dispatcher": "enum-clickhouse.sh",
+      "manual": false,
+      "phases": [
+        {"id": "1", "name": "discovery", "description": "ClickHouse HTTP /ping discovery"},
+        {"id": "2", "name": "enumeration", "description": "unauth SHOW DATABASES / system.users"}
+      ]
+    },
     "docker": {
       "dispatcher": "enum-docker.sh",
       "manual": false,

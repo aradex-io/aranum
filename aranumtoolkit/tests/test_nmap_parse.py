@@ -96,6 +96,12 @@ class TestCategorize(unittest.TestCase):
         # non-standard port but http-named service still routes
         self.assertIn("http",  M.categorize(8888, "http"))
 
+    def test_nats_and_clickhouse_route_by_port(self):
+        # REVIEW-004 service-additions.
+        self.assertIn("nats",       M.categorize(4222, "nats"))
+        self.assertIn("nats",       M.categorize(8222, "http"))
+        self.assertIn("clickhouse", M.categorize(8123, "http"))
+
     def test_openfire_admin_port_only_never_steals_other_http(self):
         # 9090 routes to BOTH openfire-admin (port-set) AND http (port 9090
         # is also in http's port set). This dual-routing is intentional —
