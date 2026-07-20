@@ -1127,6 +1127,41 @@ def _inline(s: str) -> str:
 
 
 # ---------------------------------------------------- main
+_SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note"}
+
+
+def _to_sarif(findings: list[dict], label: str) -> dict:
+    """Minimal SARIF 2.1.0 subset so findings drop into standard security
+    dashboards / CI (GitHub code-scanning, DefectDojo, etc.)."""
+    results = []
+    for f in findings:
+        sev = str(f.get("severity", "low")).lower()
+        loc = []
+        ev = f.get("evidence_path")
+        if ev:
+            loc = [{"physicalLocation": {"artifactLocation": {"uri": str(ev)}}}]
+        results.append({
+            "ruleId": f.get("service", "finding") or "finding",
+            "level": _SARIF_LEVEL.get(sev, "note"),
+            "message": {"text": (f.get("title") or f.get("line", "")).strip()[:400]},
+            "locations": loc,
+            "properties": {
+                "host": f.get("host", ""), "port": f.get("port", ""),
+                "severity": sev, "finding_id": f.get("finding_id", ""),
+            },
+        })
+    return {
+        "version": "2.1.0",
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "runs": [{
+            "tool": {"driver": {"name": "aranum", "informationUri": "https://github.com/aradex-io/aranum",
+                                "version": _FINDINGS_SCHEMA_VERSION, "rules": []}},
+            "properties": {"label": label},
+            "results": results,
+        }],
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1138,6 +1173,8 @@ def main() -> int:
     ap.add_argument("--no-html", action="store_true", help="skip report.html")
     ap.add_argument("--findings-only", action="store_true",
                     help="just write findings.json (no .md or .html)")
+    ap.add_argument("--sarif", action="store_true",
+                    help="also write findings.sarif (SARIF 2.1.0 for CI / code-scanning)")
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir).resolve()
@@ -1194,6 +1231,11 @@ def main() -> int:
             findings_json["per_host"] = {redactor(h): v for h, v in findings_json["per_host"].items()}
     (out_dir / "findings.json").write_text(json.dumps(findings_json, indent=2))
     print(_c(f"[+] findings.json written ({len(findings)} findings)", "G"))
+
+    if args.sarif:
+        (out_dir / "findings.sarif").write_text(
+            json.dumps(_to_sarif(findings_json["findings"], label), indent=2))
+        print(_c("[+] findings.sarif written (SARIF 2.1.0)", "G"))
 
     if args.findings_only:
         return 0

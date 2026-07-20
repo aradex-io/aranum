@@ -31,6 +31,12 @@ TESTPLANs record test campaigns. Newest-first within each type.
 | [ROADMAP-002](ROADMAP-002-22MAY2026-tier1-tier2-enumeration.md) | 22 May 2026 | Tier-1/Tier-2 enumeration coverage |
 | [ROADMAP-001](ROADMAP-001-19MAY2026-thoroughness-execution.md) | 19 May 2026 | Thoroughness execution plan |
 
+## Reference
+
+| Doc | Topic |
+|---|---|
+| [SCHEMA.md](SCHEMA.md) | `findings.json` v2 schema + SARIF export contract |
+
 ## TESTPLAN — test campaigns
 
 | Doc | Date | Topic |
