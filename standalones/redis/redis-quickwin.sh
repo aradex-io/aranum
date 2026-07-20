@@ -22,7 +22,6 @@ PASS_LIST=""
 PASS_OVERRIDE=""
 PARALLEL=4
 
-# shellcheck disable=SC2034  # PASS_LIST: parsed but pending wire-through into the per-target cred sweep (TODO)
 while [ $# -gt 0 ]; do
     case "$1" in
         --targets)   TARGETS="$2"; shift 2 ;;
@@ -39,6 +38,7 @@ while [ $# -gt 0 ]; do
 done
 
 if ! have_redis_cli; then err "redis-cli not installed"; exit 1; fi
+if [ -n "$PASS_LIST" ] && [ ! -r "$PASS_LIST" ]; then err "--passlist not readable: $PASS_LIST"; exit 1; fi
 mkdir -p "$OUT"
 
 scan_one() {
@@ -136,7 +136,7 @@ scan_one() {
 }
 
 export -f scan_one parse_target probe_redis try_default_creds rcmd save_config restore_config have_redis_cli log hit miss err crit
-export OUT PASS_OVERRIDE _G _Y _R _C _RST
+export OUT PASS_OVERRIDE PASS_LIST _G _Y _R _C _RST
 
 # ---------------- main ----------------
 : > "$OUT/_tiers.tsv"

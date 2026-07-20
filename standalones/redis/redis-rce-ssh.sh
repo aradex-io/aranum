@@ -24,11 +24,10 @@ PUBKEY_INLINE=""
 SSH_USERS="root redis ubuntu admin centos debian ec2-user"  # candidate users to try
 SSH_DIRS=""  # auto-detect if empty
 NO_VERIFY=0
-# shellcheck disable=SC2034  # parsed by --keep; TODO: skip the restore_config step at script end when set
-KEEPALIVE=0
+KEEPALIVE=0   # --keep: leave the modified Redis config in place (skip restore on exit)
 WRITE=0
 
-# shellcheck disable=SC2034  # PASS read transitively by _redis_lib.sh's rcmd/rscript; KEEPALIVE: see TODO above
+# shellcheck disable=SC2034  # PASS is read transitively by _redis_lib.sh's rcmd/rscript
 while [ $# -gt 0 ]; do
     case "$1" in
         --target)     TARGET="$2"; shift 2 ;;
@@ -88,12 +87,17 @@ else
     err "--key or --key-inline required"; exit 1
 fi
 
-# Cleanup trap — always restore config
+# Cleanup trap — restore config on exit unless --keep was requested.
 SAVED_DIR=""; SAVED_DBFILE=""; SAVED_AOF=""
 on_exit() {
     if [ -n "$SAVED_DIR" ]; then
-        log "Restoring original Redis config"
-        restore_config
+        if [ "$KEEPALIVE" = "1" ]; then
+            err "--keep: leaving Redis config MODIFIED (dir/dbfilename/appendonly not reverted)."
+            err "        Revert manually when done: CONFIG SET dir '$SAVED_DIR'; CONFIG SET dbfilename '$SAVED_DBFILE'; CONFIG SET appendonly '$SAVED_AOF'"
+        else
+            log "Restoring original Redis config"
+            restore_config
+        fi
     fi
 }
 trap on_exit EXIT INT TERM
