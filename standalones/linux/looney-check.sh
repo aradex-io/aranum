@@ -9,29 +9,38 @@ C_RST=$'\033[0m'; C_HIT=$'\033[1;32m'; C_WARN=$'\033[1;33m'; C_HDR=$'\033[1;36m'
 
 printf "%s== CVE-2023-4911 Looney Tunables check ==%s\n" "$C_HDR" "$C_RST"
 
-# Pull glibc version from ldd (canonical) — fallback to package manager.
-VER=""
+# Pull the comparable upstream glibc version from ldd (canonical). Separately keep
+# the full distro package revision — most distros fixed CVE-2023-4911 via a
+# backport that leaves the upstream version (e.g. 2.35) unchanged, so version
+# alone cannot confirm exploitability without the package revision.
+VER=""; FULLVER=""
 if command -v ldd >/dev/null 2>&1; then
     VER=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
 fi
-if [ -z "$VER" ] && command -v rpm >/dev/null 2>&1; then
-    VER=$(rpm -q --queryformat '%{VERSION}' glibc 2>/dev/null)
+if command -v dpkg-query >/dev/null 2>&1; then
+    FULLVER=$(dpkg-query -W -f='${Version}' libc6 2>/dev/null)
 fi
-if [ -z "$VER" ] && command -v dpkg >/dev/null 2>&1; then
-    VER=$(dpkg-query -W -f='${Version}' libc6 2>/dev/null | sed 's/-.*//')
+if [ -z "$FULLVER" ] && command -v rpm >/dev/null 2>&1; then
+    FULLVER=$(rpm -q --queryformat '%{VERSION}-%{RELEASE}' glibc 2>/dev/null)
 fi
+if [ -z "$VER" ] && [ -n "$FULLVER" ]; then
+    VER=$(printf '%s' "$FULLVER" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+fi
+[ -z "$FULLVER" ] && FULLVER="$VER"
 
 if [ -z "$VER" ]; then
     printf "%s[?]%s glibc version not detectable — manual check via 'ldd --version'\n" "$C_WARN" "$C_RST"
     exit 0
 fi
-printf "  glibc version: %s\n" "$VER"
+printf "  glibc version: %s  (package revision: %s)\n" "$VER" "$FULLVER"
 
 # Vulnerable window: 2.34 (inclusive) .. 2.38 (inclusive)
 lo=$(printf '%s\n%s\n' "$VER" "2.34" | sort -V | head -1)
 hi=$(printf '%s\n%s\n' "$VER" "2.39" | sort -V | head -1)
 if [ "$lo" = "2.34" ] && [ "$hi" != "2.39" ]; then
-    printf "%s[+] CRITICAL: glibc %s in vulnerable window 2.34-2.38 — Looney Tunables%s\n" "$C_HIT" "$VER" "$C_RST"
+    printf "%s[+] HIGH: glibc %s in vulnerable window 2.34-2.38 — Looney Tunables candidate%s\n" "$C_HIT" "$VER" "$C_RST"
+    printf "  Version-only signal — CONFIRM the distro patch revision (%s): most distros\n" "$FULLVER"
+    printf "  backported the fix without bumping the upstream version, so this may already be patched.\n"
     printf "  Setuid binaries that link libc.so are the targets. Check for sudo/su/passwd:\n"
     for b in /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/mount /usr/bin/chsh; do
         [ -u "$b" ] && printf "    setuid: %s\n" "$b"

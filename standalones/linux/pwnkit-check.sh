@@ -23,20 +23,27 @@ else
     exit 0
 fi
 
-# Try to get version from the package manager (most reliable signal)
-VER=""
+# Try to get version from the package manager (most reliable signal). Keep the
+# full RELEASE/revision — distros backported the CVE-2021-4034 fix while leaving
+# the upstream version (e.g. 0.105 / 0.115) unchanged, so version alone FPs.
+VER=""; FULLVER=""
 if command -v rpm >/dev/null 2>&1; then
     VER=$(rpm -q --queryformat '%{VERSION}' polkit 2>/dev/null)
-elif command -v dpkg >/dev/null 2>&1; then
-    VER=$(dpkg-query -W -f='${Version}' policykit-1 2>/dev/null)
+    FULLVER=$(rpm -q --queryformat '%{VERSION}-%{RELEASE}' polkit 2>/dev/null)
+elif command -v dpkg-query >/dev/null 2>&1; then
+    FULLVER=$(dpkg-query -W -f='${Version}' policykit-1 2>/dev/null)
+    VER=$(printf '%s' "$FULLVER" | grep -oE '^[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
 fi
+[ -z "$FULLVER" ] && FULLVER="$VER"
 
 if [ -n "$VER" ]; then
-    printf "  polkit package version: %s\n" "$VER"
+    printf "  polkit package version: %s  (revision: %s)\n" "$VER" "$FULLVER"
     # Compare numerically against 0.120 (the fixed release).
     lowest=$(printf '%s\n%s\n' "$VER" "0.120" | sort -V | head -1)
     if [ "$lowest" != "0.120" ]; then
-        printf "%s[+] CRITICAL: polkit %s < 0.120 — PwnKit vulnerable%s\n" "$C_HIT" "$VER" "$C_RST"
+        printf "%s[+] HIGH: polkit %s < 0.120 — PwnKit candidate%s\n" "$C_HIT" "$VER" "$C_RST"
+        printf "  Version-only signal — CONFIRM the distro patch revision (%s): the fix was\n" "$FULLVER"
+        printf "  widely backported without bumping the upstream version, so this may be patched.\n"
         printf "  PoC: github.com/berdav/CVE-2021-4034 (compile + run, no args)\n"
     else
         printf "  polkit %s >= 0.120 — patched.\n" "$VER"
