@@ -221,6 +221,23 @@ def _queue(args: Sequence[str]) -> int:
     if not queue.is_file():
         print(f"[!] queue.jsonl missing: {queue}", file=sys.stderr)
         return 2
+    # Overlay live execution state written by auto-enum.sh --queue (append-only,
+    # last-write-wins) so `queue --status done` reflects actual runs, not just the
+    # planner's initial "pending".
+    state_overlay: dict[str, str] = {}
+    state_file = outdir / "queue.state.jsonl"
+    if state_file.is_file():
+        for sline in state_file.read_text(encoding="utf-8").splitlines():
+            sline = sline.strip()
+            if not sline:
+                continue
+            try:
+                srec = json.loads(sline)
+            except json.JSONDecodeError:
+                continue
+            tid = srec.get("task_id")
+            if tid is not None and srec.get("status"):
+                state_overlay[str(tid)] = srec["status"]
     count = 0
     with queue.open(encoding="utf-8") as f:
         for line in f:
@@ -231,6 +248,10 @@ def _queue(args: Sequence[str]) -> int:
             except json.JSONDecodeError:
                 print("[!] skipping malformed queue.jsonl line", file=sys.stderr)
                 continue
+            # Apply the live-state overlay to this item's status.
+            tid = item.get("task_id")
+            if tid is not None and str(tid) in state_overlay:
+                item["status"] = state_overlay[str(tid)]
             if status and item.get("status") != status:
                 continue
             count += 1
@@ -715,6 +736,11 @@ def run(command: str, args: Sequence[str], session: str, session_explicit: bool 
         return _run_bulk(command, args, session)
     if command == "dashboard":
         return _run_dashboard(args, session if session_explicit else None)
+    # plan/report/merge don't use the session output layout — surface an explicitly
+    # passed --session rather than silently swallowing it (it was stripped upstream).
+    if session_explicit and command in {"plan", "report", "merge"}:
+        print(f"[!] --session/--session-name is ignored by '{command}' "
+              f"(it has no session output layout — pass -o/--output instead)", file=sys.stderr)
     try:
         cmd = build_command(command, args)
     except (FileNotFoundError, ValueError) as e:
