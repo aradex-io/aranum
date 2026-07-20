@@ -23,6 +23,9 @@ echo
 echo "=== Capabilities ==="
 [ -r /proc/self/status ] && grep ^Cap /proc/self/status
 command -v capsh >/dev/null && capsh --print
+# Seccomp: 0=disabled (no syscall filter — wider escape surface), 2=filter active.
+# NoNewPrivs: 1 blocks privilege-gaining execve.
+grep -E '^(Seccomp|NoNewPrivs):' /proc/self/status 2>/dev/null
 
 echo
 echo "=== Privileged? ==="
@@ -59,5 +62,23 @@ echo "=== Service account tokens (Kubernetes) ==="
 
 echo
 echo "=== Escape candidates ==="
-[ -w /sys/fs/cgroup/release_agent ] && echo "[!!] release_agent writable — classic cgroup escape"
-grep -q 'cap_sys_admin' /proc/self/status 2>/dev/null && grep -q '/proc/sysrq' /proc 2>/dev/null
+[ -w /sys/fs/cgroup/release_agent ] && echo "[!!] release_agent writable — classic cgroup-v1 escape"
+[ -w /sys/fs/cgroup/notify_on_release ] && echo "[!!] notify_on_release writable — cgroup-v1 escape primitive"
+[ -w /proc/sys/kernel/core_pattern ] && echo "[!!] /proc/sys/kernel/core_pattern writable — container escape primitive"
+[ -w /proc/sysrq-trigger ] && echo "[!!] /proc/sysrq-trigger writable — host reachable via SysRq"
+
+# Decode CAP_SYS_ADMIN (bit 21) from CapEff — the literal string 'cap_sys_admin'
+# never appears in /proc/self/status (it's a hex mask), so grep for it was dead code.
+if [ -n "${EFF:-}" ] && [ "$(( 0x$EFF & (1 << 21) ))" -ne 0 ] 2>/dev/null; then
+    echo "[!!] CAP_SYS_ADMIN held — broad escape surface (mount, cgroup release_agent, etc.)"
+fi
+
+# Host PID namespace heuristic — if PID 1 looks like the host init rather than a
+# container entrypoint, the container likely shares the host PID namespace.
+if [ -r /proc/1/cmdline ]; then
+    p1=$(tr '\0' ' ' < /proc/1/cmdline 2>/dev/null)
+    case "$p1" in
+        *systemd*|*/sbin/init*|*/lib/systemd/systemd*)
+            echo "[!!] PID 1 = '${p1% }' — possible host PID namespace (--pid=host)" ;;
+    esac
+fi
