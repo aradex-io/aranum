@@ -1201,6 +1201,46 @@ elif [ -s "$LIVE_URLS" ]; then
         fi
         throttle_sleep
 
+        # --- 24. AD CS web enrollment (ESC8 relay target) ---
+        # NTLM-relay-to-certsrv → domain persistence. Marker: the certsrv page or
+        # a 401 WWW-Authenticate: NTLM/Negotiate on /certsrv/. Cross-links to
+        # enum-smb.sh's relay candidates.
+        cs_hdr="$OUT/prod_certsrv_hdr_${safe}.txt"
+        cs_body=$(curl -ks "${CURL_ARGS[@]}" \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
+            -D "$cs_hdr" -w "\n---HTTP-STATUS:%{http_code}---\n" \
+            "${url}/certsrv/certfnsh.asp" 2>/dev/null)
+        cs_status=$(echo "$cs_body" | grep -oE 'HTTP-STATUS:[0-9]+' | tail -1 | cut -d: -f2)
+        cs_body=$(echo "$cs_body" | sed '/---HTTP-STATUS:/d')
+        if echo "$cs_body" | grep -qi "Microsoft Active Directory Certificate Services" \
+           || { [ "$cs_status" = "401" ] && grep -qiE 'WWW-Authenticate:.*(NTLM|Negotiate)' "$cs_hdr" 2>/dev/null && grep -qi 'certsrv' "$cs_hdr" 2>/dev/null; }; then
+            hit "ESC8 relay target: AD CS web enrollment at ${url}/certsrv/ (relay coerced NTLM here — see enum-smb.sh _relay_candidates.txt)"
+        fi
+        throttle_sleep
+
+        # --- 25. Exchange OWA/ECP/Autodiscover (ProxyShell/ProxyLogon surface) ---
+        for xpath in /owa/ /ecp/ /autodiscover/autodiscover.xml /mapi/; do
+            xh="$OUT/prod_exchange_hdr_${safe}.txt"
+            xstatus=$(curl -ks "${CURL_ARGS[@]}" -o /dev/null -D "$xh" -w '%{http_code}' \
+                --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
+                "${url}${xpath}" 2>/dev/null)
+            if grep -qiE 'X-OWA-Version|X-FEServer|Server:.*Microsoft-IIS' "$xh" 2>/dev/null \
+               && { [ "$xstatus" = "401" ] || [ "$xstatus" = "302" ] || [ "$xstatus" = "200" ]; }; then
+                hit "Exchange endpoint ${xpath} detected: ${url} (ProxyShell/ProxyLogon pre-auth surface — check version)"
+                break
+            fi
+        done
+        throttle_sleep
+
+        # --- 26. ADFS ---
+        adfs_status=$(curl -ks "${CURL_ARGS[@]}" -o "$OUT/prod_adfs_${safe}.txt" -w '%{http_code}' \
+            --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME" \
+            "${url}/adfs/ls/idpinitiatedsignon.aspx" 2>/dev/null)
+        if [ "$adfs_status" = "200" ] && grep -qiE 'idpinitiatedsignon|SignInOtherSite|AD FS' "$OUT/prod_adfs_${safe}.txt" 2>/dev/null; then
+            hit "ADFS sign-on page detected: ${url}/adfs/ls/ (password-spray + coercion surface)"
+        fi
+        throttle_sleep
+
     done < "$PRODUCT_URLS"
     rm -f "$PRODUCT_URLS"
 fi
