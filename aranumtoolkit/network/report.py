@@ -245,6 +245,15 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bCRITICAL: UNAUTH ClickHouse\b", re.I),             "critical"),
     (re.compile(r"\bClickHouse HTTP interface alive\b", re.I),         "low"),
     (re.compile(r"\bNATS INFO banner\b", re.I),                        "low"),
+    # REVIEW-004 TCP service-additions.
+    (re.compile(r"\bUNAUTH git daemon\b", re.I),                       "critical"),
+    (re.compile(r"\bOPEN PROXY:", re.I),                               "critical"),
+    (re.compile(r"\bX11 OPEN DISPLAY\b", re.I),                        "critical"),
+    (re.compile(r"\bTFTP readable config", re.I),                      "critical"),
+    (re.compile(r"\bUNAUTH Couchbase mgmt\b", re.I),                   "critical"),
+    (re.compile(r"\bUNAUTH RethinkDB\b", re.I),                        "critical"),
+    (re.compile(r"\bfinger responds with user info\b", re.I),         "medium"),
+    (re.compile(r"\bAFP (?:server|shares)\b", re.I),                  "low"),
     (re.compile(r"\binsecure apiserver\b", re.I),                       "critical"),
     (re.compile(r"\bauth bypass\b", re.I),                              "critical"),
     (re.compile(r"\bcipher 0\b", re.I),                                 "critical"),
@@ -290,6 +299,10 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     # redis-rce-lua.sh — Lua EVAL RCE surface on modern Redis.
     (re.compile(r"\bEVAL scripting REACHABLE\b", re.I),                "high"),
     (re.compile(r"\bLUA_RCE: CVE-2024-31449 candidate\b", re.I),       "high"),
+    # enum-redis.sh — reachability class + CVE-2022-0543.
+    (re.compile(r"\bUNAUTH Redis\b", re.I),                            "critical"),
+    (re.compile(r"\bCVE-2022-0543 candidate\b", re.I),                 "critical"),
+    (re.compile(r"\bRedis Sentinel\b.*master topology", re.I),         "medium"),
     # proc-hardening-check.sh — weak sysctl/LSM/proc hardening (host audit).
     (re.compile(r"HARDENING:.*(ptrace_scope=0|unprivileged_bpf_disabled=0|suid_dumpable)", re.I), "medium"),
     (re.compile(r"\bHARDENING:\b", re.I),                              "low"),
@@ -321,6 +334,10 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     # so the intent is clear and the rule survives a future rule-list rewrite).
     (re.compile(r"\bAGGRESSIVE MODE PSK HASH HARVESTED:", re.I),       "critical"),
     (re.compile(r"\bSLP AMPLIFICATION VECTOR \(CVE-2023-29552\):", re.I), "critical"),
+    (re.compile(r"\bNTP AMPLIFICATION VECTOR \(CVE-2013-5211", re.I),   "critical"),
+    (re.compile(r"\bNTP responds to mode-6 readvar\b", re.I),          "medium"),
+    (re.compile(r"\bSSDP/UPnP responder\b", re.I),                     "medium"),
+    (re.compile(r"\bmDNS/DNS-SD catalog\b", re.I),                     "low"),
     (re.compile(r"\bCRITICAL: RADIUS Access-Accept to bogus credential:", re.I), "critical"),
     (re.compile(r"\bRADIUS BlastRADIUS \(CVE-2024-3596\) precondition:", re.I), "high"),
     (re.compile(r"\bSLP service-type list exposed \(HIGH-VALUE\):", re.I), "high"),
@@ -419,6 +436,36 @@ def _clean_line(line: str) -> str:
     return _ANSI_RE.sub("", line)
 
 
+# Prefilter cache: one combined alternation regex per (flag-group), built from the
+# EXACT same rule patterns, so short-circuiting on it can never drop a finding — if
+# none of the combined regexes matches, no individual rule can match either. This
+# turns the per-line hot path from ~90 Python-level .search() calls into a couple of
+# C-level alternation scans for the overwhelmingly-common no-match line.
+_PREFILTER_CACHE: dict[int, tuple] = {}
+
+
+def _prefilter_for(rules: list[tuple[re.Pattern, str]]):
+    key = id(rules)
+    pf = _PREFILTER_CACHE.get(key)
+    if pf is None:
+        groups: dict[int, list[str]] = defaultdict(list)
+        for pat, _sev in rules:
+            groups[pat.flags].append(pat.pattern)
+        combined = []
+        for flags, pats in groups.items():
+            try:
+                combined.append(re.compile("|".join(f"(?:{p})" for p in pats), flags))
+            except re.error:
+                # A pattern that won't combine (named groups/backrefs) → disable the
+                # prefilter entirely (fall back to the full loop; never drop findings).
+                pf = ()
+                _PREFILTER_CACHE[key] = pf
+                return pf
+        pf = tuple(combined)
+        _PREFILTER_CACHE[key] = pf
+    return pf
+
+
 def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
     """Return the severity for a line, or None if no rule matched."""
     # Cap length before regex: an operator-supplied --severity-rules pattern can
@@ -426,6 +473,9 @@ def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
     # is a mitigation (Python re has no match timeout). Findings text we care
     # about is short; the normalized line is truncated to 300 chars downstream.
     line = _clean_line(line)[:4096]
+    prefilter = _prefilter_for(rules)
+    if prefilter and not any(cre.search(line) for cre in prefilter):
+        return None
     for pat, sev in rules:
         if pat.search(line):
             return sev
