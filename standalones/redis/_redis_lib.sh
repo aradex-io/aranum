@@ -79,6 +79,12 @@ probe_redis() {
 # Try a list of common passwords; on success, $PASS is set and AUTHED=1.
 try_default_creds() {
     local candidates=("" redis password foobared default 123456 admin)
+    # Operator-supplied wordlist (redis-quickwin --passlist) is tried first.
+    if [ -n "${PASS_LIST:-}" ] && [ -r "${PASS_LIST:-}" ]; then
+        local extra=() line
+        while IFS= read -r line; do [ -n "$line" ] && extra+=("$line"); done < "$PASS_LIST"
+        candidates=("${extra[@]}" "${candidates[@]}")
+    fi
     for p in "${candidates[@]}"; do
         local out
         if [ -z "$p" ]; then
