@@ -4,7 +4,11 @@
 
 set -u
 
-# Curated subset of GTFOBins SUID-exploitable binaries
+# Curated subset of GTFOBins SUID-exploitable binaries.
+# DATA-PROVENANCE (see aranumtoolkit/docs/DATA-SOURCES.md):
+#   dataset: gtfobins-suid-subset
+#   source:  https://gtfobins.github.io/ (function=suid)
+#   updated: 2026-05
 GTFO_SUID="aa-exec ash awk base32 base64 bash busybox bzip2 cat chmod chown chroot cp csh cut date dash dd diff dmsetup docker easy_install ed emacs env eqn expand expect file find flock fmt fold gawk gdb git grep gzip head ionice jjs jq journalctl ksh ksshell ld.so less ln logsave lualatex luatex lwp-download make man mawk more mount mv nano nice nmap node nohup numfmt openvpn paste perl pico pip pr ptx pwsh python rbash readelf rev rlwrap rpm rsync rtorrent run-mailcap rvim screen script sed setarch setfacl setlock sftp shuf socat soelim sort split ssh ssh-keygen ssh-keyscan start-stop-daemon stdbuf strace strings sysctl systemctl tac tail taskset tclsh tdbtool tee telnet tftp tic time timeout tmux top ul unexpand uniq unshare update-alternatives uudecode uuencode vi view vigr vim vimdiff w3m watch wget whois wish xargs xelatex xetex xmodmap xmore xxd xz yash zip zsoelim zsh zstd"
 
 echo "Scanning for SUID/SGID binaries (excluding common safe paths)..."
