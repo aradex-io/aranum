@@ -68,7 +68,8 @@ The detector (`redis-quickwin.sh`) classifies each host:
 
 **Smoke-test result against Redis 7.2**:
 - With default config: blocked at policy (`enable-module-command no`). Detector correctly downgrades tier.
-- With `enable-module-command yes`: rogue master delivers payload, but Redis 7.x deletes the `.so` after RDB-signature validation fails. The standard rogue-master approach used here is no longer sufficient; a polyglot RDB+ELF payload is required (TODO in `module/README.md`).
+- With `enable-module-command yes`: rogue master delivers payload, but Redis 7.x deletes the `.so` after RDB-signature validation fails. The standard rogue-master approach used here is no longer sufficient; a polyglot RDB+ELF payload would be required to keep using the module path.
+- **On modern 7.x the live RCE surface is the Lua interpreter, not modules.** Use [`redis-rce-lua.sh`](./redis-rce-lua.sh) — it version-gates CVE-2024-31449 (authenticated `EVAL` stack overflow in the Lua `bit` library, fixed 7.4.1) and, with `--verify`, confirms `EVAL` scripting is actually reachable (ACL-permitted) by running a benign marker script. Per §1 it detects + verifies the precondition and points at public PoCs; it does not ship the memory-corruption payload.
 
 ## Prereqs
 

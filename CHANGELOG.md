@@ -13,6 +13,7 @@ Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 `aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md`.
 
 ### Added
+- `standalones/redis/redis-rce-lua.sh` — new Lua/`EVAL` RCE detection + reachability helper for modern Redis (where 7.0+ blocks `MODULE LOAD`). Version-gates CVE-2024-31449 (authenticated Lua `bit`-lib stack overflow, fixed 7.4.1) and, with `--verify`, confirms `EVAL` scripting is ACL-permitted via a benign marker script. Per §1 it detects/verifies the precondition and points at public PoCs rather than shipping the memory-corruption payload; `report.py` grades the `EVAL scripting REACHABLE` / `LUA_RCE` markers. Resolves the modern-Redis dead-end noted in the redis README.
 - `wiki/` — 30 new quick-win playbook pages closing the gap between the wiki and the dispatcher fleet: activemq, artifact, backup, clickhouse, consul, etcd, flexnet, hpc, ike, imap, influxdb, ipp, jabber, kafka, monitoring, msrpc, nats, neo4j, netbios-ns, platform, pop3, print, radius, sip, slp, solr, storage, unknown, vault, zookeeper. Every routable `enum-<svc>.sh` dispatcher now has a dashboard-linkable playbook; `test_wiki.py` gained a coverage assertion so a new dispatcher can't ship without one.
 - `aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md` — the Fable-5 whole-toolkit audit that drove this remediation, with a §9 remediation-status ledger (done vs deferred).
 - `aranumtoolkit/docs/README.md` — index of the dated ADR/REVIEW/ROADMAP/TESTPLAN docs (status/date/topic).
