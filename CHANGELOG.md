@@ -22,6 +22,9 @@ Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 - `aranumtoolkit/network/auto-enum.sh`: the `openfire-admin` category (9090/9091, `manual`) now prints an actionable hint pointing at `standalones/jabber/openfire-cve-2023-32315.py` instead of the generic "no dispatcher" skip.
 - `standalones/redis/redis-rce-ssh.sh`: `CONFIG SET dir` failure detection branched on `$?`, but `redis-cli` exits 0 even when the server returns `(error) ERR ...`, so a non-existent/unwritable candidate dir was never detected and produced a confusing later `SAVE failed` instead. Now branches on the reply text (`^OK`), consistent with the `MODULE LOAD`/`SAVE` checks elsewhere in the redis toolkit.
 
+### Changed
+- `aranum.py`: `run … -report` now generates the report + dashboard **without** starting the blocking `http.server`, so the documented flow is usable non-interactively (scheduled/CI wrappers no longer hang). It prints the generated `file://…/index.html` path on completion. New `-serve`/`--serve` flag opts back into the auto-served view. (`aranum dashboard` and the standalone dashboard command are unchanged — they still serve by default.)
+
 ### Removed
 - `standalones/graphql/gql.py`: removed the non-functional `diff --directive-bypass` flag. It injected only the `$gqlSkip: Boolean!` variable *declaration* and never threaded an actual `@skip(if:$gqlSkip)` directive onto any field, so (a) the intended authz-by-AST test never ran and (b) a declared-but-unused variable made any spec-compliant server reject the whole document — i.e. passing the flag actively broke the otherwise-working `diff`. Removed until it can be reimplemented correctly against the string-built document (tracked in REVIEW-004 §4).
 
