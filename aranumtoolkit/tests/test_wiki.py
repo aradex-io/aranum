@@ -70,6 +70,23 @@ class TestWikiRenderer(unittest.TestCase):
         missing = [s for s in want if s not in amap]
         self.assertEqual(missing, [], f"missing wiki pages: {missing}")
 
+    def test_every_dispatcher_has_a_wiki_page(self):
+        # Every routable enum-<svc>.sh dispatcher must have a quick-win page (the
+        # dashboard deep-links findings to them). Symlinks resolve to their target's
+        # page; `https` -> http, `xmpp` -> jabber. Keep this list empty.
+        amap = WIKI.alias_map(WIKI.load_pages())
+        exempt = {"https"}  # symlink to enum-http.sh (http page covers it)
+        missing = []
+        for f in sorted(NET.glob("enum-*.sh")):
+            if f.is_symlink():
+                continue
+            svc = f.stem[len("enum-"):]
+            if svc in exempt:
+                continue
+            if svc not in amap:
+                missing.append(svc)
+        self.assertEqual(missing, [], f"dispatchers with no wiki page: {missing}")
+
 
 class TestWikiDashboardIntegration(unittest.TestCase):
     def test_dashboard_emits_wiki_and_links_findings(self):
