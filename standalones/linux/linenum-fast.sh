@@ -36,10 +36,14 @@ ARCH=$(uname -m); echo "Arch    : $ARCH"
 
 # Kernel exploit hints (date-cutoff style — coarse signal)
 KVER=$(uname -r | grep -oE '^[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+# Dot-anchored minor patterns so e.g. 6.15.0 lands in the 6.1x bucket, not 6.[0-5].
 case "$KVER" in
   2.6.*|3.[0-9]|3.[0-9].*|3.10.*|3.11.*|3.12.*|3.13.*) warn "Kernel $KVER — likely DirtyCow / overlayfs / family" ;;
-  4.[0-9].*|4.1[0-3].*) warn "Kernel $KVER — check eBPF (CVE-2017-16995), DirtyCow late-3.x" ;;
+  4.[0-9].*|4.1[0-9].*) warn "Kernel $KVER — check eBPF (CVE-2017-16995), DirtyCow late-3.x, 4.x-LTS LPEs" ;;
   5.[0-9].*) warn "Kernel $KVER — pwnkit/Looney/nf_tables/io_uring/ksmbd era" ;;
+  5.1[0-5].*) warn "Kernel $KVER — DirtyPipe (CVE-2022-0847 <5.16.11/5.15.25), nf_tables, StackRot" ;;
+  5.1[6-9].*|6.[0-5].*) warn "Kernel $KVER — nf_tables (CVE-2024-1086), OverlayFS/GameOver(lay), io_uring" ;;
+  6.[6-9].*|6.1[0-9].*) warn "Kernel $KVER — recent LPEs; check io_uring_disabled sysctl + nf_tables" ;;
 esac
 
 # ---------- USER / GROUPS ----------
@@ -68,15 +72,17 @@ done
 # ---------- SUDO ----------
 hdr "SUDO"
 sudo -V 2>/dev/null | head -1
-SUDO_VER=$(sudo -V 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-# Baron Samedit (CVE-2021-3156) — patched in 1.9.5p2 — fall through to the
-# CVE-2019-14287 hint as well so both flags fire on pre-1.8.28 hosts. `;;&`
+# Keep the pN patchlevel so the 1.9.17 vs 1.9.17p1 (fixed) distinction holds.
+SUDO_VER=$(sudo -V 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(p[0-9]+)?' | head -1)
+# Coarse triage (see sudo-enum.sh for sort -V range-accurate signals). `;;&`
 # is the bash "fall through to test the next pattern" terminator.
 case "$SUDO_VER" in
   1.8.2|1.8.3*|1.8.4*|1.8.5*|1.8.6*|1.8.7*|1.8.8*|1.8.9*|1.8.10*|1.8.11*|1.8.12*|1.8.13*|1.8.14*|1.8.15*|1.8.16*|1.8.17*|1.8.18*|1.8.19*|1.8.20*|1.8.21*|1.8.22*|1.8.23*|1.8.24*|1.8.25*|1.8.26*|1.8.27*|1.8.28*|1.8.29*|1.8.30*|1.8.31*|1.9.0|1.9.1|1.9.2|1.9.3|1.9.4|1.9.5*)
     warn "sudo $SUDO_VER — possibly CVE-2021-3156 (Baron Samedit)" ;;&
   1.8.[0-9]|1.8.1[0-9]|1.8.2[0-9])
-    warn "sudo $SUDO_VER — also check CVE-2019-14287 (sudo -u#-1)" ;;
+    warn "sudo $SUDO_VER — also check CVE-2019-14287 (sudo -u#-1)" ;;&
+  1.9.14*|1.9.15*|1.9.16*|1.9.17)
+    warn "sudo $SUDO_VER — check CVE-2025-32463 (--chroot) / CVE-2025-32462 (--host), fixed 1.9.17p1" ;;
 esac
 sudo -n -l 2>/dev/null
 [ $? -ne 0 ] && echo "  (sudo -l requires password; cannot enumerate without it)"

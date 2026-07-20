@@ -13,6 +13,7 @@ Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 `aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md`.
 
 ### Enhanced
+- `standalones/linux/linenum-fast.sh`: the kernel-hint `case` matched no 5.10/5.15/6.x kernel — i.e. the majority of 2026 hosts got zero kernel-exploit signal. Added dot-anchored arms for 5.10–5.15 (DirtyPipe/StackRot), 5.16–6.5 (nf_tables/GameOverlay/io_uring), and 6.6+ (recent LPEs + io_uring sysctl), widened the 4.x arm to all 4.1x LTS, and refreshed the sudo triage to keep the `pN` patchlevel and flag the 2025 CVE-2025-32462/32463 window (1.9.14–1.9.17).
 - `standalones/linux/sudo-enum.sh`: added the 2025 sudo local-root CVEs — CVE-2025-32463 (`sudo --chroot`, affected 1.9.14–1.9.17) and CVE-2025-32462 (`sudo --host` rule leak, affected 1.8.8–1.9.17; both fixed 1.9.17p1) — and replaced the brittle glob version matching with `sort -V` range checks that preserve the `pN` patchlevel (the parse previously discarded it). Added a note that these are version-based signals a distro may have patched via backport without bumping the version.
 
 ### Fixed
