@@ -71,4 +71,39 @@ while read -r target; do
     fi
 done < "$TARGETS"
 
+# 3) regreSSHion (CVE-2024-6387) + Terrapin (CVE-2023-48795) signals.
+#    regreSSHion: pre-auth RCE in OpenSSH < 4.4p1 and 8.5p1 <= x < 9.8p1.
+#    Distro backports blur the version (e.g. Ubuntu patched 9.6p1-3ubuntu13.x
+#    without a version bump) — signal only. Terrapin: prefix-truncation attack
+#    mitigated by strict-kex in 9.6+; confirm via the negotiated ciphers.
+while read -r target; do
+    [ -z "$target" ] && continue
+    read -r ip port <<< "$(split_ipport "$target")"
+    banner_file="$OUT/$ip/banner.txt"
+    [ ! -s "$banner_file" ] && continue
+    full=$(grep -oE 'OpenSSH_[0-9]+\.[0-9]+(p[0-9]+)?' "$banner_file" | head -1 | sed 's/OpenSSH_//')
+    [ -z "$full" ] && continue
+    maj=$(echo "$full" | cut -d. -f1)
+    min=$(echo "$full" | sed -E 's/^[0-9]+\.([0-9]+).*/\1/')
+    case "$maj$min" in *[!0-9]*) continue ;; esac
+    mm=$((maj * 100 + min))
+    # regreSSHion: mm < 4.04  OR  8.05 <= mm < 9.08 (major*100+minor).
+    if [ "$mm" -lt 404 ] || { [ "$mm" -ge 805 ] && [ "$mm" -lt 908 ]; }; then
+        echo "OpenSSH $full — CVE-2024-6387 (regreSSHion) pre-auth RCE candidate (confirm distro backport revision)" \
+            > "$OUT/$ip/_cve-2024-6387_signal_${port}.txt"
+        hit "CVE-2024-6387 regreSSHion candidate: $ip:$port OpenSSH $full"
+    fi
+    # Terrapin: prefer ssh-audit's verdict; else flag pre-9.6 (no strict-kex) as a candidate.
+    audit_file="$OUT/$ip/ssh-audit.txt"
+    if [ -s "$audit_file" ] && grep -qi 'CVE-2023-48795' "$audit_file"; then
+        echo "OpenSSH $full — CVE-2023-48795 (Terrapin) signal flagged by ssh-audit" \
+            > "$OUT/$ip/_cve-2023-48795_signal_${port}.txt"
+        hit "CVE-2023-48795 Terrapin (ssh-audit): $ip:$port"
+    elif [ "$mm" -lt 906 ]; then
+        echo "OpenSSH $full — CVE-2023-48795 (Terrapin) candidate: pre-9.6 lacks strict-kex; confirm chacha20-poly1305 / CBC-EtM offered" \
+            > "$OUT/$ip/_cve-2023-48795_signal_${port}.txt"
+        log "  Terrapin candidate $ip:$port (OpenSSH $full < 9.6)"
+    fi
+done < "$TARGETS"
+
 log "ssh dispatcher done."
