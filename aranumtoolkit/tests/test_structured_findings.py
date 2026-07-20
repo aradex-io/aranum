@@ -85,6 +85,22 @@ class TestStructuredFindingDefaults(unittest.TestCase):
             self.assertEqual(findings[0]["host"], "10.0.0.5")
 
 
+class TestSarifExport(unittest.TestCase):
+    def test_sarif_shape_and_levels(self):
+        findings = [
+            {"service": "redis", "severity": "critical", "title": "UNAUTH Redis",
+             "host": "10.0.0.1", "port": "6379", "evidence_path": "redis/x.txt", "finding_id": "AR-2-a"},
+            {"service": "http", "severity": "medium", "line": "CORS reflect", "host": "10.0.0.2", "port": "80"},
+            {"service": "ssh", "severity": "low", "line": "banner", "host": "10.0.0.3", "port": "22"},
+        ]
+        s = R._to_sarif(findings, "test")
+        self.assertEqual(s["version"], "2.1.0")
+        run = s["runs"][0]
+        self.assertEqual(run["tool"]["driver"]["name"], "aranum")
+        self.assertEqual([r["level"] for r in run["results"]], ["error", "warning", "note"])
+        self.assertEqual(run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"], "redis/x.txt")
+
+
 class TestClassifyPrefilter(unittest.TestCase):
     """The perf prefilter must never change a classification vs the brute loop."""
 
