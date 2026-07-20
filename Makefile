@@ -12,9 +12,16 @@ help:
 	@printf "  make unittest     — python3 -m unittest discover aranumtoolkit/tests/\n"
 	@printf "  make smoke        — aranumtoolkit/tests/smoke.sh (syntax + dispatch + gates + tags)\n"
 	@printf "  make deps-check   — deps-check.sh — verify enumeration tooling\n"
+	@printf "  make data-audit   — warn when embedded offline datasets look stale\n"
 	@printf "  make install      — chmod +x entrypoints + symlink aranum into ~/.local/bin\n"
 	@printf "  make clean        — remove __pycache__ / .pyc / stale tmp dirs\n"
 	@printf "  make help         — this message\n"
+
+.PHONY: data-audit
+data-audit:
+	@# Warn when an embedded offline dataset's `updated` date is stale.
+	@# Provenance index: aranumtoolkit/docs/DATA-SOURCES.md.
+	python3 aranumtoolkit/tests/data_audit.py
 
 .PHONY: install
 install:
