@@ -477,9 +477,21 @@ python3 ./aranumtoolkit/network/report.py ./estate    # one report, mixed-OS, wo
 
 **Validation gap.** Per ADR-003 "WHAT THIS DOES NOT VALIDATE": this codebase ships on Fedora with no domain-joined Windows host in CI, so the WinRM transport is unverified pre-engagement. Mock-pywinrm unit tests cover everything OUTSIDE the transport (target parsing, IPv6 bracketing, output layout, arg validation, --dry-run, --throttle precedence). The operator's first real run against a known-good Windows VM is the transport validation. The ADR has a verification checklist.
 
+## Install / offline prep
+
+The core is stdlib-only — clone and run `python3 ./aranum.py`. For convenience:
+
+```bash
+make install          # chmod +x entrypoints + symlink `aranum` into ~/.local/bin
+aranum version        # confirm (also: aranum deps-check, aranum selftest)
+
+# Pre-stage optional python deps on a jump host before going offline:
+pip install -r requirements-optional.txt   # defusedxml, pywinrm
+```
+
 ## Dependencies
 
-Run `./deps-check.sh` to see what's installed/missing. Recommended:
+Run `./deps-check.sh` (or `aranum deps-check`) to see what's installed/missing. Recommended:
 
 - **Required**: python3, nmap, curl, dig, ldapsearch, smbclient, rpcclient, showmount
 - **Highly recommended**: netexec (nxc), enum4linux-ng, impacket-scripts, kerbrute, ssh-audit, whatweb, httpx, ffuf, onesixtyone, snmpwalk

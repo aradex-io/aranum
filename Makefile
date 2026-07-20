@@ -12,8 +12,19 @@ help:
 	@printf "  make unittest     — python3 -m unittest discover aranumtoolkit/tests/\n"
 	@printf "  make smoke        — aranumtoolkit/tests/smoke.sh (syntax + dispatch + gates + tags)\n"
 	@printf "  make deps-check   — deps-check.sh — verify enumeration tooling\n"
+	@printf "  make install      — chmod +x entrypoints + symlink aranum into ~/.local/bin\n"
 	@printf "  make clean        — remove __pycache__ / .pyc / stale tmp dirs\n"
 	@printf "  make help         — this message\n"
+
+.PHONY: install
+install:
+	@# Make the entrypoints executable and expose `aranum` on PATH. Core is
+	@# stdlib-only; optional python deps: pip install -r requirements-optional.txt
+	@chmod +x aranum.py deps-check.sh aranumtoolkit/network/*.sh standalones/*/*.sh 2>/dev/null || true
+	@mkdir -p "$$HOME/.local/bin"
+	@ln -sf "$$(pwd)/aranum.py" "$$HOME/.local/bin/aranum"
+	@printf "Linked %s/aranum -> %s/aranum.py\n" "$$HOME/.local/bin" "$$(pwd)"
+	@printf "Ensure ~/.local/bin is on PATH, then: aranum version\n"
 
 .PHONY: test
 test: lint unittest smoke
