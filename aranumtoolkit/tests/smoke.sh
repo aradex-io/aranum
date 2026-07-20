@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Comprehensive test pass for aratool — all shipped code through v0.9.0.
+# Comprehensive test pass for aranum — release version is asserted against the
+# CHANGELOG top block + git tags (see the tag gate below), not a hardcoded list.
 # No external lab targets — purely syntax / smoke / fixture / security-regression.
 
 set -uo pipefail
@@ -838,14 +839,20 @@ elif [ "${CI:-0}" = "true" ] || [ "${SMOKE_REQUIRE_CLEAN:-0}" = "1" ]; then
 else
     s "git: working tree dirty (local dev; set SMOKE_REQUIRE_CLEAN=1 to fail): $(printf '%s\n' "$dirty" | head -3)"
 fi
-# Tags present
-for t in v0.1.0 v0.2.0 v0.9.0 v0.10.0 v0.11.0 v0.12.0 v0.13.0 v0.14.0 v0.15.0 v0.16.0 v0.17.0 v0.18.0 v0.19.0 v0.20.0 v0.20.1 v0.20.2 v0.21.0; do
-    if git tag | grep -qx "$t"; then
-        p "git: tag $t present"
+# Release tag present — derived from the CHANGELOG top released block so this gate
+# is self-maintaining (the old hardcoded list stopped at v0.21.0 and silently quit
+# protecting the last 11 releases, missing the v0.31.0 "never tagged" slip it existed
+# to catch). Assert the latest released version in CHANGELOG.md has a matching tag.
+latest_ver=$(grep -oE '^## \[v[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+if [ -n "$latest_ver" ]; then
+    if git tag | grep -qx "$latest_ver"; then
+        p "git: latest released tag $latest_ver present (from CHANGELOG)"
     else
-        f "git: tag $t MISSING"
+        f "git: latest released tag $latest_ver MISSING — CHANGELOG top released block has no matching git tag"
     fi
-done
+else
+    s "git: could not derive latest released version from CHANGELOG.md"
+fi
 
 # -----------------------------------------------------------------
 section "13. False-positive / true-positive regression harness"
