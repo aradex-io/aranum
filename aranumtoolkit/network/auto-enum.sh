@@ -437,6 +437,34 @@ PY
     local t1; t1=$(date +%s)
     local elapsed=$((t1 - t0))
     run_log "dispatch-end:   $svc rc=$rc elapsed=${elapsed}s"
+    # Queue-mode execution-state writeback: append this service's task outcomes to
+    # a sibling queue.state.jsonl (append-only, so plan.json/queue.jsonl stay
+    # immutable) — makes `aranum queue --status` a live view. Per-task granularity:
+    # every queued item for this service inherits the service's rc.
+    if [ -n "$QUEUE_FILE" ] && [ -f "$QUEUE_FILE" ]; then
+        local state_file; state_file="$(dirname "$QUEUE_FILE")/queue.state.jsonl"
+        local st="done"; [ "$rc" -ne 0 ] && st="failed"
+        python3 - "$QUEUE_FILE" "$svc" "$st" "$rc" >> "$state_file" 2>/dev/null <<'PY' || true
+import json, sys, datetime
+queue, service, status, rc = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+with open(queue) as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if item.get("service") != service:
+            continue
+        tid = item.get("task_id")
+        if tid is None:
+            continue
+        print(json.dumps({"task_id": tid, "service": service, "status": status, "rc": int(rc), "ts": ts}))
+PY
+    fi
     if [ "$rc" -eq 0 ]; then
         RUN_OK+=1
         # Stamp the .done marker for --resume on the next run
