@@ -34,5 +34,30 @@ for s in $SCRIPTS; do
 done
 
 echo
+echo "=== Writable files in cron.{daily,hourly,weekly,monthly} (root-run) ==="
+for dir in /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly; do
+    [ -d "$dir" ] || continue
+    for f in "$dir"/*; do
+        [ -e "$f" ] || continue
+        [ -w "$f" ] && printf "\033[1;32m[+] WRITABLE cron.d:\033[0m %s\n" "$f"
+    done
+done
+
+echo
+echo "=== at jobs + cron/at access control ==="
+for f in /etc/cron.allow /etc/cron.deny /etc/at.allow /etc/at.deny; do
+    [ -e "$f" ] && { echo "  $f:"; sed 's/^/    /' "$f" 2>/dev/null; }
+done
+ls -la /var/spool/cron/atjobs /var/spool/at 2>/dev/null | grep -vE '^total|^d' | head -20
+command -v atq >/dev/null 2>&1 && { echo "  atq:"; atq 2>/dev/null | sed 's/^/    /'; }
+
+echo
+echo "=== cron command wildcard-injection candidates ==="
+# Unquoted globs run by root cron (tar *, chown -R, rsync) are classic wildcard
+# injection vectors when the operator can drop files in the working dir.
+grep -horE '(tar|rsync|chown|chmod|7z|zip)[^#]*[* ]' /etc/crontab /etc/cron.d/* /etc/cron.daily/* 2>/dev/null \
+    | grep -E '\*' | sed 's/^/  /' | head -20
+
+echo
 echo "=== systemd timers (modern cron) ==="
 systemctl list-timers --all 2>/dev/null | head -40
