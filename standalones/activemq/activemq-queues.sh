@@ -14,7 +14,6 @@ USER="admin"; PASS="admin"
 OUT="./activemq-queues"
 MAX_MSGS=50
 
-# shellcheck disable=SC2034  # MAX_MSGS: parsed but pending wire-through into the browse-queue loop (TODO)
 while [ $# -gt 0 ]; do
     case "$1" in
         --target)    TARGET="$2"; shift 2 ;;
@@ -79,9 +78,10 @@ for q in $QUEUES; do
         "$(jolokia_url)/read/org.apache.activemq:type=Broker,brokerName=$BROKER_NAME,destinationType=Queue,destinationName=$q" \
         > "$qdir/stats.json"
 
-    # Browse up to MAX_MSGS messages
+    # Browse up to MAX_MSGS messages. Jolokia's maxCollectionSize processing
+    # option caps the returned message array server-side.
     curl -sk -m 15 -u "$USER:$PASS" \
-        "$(jolokia_url)/exec/org.apache.activemq:type=Broker,brokerName=$BROKER_NAME,destinationType=Queue,destinationName=$q/browseMessages()" \
+        "$(jolokia_url)/exec/org.apache.activemq:type=Broker,brokerName=$BROKER_NAME,destinationType=Queue,destinationName=$q/browseMessages()?maxCollectionSize=$MAX_MSGS" \
         > "$qdir/messages.json"
 
     # Quick credential pattern search on the raw response
