@@ -183,7 +183,7 @@ def main() -> int:
     findings, meta = _merge_findings(source_dirs, output)
     out_payload = {
         "label": args.label,
-        "generated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
+        "generated_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "mode": "merged",
         "redacted": False,
         "sources": [str(s) for s in source_dirs],

@@ -395,6 +395,11 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
 # shells/log collectors drop the ESC byte and leave literal "[1;32m" fragments.
 _ANSI_RE = re.compile(r"(?:\x1b)?\[[0-9;]*m")
 
+# Structured evidence the finding walkers skip — machine-readable artifacts, not
+# finding text. Line-scanning them double-counts against sibling .txt and lets the
+# broad LOW banner rule match JSON keys.
+_SKIP_SCAN_SUFFIXES = {".json", ".xml", ".pem"}
+
 
 def _clean_line(line: str) -> str:
     return _ANSI_RE.sub("", line)
@@ -730,8 +735,14 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
                     continue
                 if not fp.is_file() or fp.stat().st_size == 0:
                     continue
-                # Only scan text-ish files (skip JSON/XML — we'd re-parse them
-                # which is more work than this report wants to do).
+                # Only scan text-ish files. Skip structured evidence (JSON/XML/PEM):
+                # these are machine-readable artifacts (nxc --jsonl, nuclei -json,
+                # default-creds.json, _meta.json), not finding text — line-scanning
+                # them inflates/duplicates findings against their sibling .txt and
+                # makes the broad LOW banner rule fire on JSON keys. (This is what
+                # the walker always claimed to do; the filter was missing.)
+                if fp.suffix.lower() in _SKIP_SCAN_SUFFIXES:
+                    continue
                 try:
                     text = fp.read_text(errors="replace")
                 except Exception:
@@ -867,7 +878,7 @@ def _summary(findings: list[dict]) -> dict:
 def render_markdown(findings: list[dict], summary: dict, run_label: str,
                     redactor: Redactor, per_host: dict | None = None) -> str:
     out = [f"# Findings report — {run_label}", ""]
-    out.append(f"_Generated {datetime.datetime.now(datetime.timezone.utc).isoformat()}Z_")
+    out.append(f"_Generated {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}_")
     out.append("")
     out.append("## Summary")
     out.append("")
@@ -1066,7 +1077,7 @@ def main() -> int:
     findings_json = {
         "schema_version": _FINDINGS_SCHEMA_VERSION,
         "label":         label,
-        "generated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
+        "generated_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "redacted":      args.redact,
         "mode":          "bulk-enum" if bulk_mode else "auto-enum",
         "summary":       summary,
