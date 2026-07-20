@@ -144,7 +144,7 @@ log "Sending..."
 RESP=$(printf '%s' "$DIALOG" | timeout 15 nc -nv "$HOST" "$PORT" 2>&1)
 echo "$RESP"
 
-if echo "$RESP" | grep -qE '^250 2\.0\.0 Ok\|^250.*queued\|^250.*Message accepted'; then
+if echo "$RESP" | grep -qiE '^250 .*(ok|queued|accepted)'; then
     hit "Message accepted"
 else
     err "Send may have failed — review the response above"
