@@ -1,0 +1,10 @@
+# Optional Python packages. aranum's core is stdlib-only; these enable specific
+# optional capabilities. Pre-stage them on a jump host before going offline:
+#   pip install -r requirements-optional.txt
+#
+# defusedxml — hardens aranumtoolkit/network/nmap-parse.py against XXE /
+#              billion-laughs (a hardened stdlib fallback is used without it).
+defusedxml
+# pywinrm    — required ONLY for aranumtoolkit/network/bulk-enum-windows.py
+#              (WinRM transport to Windows hosts).
+pywinrm
