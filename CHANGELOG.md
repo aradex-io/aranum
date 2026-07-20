@@ -86,6 +86,9 @@ Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 ### Removed
 - `standalones/graphql/gql.py`: removed the non-functional `diff --directive-bypass` flag. It injected only the `$gqlSkip: Boolean!` variable *declaration* and never threaded an actual `@skip(if:$gqlSkip)` directive onto any field, so (a) the intended authz-by-AST test never ran and (b) a declared-but-unused variable made any spec-compliant server reject the whole document — i.e. passing the flag actively broke the otherwise-working `diff`. Removed until it can be reimplemented correctly against the string-built document (tracked in REVIEW-004 §4).
 
+### Testing
+- `aranumtoolkit/tests/test_report_dashboard.py` — first unit test for the largest module (`report-dashboard.py`, ~91 KB, previously untested and already regressed once): asserts CRITICAL-parity with `report.py`, the `data.json` search payload, and per-service→wiki deep-links from a fixture.
+
 ### Security
 - `standalones/redis/redis-rce-ssh.sh`: removed the per-directory `FLUSHALL ASYNC` from the `--write` path. It permanently wiped the target's entire keyspace (unrecoverable), was undisclosed in the dry-run, and directly contradicted both the subsystem README's "no data loss occurs" claim and CLAUDE.md §1 (no data destruction / OPSEC §9). The flush was not load-bearing — the newline-padded `KEY_BLOB` already keeps the pubkey a valid `authorized_keys` line regardless of preceding RDB bytes. Corrected the `standalones/redis/README.md` OPSEC note that falsely promised no data loss.
 
