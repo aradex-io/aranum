@@ -87,7 +87,12 @@ for f in new_findings:
 
 print()
 print("=== NEW FINDINGS ===")
-for sev in ("critical", "high", "medium", "low"):
+_canonical = ("critical", "high", "medium", "low")
+# Iterate the canonical tiers first, then any other severity an operator
+# --severity-rules set may introduce, so non-canonical findings that already
+# count toward the exit code are actually printed (not silently swallowed).
+_extra = tuple(sorted(k for k in sev_buckets if k not in _canonical))
+for sev in _canonical + _extra:
     items = sev_buckets.get(sev, [])
     if not items: continue
     print(f"\n--- {sev.upper()} ({len(items)}) ---")

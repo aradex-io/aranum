@@ -288,8 +288,12 @@ def parse_gnmap(path: Path):
                 "proto":     parts[2],
                 "state":     "open",
                 "service":   parts[4],
-                "product":   parts[6] if len(parts) > 6 else "",
-                "version":   "",
+                # gnmap Ports: field layout is
+                # portid/state/proto/owner/service/rpcinfo/version/ — so parts[6]
+                # is the version banner, not the product. (XML is the preferred
+                # path and gets product/version right; this only affects gnmap.)
+                "product":   "",
+                "version":   parts[6] if len(parts) > 6 else "",
                 "extrainfo": "",
                 "tunnel":    "",
             }
