@@ -12,7 +12,10 @@
       "success_code": "HTTP code that indicates success (used if success_re absent)",
       "post":       "optional — POST data instead of basic auth",
       "next_step":  "what to do after finding default creds"
-    }
+    },
+    "updated": "2026-07-20",
+    "source": "Curated from vendor docs + public default-credential references; verify each per engagement.",
+    "entry_count": 34
   },
   "products": [
     {
@@ -326,6 +329,49 @@
       "post": "username={USER}&password={PASS}&csrf_token=",
       "success_re": "Set-Cookie:.*session",
       "next_step": "Trigger DAGs that run shell — direct RCE on the scheduler/worker host"
+    },
+    {
+      "name": "Apache Superset",
+      "ports": [8088, 8080, 443, 80],
+      "fingerprint_path": "/login/",
+      "fingerprint_regex": "Superset|superset",
+      "test_path": "/api/v1/security/login",
+      "post": "{\"username\":\"{USER}\",\"password\":\"{PASS}\",\"provider\":\"db\",\"refresh\":true}",
+      "creds": ["admin:admin"],
+      "success_re": "access_token",
+      "next_step": "admin:admin → also check for the shipped default SECRET_KEY (CVE-2023-27524): forge an admin session cookie → RCE via SQLLab"
+    },
+    {
+      "name": "Harbor Registry",
+      "ports": [80, 443, 8080],
+      "fingerprint_path": "/api/v2.0/systeminfo",
+      "fingerprint_regex": "harbor_version|registry_url|Harbor",
+      "test_path": "/api/v2.0/users/current",
+      "creds": ["admin:Harbor12345"],
+      "success_code": 200,
+      "next_step": "admin:Harbor12345 default → read robot accounts, push/pull images, pivot into the CI/CD registry supply chain"
+    },
+    {
+      "name": "Zabbix",
+      "ports": [80, 443, 8080],
+      "fingerprint_path": "/",
+      "fingerprint_regex": "Zabbix",
+      "test_path": "/index.php",
+      "post": "name={USER}&password={PASS}&autologin=1&enter=Sign+in",
+      "creds": ["Admin:zabbix"],
+      "success_re": "zbx_session|Dashboard|Monitoring",
+      "next_step": "Admin:zabbix default → Administration→Scripts runs commands on agents = RCE across every monitored host"
+    },
+    {
+      "name": "Cacti",
+      "ports": [80, 443, 8080],
+      "fingerprint_path": "/cacti/",
+      "fingerprint_regex": "Cacti|cacti",
+      "test_path": "/cacti/index.php",
+      "post": "action=login&login_username={USER}&login_password={PASS}",
+      "creds": ["admin:admin"],
+      "success_re": "logout.php|graph_view|console.php",
+      "next_step": "admin:admin → CVE-2022-46169 unauth RCE (<1.2.22) or authed injection in older builds"
     }
   ]
 }
