@@ -12,6 +12,10 @@ See `CLAUDE.md` §6 for the entry style guide.
 Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 `aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md`.
 
+### Added
+- `VERSION` — canonical single-source version string (`0.32.0`); `smoke.sh` asserts it matches the CHANGELOG top released block.
+- `aranum.py`: `version` / `--version` / `-V` (prints the version + `git describe`), `selftest` (runs `smoke.sh`), and `deps-check` (runs `deps-check.sh`) subcommands, so the single entrypoint can report its own version and verify its environment. Version resolves from the `VERSION` file, falling back to the CHANGELOG top block.
+
 ### Enhanced
 - `deps-check.sh`: surface external tools the dispatchers actually invoke but that were previously unlisted, so a missing one is reported instead of silently degrading enumeration — `parallel` (recommended; load-bearing for bulk/auto-enum host fan-out), `psql`, `mysql`, `swaks`, `lmutil`, `amap` (optional).
 - `standalones/linux/linenum-fast.sh`: the kernel-hint `case` matched no 5.10/5.15/6.x kernel — i.e. the majority of 2026 hosts got zero kernel-exploit signal. Added dot-anchored arms for 5.10–5.15 (DirtyPipe/StackRot), 5.16–6.5 (nf_tables/GameOverlay/io_uring), and 6.6+ (recent LPEs + io_uring sysctl), widened the 4.x arm to all 4.1x LTS, and refreshed the sudo triage to keep the `pN` patchlevel and flag the 2025 CVE-2025-32462/32463 window (1.9.14–1.9.17).
