@@ -12,6 +12,9 @@ See `CLAUDE.md` §6 for the entry style guide.
 Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 `aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md`.
 
+### Fixed
+- `standalones/redis/redis-rce-ssh.sh`: `CONFIG SET dir` failure detection branched on `$?`, but `redis-cli` exits 0 even when the server returns `(error) ERR ...`, so a non-existent/unwritable candidate dir was never detected and produced a confusing later `SAVE failed` instead. Now branches on the reply text (`^OK`), consistent with the `MODULE LOAD`/`SAVE` checks elsewhere in the redis toolkit.
+
 ### Security
 - `standalones/redis/redis-rce-ssh.sh`: removed the per-directory `FLUSHALL ASYNC` from the `--write` path. It permanently wiped the target's entire keyspace (unrecoverable), was undisclosed in the dry-run, and directly contradicted both the subsystem README's "no data loss occurs" claim and CLAUDE.md §1 (no data destruction / OPSEC §9). The flush was not load-bearing — the newline-padded `KEY_BLOB` already keeps the pubkey a valid `authorized_keys` line regardless of preceding RDB bytes. Corrected the `standalones/redis/README.md` OPSEC note that falsely promised no data loss.
 
