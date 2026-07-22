@@ -38,6 +38,17 @@ def _load_module():
 
 W = _load_module()
 
+# pywinrm (the `winrm` module) is an OPTIONAL runtime dependency. The tests
+# below that exercise the WinRM transport use `mock.patch("winrm.Session", ...)`,
+# which forces an import of `winrm` to resolve the patch target — so on an
+# offline / stdlib-only box they must SKIP, not ERROR. The parse/layout/gate
+# tests need no transport and always run.
+try:
+    import winrm  # noqa: F401  (presence probe only)
+    HAS_WINRM = True
+except ImportError:
+    HAS_WINRM = False
+
 
 # --------------------------------------------------------------------- parse_spec
 class TestParseSpec(unittest.TestCase):
@@ -73,6 +84,7 @@ class TestParseSpec(unittest.TestCase):
 
 
 # --------------------------------------------------------------------- WinRM endpoint URL
+@unittest.skipUnless(HAS_WINRM, "pywinrm not installed — WinRM transport tests skipped")
 class TestWinRMEndpoint(unittest.TestCase):
     """The endpoint URL must bracket IPv6 hosts — urllib's parser otherwise
     treats the trailing :N of the address as a port number."""
@@ -203,6 +215,7 @@ class TestEndToEndMocked(unittest.TestCase):
                 rc = W.main()
             self.assertEqual(rc, 2)
 
+    @unittest.skipUnless(HAS_WINRM, "pywinrm not installed — WinRM transport test skipped")
     def test_mocked_winrm_writes_per_host_output(self):
         """Patch winrm.Session to return canned stdout per host, drive
         the orchestrator non-dry-run, and verify winenum.txt + _meta.json
