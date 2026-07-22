@@ -30,6 +30,7 @@ from typing import Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SCRIPT_DIR = PROJECT_ROOT / "aranumtoolkit" / "network"
+INTEROP_DIR = PROJECT_ROOT / "aranumtoolkit" / "interop"
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 _SESSION_VALUE_FLAGS = {"--session", "--session-name"}
 
@@ -48,6 +49,7 @@ _COMMANDS = {
     "iter": ("bash", _script_path("iterative-enum.sh")),
     "bulk-linux": ("bash", _script_path("bulk-enum-linux.sh")),
     "bulk-windows": ("python", _script_path("bulk-enum-windows.py")),
+    "export-recce": ("python", INTEROP_DIR / "aranum_to_recce.py"),
 }
 _LOCAL_COMMANDS = {"queue", "version", "selftest", "deps-check"}
 _RUN_REPORT_FLAGS = {"-report", "--report"}
