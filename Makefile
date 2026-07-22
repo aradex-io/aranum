@@ -40,23 +40,34 @@ test: lint unittest smoke
 
 .PHONY: lint
 lint:
-	@command -v shellcheck >/dev/null 2>&1 || { \
-	    printf "shellcheck not installed. Either:\n"; \
-	    printf "  pip install shellcheck-py\n"; \
-	    printf "  sudo dnf install ShellCheck     (Fedora)\n"; \
-	    printf "  sudo apt-get install shellcheck (Debian/Ubuntu)\n"; \
-	    exit 1; }
-	@printf "Running shellcheck -S warning -e SC1091,SC2046 across every tracked .sh ...\n"
+	@# Lint every tracked .sh via `git ls-files` so a new standalones/<svc>/ dir
+	@# can't silently escape linting (the smoke.sh syntax gate already uses a
+	@# dynamic find, so this keeps lint and syntax on the same file set).
 	@# SC1091 — source-file not findable from CLI (covered by tests/smoke.sh syntax + harness).
 	@# SC2046 — word-splitting from command substitution. The dispatcher fleet
 	@#         relies on this for the curl_proxy_arg / curl_ua / throttle_nmap_args
 	@#         helpers in aranumtoolkit/network/_lib.sh, which intentionally emit 0-or-2 args
 	@#         via $(helper). Refactor to bash arrays is tracked separately
-	@#         (deferred to v0.32.0 — see CHANGELOG).
-	@# Lint every tracked .sh via `git ls-files` so a new standalones/<svc>/ dir
-	@# can't silently escape shellcheck (the smoke.sh syntax gate already uses a
-	@# dynamic find, so this keeps lint and syntax on the same file set).
-	git ls-files '*.sh' | xargs -r shellcheck -S warning -e SC1091 -e SC2046 -f gcc
+	@#         (deferred — see CHANGELOG).
+	@# When shellcheck is absent (e.g. an offline box) DEGRADE to a `bash -n`
+	@# syntax sweep instead of hard-failing, so `make test` stays green offline.
+	@if command -v shellcheck >/dev/null 2>&1; then \
+	    printf "Running shellcheck -S warning -e SC1091,SC2046 across every tracked .sh ...\n"; \
+	    git ls-files '*.sh' | xargs -r shellcheck -S warning -e SC1091 -e SC2046 -f gcc; \
+	else \
+	    printf "shellcheck not installed — SKIPPING shellcheck lint.\n"; \
+	    printf "  This is expected on an offline box. Install to enable full lint:\n"; \
+	    printf "    pip install shellcheck-py\n"; \
+	    printf "    sudo dnf install ShellCheck     (Fedora)\n"; \
+	    printf "    sudo apt-get install shellcheck (Debian/Ubuntu)\n"; \
+	    printf "  Falling back to 'bash -n' syntax check on every tracked .sh ...\n"; \
+	    fail=0; \
+	    for f in $$(git ls-files '*.sh'); do \
+	        bash -n "$$f" || { printf "  SYNTAX FAIL: %s\n" "$$f"; fail=1; }; \
+	    done; \
+	    if [ "$$fail" -eq 0 ]; then printf "  bash -n: all tracked .sh parse cleanly.\n"; fi; \
+	    exit $$fail; \
+	fi
 
 .PHONY: unittest
 unittest:
