@@ -173,6 +173,77 @@ find /etc/init.d -type f -writable 2>/dev/null | head -20
 hdr "Backup files (.bak/.old/.swp/.save)"
 find / -xdev \( -name '*.bak' -o -name '*.old' -o -name '*.swp' -o -name '*.save' \) -readable 2>/dev/null | head -30
 
+# ---------- THICK-CLIENT / WORKSTATION APPS ----------
+# Inlined per ADR-002 D1 (no source/dot-import so bulk-enum can stdin-pipe this
+# file). Full standalone: standalones/linux/thickclient-hunt.sh. READ-ONLY:
+# presence + path + why-it-matters; THICKCLIENT-* markers are report.py-graded.
+hdr "THICK-CLIENT / WORKSTATION APPS (creds/config at rest)"
+TC_HOME="${HOME:-/root}"
+tc_present() { [ -e "$2" ] && hit "$1: $2 — $3"; }
+
+# SSH/SFTP client material (private keys + FileZilla cleartext site manager)
+tc_present "THICKCLIENT-SSHKEY-AT-REST" "$TC_HOME/.ssh/config" \
+  "ssh_config — Host aliases/IdentityFile/ProxyJump map to reachable hosts"
+for k in "$TC_HOME"/.ssh/id_* "$TC_HOME"/.ssh/*.pem; do
+  [ -f "$k" ] || continue
+  case "$k" in *.pub) continue ;; esac
+  if head -c 40 "$k" 2>/dev/null | grep -q 'PRIVATE KEY'; then
+    enc="unencrypted"; grep -q 'ENCRYPTED' "$k" 2>/dev/null && enc="passphrase-encrypted"
+    hit "THICKCLIENT-SSHKEY-AT-REST: $k — private key ($enc); feed to ssh-key-triage.py"
+  fi
+done
+for fz in "$TC_HOME/.config/filezilla/sitemanager.xml" "$TC_HOME/.filezilla/sitemanager.xml"; do
+  tc_present "THICKCLIENT-SAVED-SESSION" "$fz" "FileZilla site manager — Host/User + Base64/cleartext Pass"
+done
+
+# VPN profiles
+for v in "$TC_HOME/.config/openvpn" /etc/openvpn "$TC_HOME/.cisco" \
+         "$TC_HOME/.config/wireguard" /etc/wireguard \
+         /etc/NetworkManager/system-connections; do
+  tc_present "THICKCLIENT-VPN-PROFILE" "$v" "VPN/network profile store — server, certs, sometimes inline creds"
+done
+find "$TC_HOME" -maxdepth 3 -name '*.ovpn' 2>/dev/null | head -10 | while IFS= read -r f; do
+  hit "THICKCLIENT-VPN-PROFILE: $f — OpenVPN profile in user tree"
+done
+
+# DB client creds (cleartext .pgpass/.my.cnf, DBeaver static-key store)
+for db in "$TC_HOME/.pgpass" "$TC_HOME/.my.cnf" "$TC_HOME/.mylogin.cnf"; do
+  tc_present "THICKCLIENT-CRED-AT-REST" "$db" "DB client cleartext credential store"
+done
+find "$TC_HOME/.local/share/DBeaverData" "$TC_HOME/.config/DBeaverData" \
+     -maxdepth 4 -name 'credentials-config.json' 2>/dev/null | head -3 | while IFS= read -r f; do
+  hit "THICKCLIENT-CRED-AT-REST: $f — DBeaver creds (AES/static-key, decryptable offline)"
+done
+
+# Browser saved-login stores (presence only, no decryption)
+for b in "$TC_HOME/.config/google-chrome" "$TC_HOME/.config/chromium" \
+         "$TC_HOME/.config/microsoft-edge" "$TC_HOME/.config/BraveSoftware"; do
+  [ -d "$b" ] || continue
+  find "$b" -maxdepth 3 -name 'Login Data' 2>/dev/null | head -5 | while IFS= read -r f; do
+    hit "THICKCLIENT-BROWSER-LOGINDB: $f — Chromium Login Data (AES-GCM key in Local State/keyring)"
+  done
+done
+find "$TC_HOME/.mozilla/firefox" -maxdepth 2 -name 'logins.json' 2>/dev/null | head -5 | while IFS= read -r f; do
+  hit "THICKCLIENT-BROWSER-LOGINDB: $f — Firefox saved logins (NSS key4.db + this file)"
+done
+
+# Keyrings + Electron apps
+for kr in "$TC_HOME/.local/share/keyrings" "$TC_HOME/.local/share/kwalletd" "$TC_HOME/.password-store"; do
+  tc_present "THICKCLIENT-KEYRING" "$kr" "local secret store — unlocks with the user's login key"
+done
+for e in /opt/*/resources/app.asar "$TC_HOME"/.config/*/resources/app.asar; do
+  [ -f "$e" ] && hit "THICKCLIENT-ELECTRON: $e — Electron app.asar; asar extract for embedded API keys"
+done
+
+# Hardcoded secrets in ~/.config app trees (bounded; generic cred rule also fires)
+find "$TC_HOME/.config" -maxdepth 4 -type f \
+     \( -name '*.ini' -o -name '*.xml' -o -name '*.json' -o -name '*.conf' -o -name '*.yaml' -o -name '*.yml' \) 2>/dev/null |
+  head -150 | while IFS= read -r f; do
+    [ -r "$f" ] || continue
+    grep -aiHE '(pass(word|wd)?|secret|api[_-]?key|token|connection[_-]?string)[[:space:]]*[=:][[:space:]]*[^[:space:]"'"'"']{4,}' "$f" 2>/dev/null | head -2
+  done | head -30 | while IFS= read -r line; do hit "THICKCLIENT-CONFIG-SECRET: $line"; done
+
 # ---------- DONE ----------
 hdr "DONE"
 echo "Run with -v for more detail; consider also linpeas / lse / linenum.sh for deeper coverage."
+echo "Thick-client detail: standalones/linux/thickclient-hunt.sh"

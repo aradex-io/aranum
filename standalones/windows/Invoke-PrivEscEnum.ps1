@@ -291,4 +291,76 @@ if ($domainJoined) {
     Write-Host "  Deep AD-depth: run standalones/windows/Get-ADCSMisconfig.ps1, Get-GPPCPassword.ps1, Get-DPAPIBlobs.ps1, Get-PetitPotamSignals.ps1, Test-CoercedAuth.ps1"
 }
 
+# ---------- 16. THICK CLIENT / WORKSTATION APPS ----------
+# Inlined per ADR-002 D1 (self-contained — no dot-source of Get-ThickClientEnum.ps1
+# so bulk-enum can stdin-pipe this file). Full standalone with app inventory +
+# window titles: standalones/windows/Get-ThickClientEnum.ps1. READ-ONLY:
+# presence + path + why-it-matters. THICKCLIENT-* markers are report.py-graded.
+Section "THICK CLIENT / WORKSTATION APPS (creds/config at rest)"
+
+Sub "PuTTY / WinSCP saved sessions + .ppk keys"
+Get-ChildItem 'HKCU:\Software\SimonTatham\PuTTY\Sessions' -ErrorAction SilentlyContinue | ForEach-Object {
+    $s = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+    Hit "THICKCLIENT-SAVED-SESSION: PuTTY '$([uri]::UnescapeDataString($_.PSChildName))' Host=$($s.HostName) User=$($s.UserName) ProxyUser=$($s.ProxyUsername) — saved SSH session"
+}
+Get-ChildItem 'HKCU:\Software\Martin Prikryl\WinSCP 2\Sessions' -ErrorAction SilentlyContinue | ForEach-Object {
+    $s = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+    Hit "THICKCLIENT-SAVED-SESSION: WinSCP '$([uri]::UnescapeDataString($_.PSChildName))' Host=$($s.HostName) User=$($s.UserName) PasswordSet=$([bool]$s.Password) — weakly-encrypted"
+}
+foreach ($ini in @("$env:APPDATA\WinSCP.ini")) {
+    if (Test-Path $ini) { Hit "THICKCLIENT-CRED-AT-REST: $ini — WinSCP.ini saved sessions (weakly-encrypted passwords)" }
+}
+Get-ChildItem -LiteralPath $env:USERPROFILE -Recurse -Filter '*.ppk' -ErrorAction SilentlyContinue -Depth 3 |
+    Select-Object -First 15 | ForEach-Object { Hit "THICKCLIENT-SSHKEY-AT-REST: $($_.FullName) — PuTTY .ppk private key; puttygen->OpenSSH, feed to ssh-key-triage" }
+
+Sub "RDP saved connections + cached creds"
+try { (cmdkey /list 2>$null) | Select-String 'TERMSRV' | ForEach-Object { Hit "THICKCLIENT-RDP-CREDS: cmdkey $($_.Line.Trim()) — cached RDP credential" } } catch {}
+Get-ChildItem -LiteralPath $env:USERPROFILE -Recurse -Filter '*.rdp' -Force -ErrorAction SilentlyContinue -Depth 2 |
+    Select-Object -First 15 | ForEach-Object { Hit "THICKCLIENT-RDP-CREDS: $($_.FullName) — saved .rdp (full address/username)" }
+
+Sub "VPN profiles"
+foreach ($v in @(
+    @{P="$env:USERPROFILE\OpenVPN\config"; W='OpenVPN user .ovpn (possible inline auth-user-pass)'},
+    @{P="$env:ProgramData\Cisco\Cisco AnyConnect Secure Mobility Client\Profile"; W='AnyConnect XML ServerList profiles'},
+    @{P="$env:ProgramFiles\WireGuard\Data\Configurations"; W='WireGuard tunnel configs (DPAPI-wrapped keys)'},
+    @{P="$env:APPDATA\Fortinet\FortiClient"; W='FortiClient saved VPN tunnels'})) {
+    if (Test-Path $v.P) { Hit "THICKCLIENT-VPN-PROFILE: $($v.P) — $($v.W)" }
+}
+
+Sub "Browser saved-login stores (presence only, no decryption)"
+foreach ($b in @(
+    @{P="$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Login Data"; W='Chrome Login Data (AES-GCM, DPAPI-wrapped key)'},
+    @{P="$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Login Data"; W='Edge Login Data (AES-GCM, DPAPI-wrapped key)'})) {
+    if (Test-Path $b.P) { Hit "THICKCLIENT-BROWSER-LOGINDB: $($b.P) — $($b.W)" }
+}
+if (Test-Path "$env:APPDATA\Mozilla\Firefox\Profiles") {
+    Get-ChildItem "$env:APPDATA\Mozilla\Firefox\Profiles" -Recurse -Filter 'logins.json' -ErrorAction SilentlyContinue -Depth 2 |
+        Select-Object -First 10 | ForEach-Object { Hit "THICKCLIENT-BROWSER-LOGINDB: $($_.FullName) — Firefox saved logins (needs key4.db/NSS)" }
+}
+
+Sub "Electron apps"
+foreach ($r in @("$env:LOCALAPPDATA\Programs", "$env:APPDATA")) {
+    if (Test-Path $r) {
+        Get-ChildItem -LiteralPath $r -Recurse -Filter 'app.asar' -ErrorAction SilentlyContinue -Depth 3 |
+            Select-Object -First 10 | ForEach-Object { Hit "THICKCLIENT-ELECTRON: $($_.FullName) — Electron app.asar; asar extract for embedded API keys" }
+    }
+}
+
+Sub "Hardcoded secrets in %APPDATA% config trees"
+$tcRe = 'password|passwd|secret|api[_-]?key|token\s*[=:]|connectionString'
+$script:tcHits = 0
+foreach ($r in @($env:APPDATA, $env:LOCALAPPDATA)) {
+    if (-not (Test-Path $r)) { continue }
+    Get-ChildItem -LiteralPath $r -Recurse -Include '*.ini','*.xml','*.json','*.config' -ErrorAction SilentlyContinue -Depth 4 |
+        Select-Object -First 300 | ForEach-Object {
+            if ($script:tcHits -ge 40) { return }
+            try {
+                Select-String -Path $_.FullName -Pattern $tcRe -ErrorAction SilentlyContinue | Select-Object -First 2 | ForEach-Object {
+                    if ($script:tcHits -lt 40) { $script:tcHits++; Hit "THICKCLIENT-CONFIG-SECRET: $($_.Path):$($_.LineNumber): $(($_.Line.Trim() -replace '\s+',' '))" }
+                }
+            } catch {}
+        }
+}
+Write-Host "  Deep thick-client detail: standalones\windows\Get-ThickClientEnum.ps1"
+
 if ($OutFile) { Stop-Transcript | Out-Null; Write-Host "`nWrote transcript to $OutFile" -ForegroundColor Cyan }
