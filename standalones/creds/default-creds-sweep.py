@@ -112,6 +112,7 @@ def try_creds(base_url: str, product: dict, user: str, password: str,
     code_ok = product.get("success_code")
     post_tpl = product.get("post")
 
+    unauth_status = None
     if post_tpl:
         # Encode the substituted values for the target body type so a credential
         # containing &/=/"/\\ can't corrupt the request (silent false negative).
@@ -126,6 +127,12 @@ def try_creds(base_url: str, product: dict, user: str, password: str,
         data = post_tpl.replace("{USER}", u).replace("{PASS}", p).encode()
         status, rhdrs, body = http(url, method="POST", headers=hdrs, data=data, timeout=timeout)
     else:
+        # HTTP Basic auth. Capture the UNAUTHENTICATED baseline first so we can
+        # detect that valid creds cleared the auth challenge — robust to the very
+        # common case (ActiveMQ, Jetty, many consoles) where a successful login
+        # 302-redirects to a dashboard instead of returning a bare 200. An exact
+        # success_code==200 check silently misreads that 302 as a failure.
+        unauth_status, _uh, _ub = http(url, timeout=timeout)
         auth = base64.b64encode(f"{user}:{password}".encode()).decode()
         hdrs = {"Authorization": f"Basic {auth}"}
         status, rhdrs, body = http(url, headers=hdrs, timeout=timeout)
@@ -136,6 +143,13 @@ def try_creds(base_url: str, product: dict, user: str, password: str,
         return True, status, "regex-match"
     if code_ok and status == code_ok and status != 401 and status != 403:
         return True, status, "code-match"
+    # Auth-gate-cleared: the endpoint demanded auth (unauth 401/403) and the
+    # credentialed request no longer gets 401/403 (any 2xx/3xx) — the creds were
+    # accepted. This is what fixes the ActiveMQ admin:admin false-negative.
+    if (unauth_status in (401, 403)
+            and status not in (0, 401, 403)
+            and 200 <= status < 400):
+        return True, status, "auth-gate-cleared"
     return False, status, "no-match"
 
 
@@ -182,8 +196,20 @@ def main() -> int:
     ap.add_argument("--threads", type=int, default=8)
     ap.add_argument("--delay",   type=float, default=0.2, help="per-credential delay (per target)")
     ap.add_argument("--fingerprint-only", action="store_true", help="just identify products, don't try creds")
+    ap.add_argument("--proxy", default="", help="route all requests through an intercepting proxy, "
+                    "e.g. Burp: --proxy 127.0.0.1:8080 (host:port or full URL). "
+                    "Env fallback: ENUM_PROXY / HTTPS_PROXY / HTTP_PROXY.")
     ap.add_argument("--output",  default="findings.json")
     args = ap.parse_args()
+
+    # --proxy / ENUM_PROXY: urllib (used by http()) honors HTTP(S)_PROXY env via
+    # getproxies(); set them so every request routes through Burp/ZAP.
+    _proxy = args.proxy or os.environ.get("ENUM_PROXY", "")
+    if _proxy:
+        if not re.match(r"^\w+://", _proxy):
+            _proxy = "http://" + _proxy
+        os.environ["HTTP_PROXY"] = os.environ["http_proxy"] = _proxy
+        os.environ["HTTPS_PROXY"] = os.environ["https_proxy"] = _proxy
 
     if args.threads < 1:
         print("[!] --threads must be >= 1", file=sys.stderr); return 2

