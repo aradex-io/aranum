@@ -9,8 +9,15 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
-`aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md`.
+_Nothing yet._
+
+## [v0.33.0] — 2026-07-28
+
+Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit (see
+`aranumtoolkit/docs/REVIEW-004-20JUL2026-fable5-toolkit-audit.md`), the **ADR-006
+bulk-enum overhaul** (28JUL — SSH password-auth fix, Windows multi-transport,
+`ssh-triage`, `ssh-key-triage`, thick-client enumeration), and operator-requested
+fixes (ActiveMQ default-creds detection, `--proxy` Burp routing, `--no-rpc`).
 
 <!-- ═══ ADR-006 (28JUL2026) — bulk-enum overhaul: fix, harden, expand ═══ -->
 <!-- See aranumtoolkit/docs/ADR-006-28JUL2026-bulk-enum-overhaul.md -->
