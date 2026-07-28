@@ -490,6 +490,61 @@ python3 ./aranumtoolkit/network/report.py ./estate    # one report, mixed-OS, wo
 
 **Validation gap.** Per ADR-003 "WHAT THIS DOES NOT VALIDATE": this codebase ships on Fedora with no domain-joined Windows host in CI, so the WinRM transport is unverified pre-engagement. Mock-pywinrm unit tests cover everything OUTSIDE the transport (target parsing, IPv6 bracketing, output layout, arg validation, --dry-run, --throttle precedence). The operator's first real run against a known-good Windows VM is the transport validation. The ADR has a verification checklist.
 
+## Bulk-enum overhaul — password auth, transports, triage (iteration 28JUL / ADR-006)
+
+See [`aranumtoolkit/docs/ADR-006-28JUL2026-bulk-enum-overhaul.md`](aranumtoolkit/docs/ADR-006-28JUL2026-bulk-enum-overhaul.md).
+
+**SSH password auth is now the reliable primary path.** `bulk-enum-linux.sh --pass`
+used to AUTH-FAIL on every host (a `BatchMode=yes` vs `sshpass` conflict). Fixed and
+verified end-to-end. Auth mode is chosen from your flags: `--key`→KEY, `--pass`→PASS,
+`--key --pass`→KEY_THEN_PASS (key first, password fallback).
+
+```bash
+# Password sweep (the main route), with the new reliability + status flags:
+./aranumtoolkit/network/bulk-enum-linux.sh --targets hosts.txt -u svc --pass 'P@ss' \
+    --parallel 8 --host-timeout 300 --retries 2 -o ./estate
+# Per-host status lands in _summary.tsv / _meta.json:
+#   OK | AUTH_FAIL | UNREACHABLE | TIMEOUT | HOST_TIMEOUT | REMOTE_ERR
+```
+
+New flags: `--preflight`/`--no-preflight` (auth-probe the first host before fan-out,
+default on), `--retries N` (retries only transient TIMEOUT/UNREACHABLE — never
+AUTH_FAIL, to avoid lockout), `--host-timeout SEC` (default 600; caps a slow/tarpit/NFS
+host so it can't pin its parallel slot forever), `--jump HOST` (ProxyJump shorthand).
+
+**Windows multi-transport.** `bulk-enum-windows.py --transport {auto,winrm,ssh,smb}`
+(comma-list/repeatable; `auto` tries winrm→ssh→smb until one authenticates). The new
+**ssh** transport ships the PS script over Windows OpenSSH stdin (`--key`, `--ssh-port`),
+which many hardened fleets expose instead of WinRM.
+
+**OS-aware dispatch — `aranum ssh-triage`.** Point it at a host list, nmap output, or the
+stdout of an `nxc ssh` sweep; it classifies each host Windows vs Linux (banner →
+authenticated `uname`/`ver` probe) and routes Linux→`bulk-enum-linux.sh`,
+Windows→`bulk-enum-windows.py --transport ssh`. Writes `classification.tsv`.
+
+```bash
+nxc ssh targets.txt -u u -p p | aranum ssh-triage --nxc - -u u --pass p -o ./estate
+aranum ssh-triage --nmap scan.gnmap -k ~/.ssh/key -o ./estate --dry-run   # plan only
+```
+
+**Which unknown key opens what — `aranum ssh-key-triage`.** Inventory a pile of unknown
+private keys (type/bits/fingerprint/encrypted?/passphrase-unlock) and build a
+non-destructive, publickey-only key×host×user acceptance matrix. Never sprays passwords,
+never writes to targets.
+
+```bash
+aranum ssh-key-triage --keys ~/loot/keys/ --targets hosts.txt --users root,deploy \
+    --passwords pass.txt --max-per-user 3 --throttle 0.5 -o ./triage
+# -> key-triage.json / key-triage.md / authorized-pairs.txt (feed bulk-enum-linux.sh)
+```
+
+**Thick-client / workstation enumeration.** `standalones/windows/Get-ThickClientEnum.ps1`
+and `standalones/linux/thickclient-hunt.sh` (also inlined into `Invoke-PrivEscEnum.ps1` /
+`linenum-fast.sh`, so bulk-enum picks them up) do read-only discovery of installed apps,
+saved client sessions/keys (PuTTY/WinSCP/FileZilla/RDP/VPN), browser login-DB presence,
+Electron apps, and secrets in app config trees. `report.py` grades the `THICKCLIENT-*`
+markers (keys/creds at rest = high).
+
 ## Install / offline prep
 
 The core is stdlib-only — clone and run `python3 ./aranum.py`. For convenience:
@@ -508,7 +563,7 @@ Run `./deps-check.sh` (or `aranum deps-check`) to see what's installed/missing. 
 
 - **Required**: python3, nmap, curl, dig, ldapsearch, smbclient, rpcclient, showmount
 - **Highly recommended**: netexec (nxc), enum4linux-ng, impacket-scripts, kerbrute, ssh-audit, whatweb, httpx, ffuf, onesixtyone, snmpwalk
-- **Optional**: nuclei, nikto, evil-winrm, mssqlclient.py, rdp-sec-check, shellcheck (for `make lint`), sshpass (only for `bulk-enum-linux.sh --pass`), pywinrm (only for `bulk-enum-windows.py`; `pip install pywinrm`)
+- **Optional**: nuclei, nikto, evil-winrm, mssqlclient.py, rdp-sec-check, shellcheck (for `make lint`), sshpass (only for `bulk-enum-linux.sh --pass`), pywinrm (only for `bulk-enum-windows.py` winrm transport; `pip install pywinrm`), impacket (`bulk-enum-windows.py` smb transport), paramiko (`ssh-key-triage.py`; falls back to `ssh-keygen`)
 - **AD depth (D1)**: `bloodhound-python` (`pipx install bloodhound-py`), `certipy-ad` (`pipx install certipy-ad`), impacket scripts (`pipx install impacket` provides `GetUserSPNs.py`/`GetNPUsers.py`/`petitpotam.py`/etc.). Each is OPTIONAL — the AD dispatchers detect-and-skip when a tool is missing per [ADR-004](aranumtoolkit/docs/ADR-004-20MAY2026-ad-depth-tool-deps.md) D3.
 
 ## Safety / OPSEC

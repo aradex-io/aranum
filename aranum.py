@@ -14,6 +14,8 @@ Subcommands:
   iter        -> aranumtoolkit/network/iterative-enum.sh
   bulk-linux  -> aranumtoolkit/network/bulk-enum-linux.sh
   bulk-windows-> aranumtoolkit/network/bulk-enum-windows.py
+  ssh-triage  -> aranumtoolkit/network/ssh-triage.sh
+  ssh-key-triage -> aranumtoolkit/network/ssh-key-triage.py
 """
 
 from __future__ import annotations
@@ -49,6 +51,8 @@ _COMMANDS = {
     "iter": ("bash", _script_path("iterative-enum.sh")),
     "bulk-linux": ("bash", _script_path("bulk-enum-linux.sh")),
     "bulk-windows": ("python", _script_path("bulk-enum-windows.py")),
+    "ssh-triage": ("bash", _script_path("ssh-triage.sh")),
+    "ssh-key-triage": ("python", _script_path("ssh-key-triage.py")),
     "export-recce": ("python", INTEROP_DIR / "aranum_to_recce.py"),
 }
 _LOCAL_COMMANDS = {"queue", "version", "selftest", "deps-check"}

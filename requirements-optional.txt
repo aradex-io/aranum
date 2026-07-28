@@ -8,3 +8,12 @@ defusedxml
 # pywinrm    — required ONLY for aranumtoolkit/network/bulk-enum-windows.py
 #              (WinRM transport to Windows hosts).
 pywinrm
+# impacket   — enables bulk-enum-windows.py's smb transport (wmiexec). Optional;
+#              the winrm/ssh transports don't need it.
+impacket
+# paramiko   — preferred backend for aranumtoolkit/network/ssh-key-triage.py key
+#              inventory/fingerprinting (falls back to ssh-keygen if absent).
+paramiko>=2.7
+# cryptography — paramiko's crypto backend (pulled in by paramiko; listed for
+#                offline pre-staging completeness).
+cryptography

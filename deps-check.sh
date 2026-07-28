@@ -96,6 +96,22 @@ else
     printf "[ ] %-22s (optional Python pkg — pip install pywinrm; required for bulk-enum-windows.py)\n" "pywinrm"
 fi
 
+# ADR-006 — impacket enables bulk-enum-windows.py's smb transport (wmiexec).
+if python3 -c "import impacket" 2>/dev/null; then
+    v=$(python3 -c "import impacket; print(getattr(impacket, '__version__', '?'))" 2>/dev/null || true)
+    printf "${G}[+]${N} %-22s impacket %s (Python)\n" "impacket" "$v"
+else
+    printf "[ ] %-22s (optional Python pkg — pip install impacket; bulk-enum-windows.py smb transport)\n" "impacket"
+fi
+
+# ADR-006 — paramiko is the preferred backend for ssh-key-triage.py (ssh-keygen fallback).
+if python3 -c "import paramiko" 2>/dev/null; then
+    v=$(python3 -c "import paramiko; print(getattr(paramiko, '__version__', '?'))" 2>/dev/null || true)
+    printf "${G}[+]${N} %-22s paramiko %s (Python)\n" "paramiko" "$v"
+else
+    printf "[ ] %-22s (optional Python pkg — pip install 'paramiko>=2.7'; ssh-key-triage.py falls back to ssh-keygen)\n" "paramiko"
+fi
+
 echo
 echo "=== AD DEPTH (iteration D1 — optional) ==="
 check bloodhound-python  opt

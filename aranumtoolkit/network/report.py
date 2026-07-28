@@ -642,6 +642,11 @@ _BULK_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?:password|passwd|secret|api[_-]?key|token)\s*[=:]\s*\S{4,}", re.I), "high"),
     # Old kernel — Dirty Pipe (CVE-2022-0847) fixed in 5.16.11/5.15.25
     (re.compile(r"Linux\s+\S+\s+(2\.|3\.|4\.|5\.([0-9]|1[0-5])\.)", re.I),       "medium"),
+    # THICK-CLIENT / WORKSTATION app enumeration (ADR-006 1d — thickclient-hunt.sh
+    # markers, shared with the Windows list). Keys/creds/sessions at rest = high.
+    (re.compile(r"\bTHICKCLIENT-(SSHKEY-AT-REST|SAVED-SESSION|CRED-AT-REST|CONFIG-SECRET):", re.I), "high"),
+    (re.compile(r"\bTHICKCLIENT-(RDP-CREDS|VPN-PROFILE|BROWSER-LOGINDB):", re.I), "medium"),
+    (re.compile(r"\bTHICKCLIENT-(KEYRING|ELECTRON|APP):", re.I),                 "low"),
 ]
 
 
@@ -698,6 +703,11 @@ _BULK_RULES_WIN: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?:password|passwd|secret|api[_-]?key|token=)\s*[=:]\s*\S{4,}", re.I), "medium"),
     # End-of-life Windows builds (Win7, Server 2008, 2008R2, 2012, 2012R2)
     (re.compile(r"OS:\s+Microsoft Windows (7|Server 2008|Server 2012)\b", re.I),"medium"),
+    # THICK-CLIENT / WORKSTATION app enumeration (ADR-006 1d — Get-ThickClientEnum.ps1
+    # markers, shared with the Linux list). Keys/creds/sessions at rest = high.
+    (re.compile(r"\bTHICKCLIENT-(SSHKEY-AT-REST|SAVED-SESSION|CRED-AT-REST|CONFIG-SECRET):", re.I), "high"),
+    (re.compile(r"\bTHICKCLIENT-(RDP-CREDS|VPN-PROFILE|BROWSER-LOGINDB):", re.I), "medium"),
+    (re.compile(r"\bTHICKCLIENT-(KEYRING|ELECTRON|APP):", re.I),                 "low"),
 ]
 
 
@@ -893,6 +903,25 @@ def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None
         meta = host_dir / "_meta.json"
         if not meta.is_file():
             continue
+        # ADR-006 D1a-2 integration: a host that AUTH_FAIL'd / was UNREACHABLE /
+        # timed out did NOT produce clean enumeration. Without surfacing the
+        # per-host status, an empty linenum.txt reads as "no findings = clean",
+        # hiding a whole failed sweep. Emit a synthetic finding so the operator
+        # sees the host was not (fully) enumerated.
+        try:
+            _meta_obj = json.loads(meta.read_text())
+        except Exception:
+            _meta_obj = {}
+        _status = str(_meta_obj.get("status", "")).upper()
+        if _status and _status != "OK":
+            _reason = str(_meta_obj.get("fail_reason", "") or _status)
+            _svc = "linenum" if (host_dir / "linenum.txt").is_file() else "winenum"
+            _sev = "medium" if _status in (
+                "AUTH_FAIL", "UNREACHABLE", "TIMEOUT", "HOST_TIMEOUT") else "low"
+            yield _structured_finding(
+                host_dir.name, "", _svc, _sev,
+                f"[bulk-enum] host NOT fully enumerated — status={_status} ({_reason})",
+                str(meta.relative_to(out_dir)), service_metadata)
         for fname, rules, svc in (
             ("linenum.txt", linux_rules, "linenum"),
             ("winenum.txt", win_rules,   "winenum"),

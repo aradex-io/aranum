@@ -36,7 +36,7 @@ install:
 	@printf "Ensure ~/.local/bin is on PATH, then: aranum version\n"
 
 .PHONY: test
-test: lint unittest smoke
+test: lint unittest pytest smoke
 
 .PHONY: lint
 lint:
@@ -72,6 +72,19 @@ lint:
 .PHONY: unittest
 unittest:
 	python3 -m unittest discover -s aranumtoolkit/tests -p 'test_*.py' -v
+
+.PHONY: pytest
+pytest:
+	@# pytest-style tests (tmp_path fixtures, subtests) that unittest-discover
+	@# can't collect: the ADR-006 bulk-enum / ssh-triage / ssh-key-triage /
+	@# thick-client regression suites. Degrades gracefully when pytest is absent
+	@# (offline box) — the unittest target still covers the TestCase suite.
+	@if python3 -c 'import pytest' 2>/dev/null; then \
+	    python3 -m pytest aranumtoolkit/tests/ -q; \
+	else \
+	    printf "pytest not installed — SKIPPING pytest-only tests (pip install pytest).\n"; \
+	    printf "  The unittest target still covers the TestCase suite.\n"; \
+	fi
 
 .PHONY: smoke
 smoke:
