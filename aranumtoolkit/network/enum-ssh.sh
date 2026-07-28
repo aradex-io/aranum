@@ -3,6 +3,36 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/_lib.sh"
+
+# classify_ssh_os_from_banner <banner-text> -> echoes "linux" | "windows" | "other"
+#
+# Cheapest OS signal for an SSH host: the pre-auth banner string (the
+# "SSH-2.0-..." line the daemon sends before any auth exchange — see the
+# banner grab a few lines below, or ssh-triage.sh's own grab for the same
+# text). Windows' OpenSSH port ships a distinctive banner suffix; ordinary
+# OpenSSH/Sun_SSH banners are Linux/Unix; embedded drop-in implementations
+# (dropbear, ROSSSH, vendor SSH stacks on network gear/appliances) are
+# deliberately bucketed as "other" rather than guessed at — ssh-triage.sh
+# escalates "other" to an authenticated probe when creds are available.
+# Reused by both enum-ssh.sh (informational) and ssh-triage.sh (dispatch
+# routing) per ADR-006 D1b-2 — extend here, not by duplicating the mapping.
+classify_ssh_os_from_banner() {
+    local banner="$1"
+    case "$banner" in
+        *SSH-2.0-OpenSSH_for_Windows_*) echo "windows" ;;
+        *SSH-2.0-OpenSSH_*|*SSH-1.99-OpenSSH_*|*SSH-2.0-Sun_SSH*) echo "linux" ;;
+        *) echo "other" ;;
+    esac
+}
+
+# The rest of this file is the enum-ssh.sh dispatcher's main body. It is
+# wrapped in a function and guarded so ssh-triage.sh can `. enum-ssh.sh` to
+# pick up only classify_ssh_os_from_banner above without running a banner
+# sweep / nxc cred check against whatever $TARGETS happens to be set (or
+# failing outright because no --targets was given). Direct execution
+# (`./enum-ssh.sh ...` or `bash enum-ssh.sh ...`) is byte-for-byte unchanged:
+# BASH_SOURCE[0] == $0 in that case, so _enum_ssh_main runs immediately below.
+_enum_ssh_main() {
 parse_common_args "$@" || exit 1
 log "ssh: $(wc -l < "$TARGETS") targets -> $OUT"
 
@@ -107,3 +137,8 @@ while read -r target; do
 done < "$TARGETS"
 
 log "ssh dispatcher done."
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    _enum_ssh_main "$@"
+fi
