@@ -79,7 +79,9 @@ if have smbmap && [ -n "${ENUM_USER:-}" ]; then
 fi
 
 # ---------- 4. SMB signing / dialect / null sessions (rpcclient) ----------
-if have rpcclient; then
+if [ "${NO_RPC:-0}" = "1" ]; then
+    log "rpcclient probes skipped (NO_RPC=1 / --no-rpc)"
+elif have rpcclient; then
     log "rpcclient -U '' (anonymous probe)"
     run_rpc() {
         ip="$1"
@@ -148,7 +150,7 @@ fi
 # the EFS RPC interface). The MS-EFSRPC SMB pipe is \pipe\lsarpc. We just
 # enumerate whether the named pipe is reachable anonymously — actual coerce
 # requires impacket's petitpotam.py (separate, deliberately not bundled here).
-if have rpcclient && [ -n "${ENUM_DC_IP:-}" ]; then
+if [ "${NO_RPC:-0}" != "1" ] && have rpcclient && [ -n "${ENUM_DC_IP:-}" ]; then
     log "petitpotam signal — probe \\\\pipe\\lsarpc anonymous reachability on DC ${ENUM_DC_IP}"
     rpcclient -U '' -N "${ENUM_DC_IP}" -c 'enumprinters' \
         > "$OUT/_petitpotam_signal.txt" 2>&1 || true

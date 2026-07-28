@@ -29,6 +29,8 @@ PARALLEL=4
 SERVICE_PARALLEL=1   # cross-service concurrency (1 = serial); --service-parallel N
 ONLY=""
 EXCLUDE=""
+PROXY=""
+NO_RPC=0
 DRY_RUN=0
 RESUME=0
 THROTTLE=0
@@ -65,6 +67,14 @@ Tuning:
                       throttled/OT runs. Batched — waits every N launches.
   --only LIST         comma-sep services to run (e.g. smb,ldap,winrm)
   --exclude LIST      comma-sep services to skip
+  --proxy HOST:PORT   route web analysis (curl / httpx / nuclei / ffuf / whatweb
+                      and the python HTTP tools) through an intercepting proxy,
+                      e.g. Burp: --proxy 127.0.0.1:8080. Accepts host:port or a
+                      full URL (http://user:pass@host:port, socks5://…). Exports
+                      ENUM_PROXY + HTTP(S)_PROXY to every dispatcher.
+  --no-rpc            disable RPC enumeration: skip the msrpc dispatcher and set
+                      NO_RPC=1 so smb/other dispatchers skip their rpcclient
+                      calls (the RPC analogue of excluding web with --exclude http)
   --dry-run           print plan, don't execute
   --resume            skip services that already have a .done marker
                       (set by a prior successful auto-enum.sh run)
@@ -141,6 +151,8 @@ while [ $# -gt 0 ]; do
         --service-parallel) SERVICE_PARALLEL="$2"; shift 2 ;;
         --only)         ONLY="$2"; shift 2 ;;
         --exclude)      EXCLUDE="$2"; shift 2 ;;
+        --proxy)        PROXY="$2"; shift 2 ;;
+        --no-rpc)       NO_RPC=1; shift ;;
         --dry-run)      DRY_RUN=1; shift ;;
         --resume)       RESUME=1; shift ;;
         --throttle)     THROTTLE=1; shift ;;
@@ -214,6 +226,28 @@ fi
 # Export auth so dispatchers see them
 export ENUM_USER="$USER" ENUM_PASS="$PASS" ENUM_HASH="$NTLM_HASH"
 export ENUM_DOMAIN="$DOMAIN" ENUM_DC_IP="$DC_IP" ENUM_PARALLEL="$PARALLEL"
+
+# --no-rpc: skip the msrpc dispatcher AND signal rpcclient-using dispatchers
+# (enum-smb.sh etc.) to omit their RPC calls. Mirrors disabling web (--exclude http).
+if [ "$NO_RPC" = 1 ]; then
+    EXCLUDE="${EXCLUDE:+$EXCLUDE,}msrpc"
+    export NO_RPC=1
+    echo "[*] --no-rpc: msrpc dispatcher excluded; rpcclient calls suppressed (NO_RPC=1)"
+fi
+
+# --proxy: route ALL web analysis through an intercepting proxy (Burp/ZAP/etc).
+# curl and python-urllib honor HTTP(S)_PROXY natively; ENUM_PROXY drives our
+# explicit curl -x helper (_lib.sh) and the -proxy/-x flags in enum-http.sh.
+if [ -n "$PROXY" ]; then
+    case "$PROXY" in
+        http://*|https://*|socks5://*|socks5h://*|socks4://*) PROXY_URL="$PROXY" ;;
+        *) PROXY_URL="http://$PROXY" ;;
+    esac
+    export ENUM_PROXY="$PROXY_URL"
+    export HTTP_PROXY="$PROXY_URL"  HTTPS_PROXY="$PROXY_URL"
+    export http_proxy="$PROXY_URL"  https_proxy="$PROXY_URL"
+    echo "[*] --proxy: web analysis routed through $PROXY_URL (ENUM_PROXY + HTTP(S)_PROXY)"
+fi
 
 # ---------- run.log — central timestamped run journal (E.3) ----------
 RUN_LOG="$OUTDIR/run.log"

@@ -37,6 +37,16 @@ Remediation of the REVIEW-004 (20JUL2026) Fable-5 whole-toolkit audit. See
 
 <!-- ═══ end ADR-006 ═══ -->
 
+#### Operator-requested fixes (28JUL2026)
+
+##### Fixed
+- `creds/default-creds-sweep.py` + `network/enum-activemq.sh`: **ActiveMQ default creds (admin:admin) were reported "could not authenticate" even when valid.** Both checks used a fragile success signal — an exact `HTTP 200` match (the console 302-redirects to a dashboard on a valid Basic-auth login) and a Jolokia `BrokerVersion` read (modern Jolokia blocks cross-origin/curl reads with 403). Success is now detected by the auth gate clearing (unauth 401/403 → credentialed 2xx/3xx), which is robust across ActiveMQ/Jetty versions; Jolokia version is best-effort. Port 61616 (OpenWire) is correctly treated as a no-web-auth CVE-2023-46604 candidate, not a failed login.
+
+##### Added
+- `network/auto-enum.sh`: `--proxy HOST:PORT` (or full URL / `socks5://…`) routes **all** web analysis through an intercepting proxy (Burp/ZAP) — exports `ENUM_PROXY` + `HTTP(S)_PROXY` so curl and the python HTTP tools proxy natively, and passes explicit `-proxy`/`-x` flags to httpx/nuclei/ffuf/whatweb in `enum-http.sh`. `creds/default-creds-sweep.py` gained a matching `--proxy`. Exposed via `aranum run --proxy …`.
+- `network/auto-enum.sh`: `--no-rpc` disables RPC enumeration — excludes the `msrpc` dispatcher and sets `NO_RPC=1` so `enum-smb.sh` skips its `rpcclient` probes (the RPC analogue of dropping web with `--exclude http`).
+- Tests: `tests/test_default_creds_activemq.py` (auth-gate detection + no false positive), `tests/test_proxy_norpc.py` (`--proxy` normalization + `--no-rpc` msrpc exclusion).
+
 ### Added
 - `aranum export-recce` subcommand + `aranumtoolkit/interop/aranum_to_recce.py` (+ `interop/README.md`, `tests/test_interop_recce.py`) — one-directional bridge that ingests aranum output into a [recce](https://github.com/dloucks01/Python) engagement so **every discovered host, port and service — and every finding —** populates recce's tracking spreadsheets. Full-coverage port ingestion merges all sources (nmap XML via native recce parse, aranum `nmap-parse --json` inventory, and the raw `<service>/<ip>_<port>/` tree), and pins portless findings to their service's canonical port via aranum's own `SERVICE_MAP` (loaded live from `nmap-parse.py`) so no service is dropped. Point it at a session dir (`outputs/<session>/`) to auto-discover findings + scan + raw tree. Each finding becomes a recce `Vuln` (`source=aranum`); drives recce's public data model (`recce.models`) + datastore (`recce.store`) to regenerate `enumeration.xlsx`/`.md`/`.csv`. Loose coupling (only data crosses; no code copied either way, keeping aranum CC-BY-NC-SA / recce MIT independent); re-runnable via recce's merging `upsert_host`. recce must be importable (`--recce-path`).
 - **UDP amplification/discovery cluster** — `aranumtoolkit/network/enum-ntp.sh` (123, mode-6 readvar + mode-7 monlist / CVE-2013-5211), `enum-ssdp.sh` (1900, UPnP M-SEARCH / CVE-2020-12695), `enum-mdns.sh` (5353, DNS-SD service catalog). NTP + SSDP are reflection-capable and gated behind the existing opt-in machinery (`--ntp`/`--ssdp`/`--aggressive` + `ENUM_RUN_*`); mDNS is a single unicast discovery query and runs normally. Stdlib-socket probes with nmap-NSE fallback.

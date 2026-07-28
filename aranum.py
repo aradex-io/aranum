@@ -73,6 +73,7 @@ _AUTO_ENUM_VALUE_FLAGS = {
     "-P", "--parallel",
     "--only",
     "--exclude",
+    "--proxy",
     "--profile",
     "--phase",
     "--queue",

@@ -254,6 +254,18 @@ ENUM_RUN_IKE=1 bash aranumtoolkit/network/enum-ike.sh --targets targets.txt --ou
 
 Each service dispatcher writes results into `outputs/<session>/raw/<service>/<ip>_<port>/` by default so re-runs are idempotent and findings are easy to grep. Pass `-o/--output` when you intentionally want a custom raw output directory.
 
+**Proxy all web analysis through Burp/ZAP** with `--proxy` (curl, httpx, nuclei, ffuf, whatweb, and the python HTTP tools all route through it):
+
+```bash
+./aranum.py run scan.xml --user jay --password 'P@ss' --proxy 127.0.0.1:8080   # host:port or a full URL (socks5://…)
+```
+
+**Disable RPC enumeration** with `--no-rpc` (skips the msrpc dispatcher and the `rpcclient` probes in `enum-smb.sh`) — the RPC analogue of dropping web with `--exclude http`:
+
+```bash
+./aranum.py run scan.xml --user jay --password 'P@ss' --no-rpc
+```
+
 ### Iterative second pass
 
 After the first `auto-enum.sh` run, use `iterative-enum.sh` to turn discovered names, shares, web fingerprints, default credentials, and usernames into the next set of pivots:

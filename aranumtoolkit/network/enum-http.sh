@@ -180,10 +180,21 @@ for cand in httpx httpx-toolkit /usr/bin/httpx-toolkit /home/jay/go/bin/httpx; d
     fi
 done
 
+# --proxy support (route scanners through Burp/ZAP). curl honors HTTP(S)_PROXY
+# env natively (exported by auto-enum.sh --proxy); these add the explicit per-tool
+# flags for the projectdiscovery / ffuf / whatweb scanners. Empty when no proxy.
+HTTPX_PROXY_ARGS=(); NUCLEI_PROXY_ARGS=(); FFUF_PROXY_ARGS=(); WHATWEB_PROXY_ARGS=()
+if [ -n "${ENUM_PROXY:-}" ]; then
+    HTTPX_PROXY_ARGS=(-proxy "$ENUM_PROXY")
+    NUCLEI_PROXY_ARGS=(-proxy "$ENUM_PROXY")
+    FFUF_PROXY_ARGS=(-x "$ENUM_PROXY")
+    WHATWEB_PROXY_ARGS=(--proxy "${ENUM_PROXY#*://}")   # whatweb wants host:port
+fi
+
 if [ -n "$PD_HTTPX" ]; then
-    log "httpx ($PD_HTTPX — alive / status / title / tech, TLS verify off)"
+    log "httpx ($PD_HTTPX — alive / status / title / tech, TLS verify off)${ENUM_PROXY:+ [proxy]}"
     "$PD_HTTPX" -silent -l "$URLS" -status-code -title -tech-detect -follow-redirects \
-        -no-tls-verify \
+        -no-tls-verify "${HTTPX_PROXY_ARGS[@]}" \
         -o "$OUT/httpx.txt" >/dev/null 2>&1 || true
 else
     # Fallback: curl-based alive probe so the dispatcher still produces an alive-list.
@@ -205,7 +216,7 @@ fi
 # ---------- 2. whatweb ----------
 if [ "${NO_WHATWEB:-0}" != "1" ] && have whatweb; then
     log "whatweb"
-    timeout 120 whatweb -i "$URLS" --no-errors -q --colour=never \
+    timeout 120 whatweb -i "$URLS" --no-errors -q --colour=never "${WHATWEB_PROXY_ARGS[@]}" \
         > "$OUT/whatweb.txt" 2>&1 || true
 fi
 
@@ -254,7 +265,7 @@ elif have nuclei; then
         NUC_TO="${NUCLEI_TIMEOUT:-600}"
         NUC_RATE="${NUCLEI_RATE:-150}"
         log "nuclei (severity high,critical; timeout ${NUC_TO}s; rate ${NUC_RATE}; $(wc -l < "$NUC_TARGETS") targets)"
-        timeout --kill-after=10 "$NUC_TO" nuclei \
+        timeout --kill-after=10 "$NUC_TO" nuclei "${NUCLEI_PROXY_ARGS[@]}" \
             -l "$NUC_TARGETS" -severity high,critical -silent \
             -tags exposures,cve,misconfig,default-logins \
             -rate-limit "$NUC_RATE" -timeout 8 -retries 1 \
@@ -279,7 +290,7 @@ if [ "${NO_FFUF:-0}" != "1" ] && have ffuf; then
             [ -z "$url" ] && continue
             safe=$(echo "$url" | sed 's|[:/]|_|g')
             timeout 120 ffuf -u "$url/FUZZ" -w "$WORDLIST" -mc 200,204,301,302,307,401,403 \
-                 -k -t 20 -s -o "$OUT/ffuf_${safe}.json" -of json >/dev/null 2>&1 || true
+                 -k -t 20 -s "${FFUF_PROXY_ARGS[@]}" -o "$OUT/ffuf_${safe}.json" -of json >/dev/null 2>&1 || true
         done
     else
         miss "no $WORDLIST — skipping ffuf"
