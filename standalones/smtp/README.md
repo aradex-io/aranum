@@ -56,7 +56,7 @@ standalones/smtp/
 | Condition | Tier | Tooling |
 |---|---|---|
 | Open relay accepted external→external | **CRITICAL** | `smtp-phish-send.sh` for spoofed external delivery |
-| Internal relay accepted unauth | **CRITICAL** | `smtp-phish-send.sh` for inside-the-perimeter phish (bypasses external DMARC) |
+| Normal external→local delivery | Informational | Expected inbound-MTA behavior; never an open-relay finding |
 | Banner contains Exim ≤ 4.91 | **CRITICAL** | CVE-2019-10149 / CVE-2019-15846 — pre-auth RCE |
 | VRFY or EXPN enabled | HIGH | `smtp-user-enum.sh` |
 | No STARTTLS | MEDIUM | Passive auth-credential capture if MITM |
@@ -100,12 +100,17 @@ The 19 classical tests cover:
 13. Postmaster envelope-from
 14. Empty envelope-from (`<>`)
 15. Whitespace-trick `external domain`
-16. Empty RCPT
+16. Empty/null RCPT (protocol anomaly only; no external destination, so never
+    open-relay evidence)
 17. Internal → external (sender is local domain)
-18. External → internal (typical relay attack)
-19. Unqualified RCPT (`<user>`)
+18. External → internal (expected normal inbound delivery; not a relay finding)
+19. Unqualified RCPT (`<user>`, destination is indeterminate)
 
-A "well-configured" server rejects ALL except #17 (internal → external should work for legitimate users — that's why authentication is the only effective defense).
+A well-configured server accepts #18 for a valid local recipient and rejects
+unauthenticated delivery to external destinations. Case #16 has no external
+destination and is never an open-relay signal. Case #17 is a relay signal in this
+unauthenticated test: a local-looking envelope sender is not evidence that the
+client is authenticated or on a trusted network.
 
 ## When you actually have a working relay
 

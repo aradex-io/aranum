@@ -60,6 +60,11 @@ See `CLAUDE.md` §6 for the entry style guide.
   parallel fallback workers cannot sleep together and start as a burst.
 - OpenSSH command builders now pass bare IPv6 hosts; brackets remain limited to
   URL and target-file syntaxes that require them.
+- SMTP specialists now associate multiline replies with the exact EHLO/MAIL/RCPT/DATA stage, distinguish normal inbound delivery and accepted null recipients from unauthenticated external relay, require an actual external destination for an open-relay verdict, require final DATA acceptance for send success, handle SPF hardfail/no-DMARC records, and make failed DNS resolution indeterminate/nonzero rather than "wide open."
+- Redis specialists prove module-load policy/ACL capability (including TCP denial for `enable-module-command local`), support named ACL users, prohibit exploit-runtime provenance fetches, preserve empty replication credentials, require successful command status plus an exact trimmed `OK` for module and SSH-key staging/cleanup, verify staged key length and configuration readback, propagate command/restoration failures, and snapshot/verify exact persistence, replication-upstream, and replication-auth restoration. Any unproved cleanup state returns status 77 even when the main operation already failed.
+- ActiveMQ specialists require observed affected-version evidence for CVE-2023-46604 candidates, bind proof listeners before payload delivery, and structurally discover multiple broker/queue object names with safe Jolokia encoding.
+- GraphQL raw and batched output preserve transport, HTTP, malformed-body, and per-member GraphQL failure status; loop classification preserves false/zero/empty/null field presence; CSRF requires a proved non-null cookie-authenticated mutation result without PAT/bearer/job/custom CSRF-token defenses, recognizes auth header names case-insensitively, and returns nonzero for uncertain read-only or mutation outcomes; alias timing uses the selected resolver with repeated randomized samples; documented catalog commands match the parser.
+- Jabber generic SASL rejection is neutral unless repeated randomized controls establish a timing differential. Openfire now preflights plugin/log/proof inputs and atomic log writability before confirmation, records each mutation atomically, requires a verified deployed endpoint, and requires authenticated plugin-inventory proof for verified cleanup.
 
 ### Changed
 
@@ -75,6 +80,12 @@ See `CLAUDE.md` §6 for the entry style guide.
   normalization collisions such as `CORP\alice` versus `CORP_alice`.
 - Windows guidance now claims local ADSI coverage only for implemented ADCS ESC1,
   ESC2, and ESC4 checks; Certipy remains the documented broader follow-up.
+- Root credential-sweeper documentation now states its shipped HTTP(S) administrative-portal scope and points native authentication to the protocol dispatchers.
+
+### Added
+
+- Deterministic specialist semantic fixtures for SMTP, Redis, ActiveMQ, GraphQL, Jabber, and Openfire lifecycle paths.
+- Manifest-driven offline data provenance/freshness auditing with typed derivations validated against JSON structure, checksummed source-manifest inputs, and all discovered embedded CVE/version rule families.
 
 ### Tests
 

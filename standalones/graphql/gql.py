@@ -46,6 +46,8 @@ import urllib.parse
 import hashlib
 import time
 import difflib
+import random
+import statistics
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -195,8 +197,9 @@ def cache_key(url: str, headers: dict) -> Path:
     a principal so cookie / job-token / PAT sessions don't share a cache file."""
     parts = [url]
     found_any = False
+    headers_ci = {name.casefold(): value for name, value in headers.items()}
     for h in _CACHE_KEY_HEADERS:
-        v = headers.get(h)
+        v = headers_ci.get(h.casefold())
         if v:
             parts.append(f"{h}={v}")
             found_any = True
@@ -445,10 +448,55 @@ def build_query(op_kind: str, op_name: str, op_def: dict, args: dict[str, Any],
 
 
 # =============================================================== Output
-def print_response(status: int, body: dict, args: argparse.Namespace) -> int:
+def _response_rc(status: int, body: Any) -> int:
+    """Return a semantic status for one GraphQL HTTP response.
+
+    Batch responses are JSON arrays, so every member must independently be a
+    successful GraphQL result.  Treat empty/malformed arrays and bodies without
+    non-null data as indeterminate instead of allowing rendering mode to turn
+    them into success.
+    """
+    if status < 200 or status >= 300:
+        return 1
+    if isinstance(body, list):
+        if not body:
+            return 1
+        return int(any(_response_rc(status, item) for item in body))
+    if not isinstance(body, dict):
+        return 1
+    if "_error" in body or body.get("errors"):
+        return 1
+    return 0 if body.get("data") is not None else 1
+
+
+def _error_summaries(errors: Any, limit: int = 120) -> list[str]:
+    """Normalize well-formed and malformed GraphQL error payloads safely."""
+    if not errors:
+        return []
+    items = errors if isinstance(errors, list) else [errors]
+    return [(item.get("message", "") if isinstance(item, dict) else str(item))[:limit]
+            for item in items]
+
+
+def print_response(status: int, body: Any, args: argparse.Namespace) -> int:
+    # Formatting never changes semantic status. Transport, HTTP, and GraphQL
+    # errors remain nonzero in raw mode and when partial data is present.
+    result_rc = _response_rc(status, body)
     if args.raw_response:
         print(json.dumps(body, indent=2))
-        return 0
+        return result_rc
+
+    if isinstance(body, list):
+        colour = "G" if result_rc == 0 else "R"
+        print(_color(f"[{'+' if result_rc == 0 else '!'}] HTTP {status} — batched response: "
+                     f"{len(body)} entries", colour))
+        print(json.dumps(body, indent=2))
+        return result_rc
+
+    if not isinstance(body, dict):
+        print(_color(f"[?] HTTP {status} — malformed response body:", "Y"))
+        print(json.dumps(body, indent=2))
+        return 1
 
     if "_error" in body:
         print(_color(f"[!] {body['_error']}", "R")); return 1
@@ -456,6 +504,9 @@ def print_response(status: int, body: dict, args: argparse.Namespace) -> int:
     if "errors" in body:
         print(_color(f"[!] HTTP {status} — GraphQL errors:", "R"))
         for e in body["errors"]:
+            if not isinstance(e, dict):
+                print(f"    - {e}")
+                continue
             msg = e.get("message", "?")
             path = e.get("path") or []
             ext  = e.get("extensions") or {}
@@ -466,7 +517,7 @@ def print_response(status: int, body: dict, args: argparse.Namespace) -> int:
     if "data" in body and body["data"] is not None:
         print(_color(f"[+] HTTP {status} — data:", "G"))
         print(json.dumps(body["data"], indent=2))
-        return 0
+        return result_rc
     if "errors" in body:
         return 1
     print(_color(f"[?] HTTP {status} — unexpected body:", "Y"))
@@ -607,31 +658,34 @@ def cmd_call(args: argparse.Namespace) -> int:
             return 2
         n_max = max(1, int(getattr(args, "alias_dos_max", 16)))
         print(_color(f"[*] alias-DoS check — N=1..{n_max}", "C"))
-        latencies = _alias_dos_check(args.url, args.operation, op, headers, n_max)
+        if kind != "query":
+            print(_color("[!] --alias-dos-check only accepts a selected read-only query operation", "R"))
+            return 2
+        latencies = _alias_dos_check(args.url, doc, variables, headers, n_max)
         prev = None
         super_linear = False
-        for n, ms in sorted(latencies.items()):
+        for n, samples in sorted(latencies.items()):
+            ms = statistics.median(samples) if samples else 0
+            variance = statistics.pstdev(samples) if len(samples) > 1 else 0.0
             ratio = (ms / prev) if prev else 1.0
             flag = ""
-            if prev and ratio > 2.5:
-                flag = _color("  super-linear growth (alias normalization may be missing)", "R")
+            if prev and ratio > 2.5 and (variance / max(ms, 1)) < 0.35:
+                flag = _color("  repeatable super-linear latency signal", "R")
                 super_linear = True
-            print(f"  N={n:4d}  {ms:6d}ms  ratio_vs_prev={ratio:.2f}x  {flag}")
+            print(f"  N={n:4d} median={ms:6.1f}ms stdev={variance:5.1f} "
+                  f"samples={samples} ratio_vs_prev={ratio:.2f}x {flag}")
             prev = ms
         if super_linear:
-            print(_color("[!!] alias normalization appears absent — possible DoS-amplification surface", "R"))
+            print(_color("[!] repeatable timing signal observed for the selected resolver; "
+                         "candidate for controlled follow-up, not proof of DoS", "Y"))
         else:
-            print(_color("[+] latency scales linearly with N — server normalizes aliased fields", "G"))
+            print(_color("[*] no repeatable super-linear signal observed; this does not prove alias normalization", "C"))
         return 0
 
     # F.2 — batched-query support
     if getattr(args, "batch", 0) and args.batch > 1:
         payload = [{"query": doc, "variables": variables}] * int(args.batch)
         status, _, parsed = http_post(args.url, payload, headers)
-        if isinstance(parsed, list):
-            print(_color(f"[+] HTTP {status} — batched response: {len(parsed)} entries", "G"))
-            print(json.dumps(parsed, indent=2))
-            return 0
         return print_response(status, parsed, args)
 
     status, _, body = http_post(args.url, {"query": doc, "variables": variables}, headers)
@@ -642,6 +696,46 @@ def cmd_call(args: argparse.Namespace) -> int:
 # Hard cap on values an unguarded --range / --gid-range will materialize.
 # A typo'd 1-9999999999 used to OOM the process before the first request fired.
 LOOP_HARD_CAP = 1_000_000
+
+
+def _json_shape(value: Any) -> Any:
+    """Return a value-insensitive JSON shape for stable sweep signatures."""
+    if isinstance(value, dict):
+        return {key: _json_shape(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        item_shapes = {_shape_json(item) for item in value}
+        return [json.loads(item) for item in sorted(item_shapes)]
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    return type(value).__name__
+
+
+def _shape_json(value: Any) -> str:
+    return json.dumps(_json_shape(value), sort_keys=True, separators=(",", ":"))
+
+
+def _operation_response_shape(body: dict, operation: str) -> dict:
+    """Describe field presence and a value-insensitive response shape."""
+    data_member = "data" in body
+    data_obj = body.get("data")
+    operation_present = isinstance(data_obj, dict) and operation in data_obj
+    operation_non_null = operation_present and data_obj[operation] is not None
+    serialized = json.dumps(data_obj, sort_keys=True, separators=(",", ":")) if data_member else ""
+    shape_serialized = _shape_json(data_obj) if data_member else ""
+    return {
+        "data_member": data_member,
+        "operation_present": operation_present,
+        "operation_non_null": operation_non_null,
+        "serialized": serialized,
+        "size": len(serialized.encode()),
+        "digest": hashlib.sha256(shape_serialized.encode()).hexdigest()[:12] if data_member else "absent",
+    }
 
 
 def _check_range_size(lo: int, hi: int, flag_name: str, allow_huge: bool) -> int:
@@ -710,10 +804,16 @@ def cmd_loop(args: argparse.Namespace) -> int:
         status, _, body = http_post(args.url, {"query": doc, "variables": variables}, headers)
 
         # Classify the response
-        has_data   = bool(body.get("data") and any(body["data"].values()))
+        shape = _operation_response_shape(body, args.operation)
+        data_member = shape["data_member"]
+        operation_present = shape["operation_present"]
+        operation_non_null = shape["operation_non_null"]
+        has_data = operation_present
         err_msgs   = tuple(sorted({e.get("message","")[:60] for e in (body.get("errors") or [])}))
-        data_size  = len(json.dumps(body.get("data") or {}))
-        sig = (status, has_data, err_msgs, data_size // 100)   # bucket by 100B for size noise
+        data_size = shape["size"]
+        data_digest = shape["digest"]
+        sig = (status, data_member, operation_present, operation_non_null,
+               err_msgs, data_size // 100, data_digest)
         seen_signatures[sig] = seen_signatures.get(sig, 0) + 1
 
         flag = " "
@@ -722,15 +822,17 @@ def cmd_loop(args: argparse.Namespace) -> int:
         elif err_msgs and any("authoriz" in e.lower() or "permission" in e.lower() for e in err_msgs): flag = _color("=", "Y")
         elif err_msgs: flag = _color("-", "Y")
 
-        print(f"  [{flag}] {v:50s} status={status} size={data_size:6d}  errs={list(err_msgs)[:1]}")
+        value_state = "absent" if not operation_present else ("null" if not operation_non_null else "present")
+        print(f"  [{flag}] {v:50s} status={status} field={value_state:7s} "
+              f"size={data_size:6d} digest={data_digest} errs={list(err_msgs)[:1]}")
 
         if args.delay: time.sleep(args.delay)
 
     print()
     print(_color("--- response-signature summary ---", "M"))
     for sig, n in sorted(seen_signatures.items(), key=lambda x: -x[1]):
-        status, has_data, errs, _ = sig
-        marker = "DATA" if has_data else ("ERR" if errs else "?")
+        status, _, has_data, non_null, errs, _, _ = sig
+        marker = "DATA" if has_data and non_null else ("NULL" if has_data else ("ERR" if errs else "?"))
         print(f"  ×{n:4d}  status={status} {marker:5s} errs={list(errs)[:1]}")
     print(_color("[*] anomalies = signatures that appear only 1–2 times — investigate those", "C"))
     return 0
@@ -832,10 +934,6 @@ def cmd_raw(args: argparse.Namespace) -> int:
     if getattr(args, "batch", 0) and args.batch > 1:
         payload = [body_dict] * int(args.batch)
         status, _, parsed = http_post(args.url, payload, headers)
-        if isinstance(parsed, list):
-            print(_color(f"[+] HTTP {status} — batched response: {len(parsed)} entries", "G"))
-            print(json.dumps(parsed, indent=2))
-            return 0
         return print_response(status, parsed, args)
     status, _, body = http_post(args.url, body_dict, headers)
     return print_response(status, body, args)
@@ -954,8 +1052,43 @@ def cmd_apq_probe(args: argparse.Namespace) -> int:
 # Combined with cookie auth (no CSRF token) this enables a one-click CSRF.
 def cmd_csrf_probe(args: argparse.Namespace) -> int:
     headers = build_headers(args)
-    # Try GET /graphql?query={__typename}
-    test_q = "{__typename}"
+    if not args.mutation:
+        test_q = "{__typename}"
+        qstring = urllib.parse.urlencode({"query": test_q})
+        sep = "&" if "?" in args.url else "?"
+        get_url = f"{args.url}{sep}{qstring}"
+        print(_color("[*] CSRF-via-GET precondition probe", "C"))
+        s, _, body = http_get(get_url, headers)
+        if (s == 200 and isinstance(body, dict) and
+                isinstance(body.get("data"), dict) and not body.get("errors")):
+            print(_color("  [i] read-only GET query accepted — informational and standards-compatible; "
+                         "no CSRF vulnerability concluded", "C"))
+            return 0
+        if s in (400, 405):
+            print(_color(f"  [+] GET rejected (HTTP {s})", "G")); return 0
+        print(_color(f"  [?] indeterminate read-only preflight (HTTP {s})", "Y"))
+        return 1
+
+    test_q = args.mutation.strip()
+    if not re.match(r"^(?:#[^\n]*\n|\s)*mutation\b", test_q, re.I):
+        print(_color("[!] --mutation must be a GraphQL mutation document", "R")); return 2
+    if not args.cookie:
+        print(_color("[?] mutation GET not sent: authenticated browser-equivalent --cookie is required", "Y")); return 2
+    if not args.expect_field:
+        print(_color("[?] mutation GET not sent: --expect-field is required to prove the benign state change", "Y")); return 2
+    auth_header_names = {"private-token", "authorization", "job-token"}
+    explicit_auth = [name for name, value in headers.items()
+                     if name.casefold() in auth_header_names and value]
+    csrf_headers = [name for name in headers if "csrf" in name.lower() or "xsrf" in name.lower()]
+    if explicit_auth:
+        print(_color("[?] mutation GET not sent: explicit PAT/bearer/job-token authentication "
+                     f"({', '.join(explicit_auth)}) is not ambient browser-cookie CSRF context", "Y"))
+        return 2
+    if csrf_headers:
+        print(_color("[?] mutation GET not sent: a custom CSRF token header is present "
+                     f"({', '.join(csrf_headers)}), so a missing-defense claim would be false", "Y"))
+        return 2
+    headers["Origin"] = args.origin
     qstring = urllib.parse.urlencode({"query": test_q})  # noqa: F821
     sep = "&" if "?" in args.url else "?"
     get_url = f"{args.url}{sep}{qstring}"
@@ -963,21 +1096,33 @@ def cmd_csrf_probe(args: argparse.Namespace) -> int:
     print(f"    target: {get_url}")
 
     s, _, body = http_get(get_url, headers)
-    data = body.get("data") or {}
-    errs = [e.get("message", "")[:120] for e in (body.get("errors") or [])]
+    if not isinstance(body, dict):
+        print(_color(f"  [?] indeterminate: malformed GraphQL response body ({type(body).__name__})", "Y"))
+        return 1
+    data = body.get("data") if isinstance(body.get("data"), dict) else {}
+    errs = _error_summaries(body.get("errors"))
     print(f"  HTTP {s}  data={bool(data)}  errs={errs[:1]}")
-    if data and not errs and s == 200:
-        print(_color("[!!] CRITICAL: GET /graphql?query=... succeeded — GraphQL CSRF vector", "R"))
-        print(_color("     If cookie auth is enabled, an attacker img/iframe loads this URL", "R"))
-        print(_color("     and executes arbitrary queries (read or mutation) in the user's session.", "R"))
-        # Mutation-via-GET is the more dangerous variant — try a benign one.
-        # We use __typename which is universally safe; the test is whether GET
-        # is accepted for ANY operation, which it shouldn't be per spec.
-    elif s in (400, 405):
-        print(_color("  [+] GET correctly rejected (HTTP {})".format(s), "G"))
-    else:
-        print(_color(f"  [?] indeterminate (status {s}, errs={errs[:1]})", "Y"))
-    return 0
+    if s == 0:
+        print(_color("  [?] indeterminate: mutation transport failed", "Y"))
+        return 1
+    if s in (400, 405):
+        print(_color("  [+] mutation GET rejected (HTTP {})".format(s), "G"))
+        return 0
+    if s != 200:
+        print(_color(f"  [?] indeterminate HTTP response ({s}); authentication/policy state is unproved", "Y"))
+        return 1
+    if errs:
+        print(_color(f"  [?] indeterminate GraphQL response; errors were returned: {errs[:1]}", "Y"))
+        return 1
+    if args.expect_field in data and data[args.expect_field] is not None:
+        print(_color("[!!] CRITICAL: authenticated benign mutation accepted via cross-origin GET "
+                     "without a CSRF token", "R"))
+        return 0
+    if args.expect_field in data:
+        print(_color(f"  [?] indeterminate: expected proof field {args.expect_field!r} is null", "Y"))
+        return 1
+    print(_color(f"  [?] indeterminate: expected proof field {args.expect_field!r} is absent", "Y"))
+    return 1
 
 
 # =============================================================== Helper: alias-DoS detection (F.6)
@@ -985,23 +1130,34 @@ def cmd_csrf_probe(args: argparse.Namespace) -> int:
 # growth. If latency scales super-linearly with N, the server is not
 # normalizing aliased queries (per Apollo cost-analysis best-practice).
 # DETECT-ONLY — we never exceed N=16 by default, refuse without --confirm.
-def _alias_dos_check(url: str, operation: str, op: dict, headers: dict,
-                     n_max: int) -> dict:
-    """Run with N=1, 2, 4, 8, ... up to n_max and return a {n: elapsed_ms} map."""
-    out: dict[int, int] = {}
-    n = 1
-    # Build a single field selection using the existing builder; if it's not
-    # a scalar return, wrap in __typename.
+def _alias_document(base_doc: str, n: int) -> str:
+    """Alias the selected root field while preserving arguments/selection."""
+    start, end = base_doc.find("{"), base_doc.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("cannot locate selected operation body")
+    prefix = re.sub(r"\bGqlPy\b", "GqlPyAliasDos", base_doc[:start], count=1)
+    selected = base_doc[start + 1:end].strip()
+    aliases = "\n  ".join(f"a{i}: {selected}" for i in range(n))
+    return f"{prefix}{{\n  {aliases}\n}}\n"
+
+
+def _alias_dos_check(url: str, base_doc: str, variables: dict, headers: dict,
+                     n_max: int, samples: int = 3) -> dict[int, list[int]]:
+    """Take randomized repeated samples for each alias count."""
+    sizes, n = [], 1
     while n <= n_max:
-        aliases = " ".join(f"a{i}: __typename" for i in range(n))
-        doc = f"query GqlPyAliasDos {{ {aliases} }}"
+        sizes.append(n); n *= 2
+    schedule = sizes * samples
+    random.Random(0xA11A5).shuffle(schedule)
+    out: dict[int, list[int]] = {size: [] for size in sizes}
+    for n in schedule:
+        doc = _alias_document(base_doc, n)
         t0 = time.monotonic()
-        status, _, _ = http_post(url, {"query": doc, "variables": {}}, headers)
+        status, _, _ = http_post(url, {"query": doc, "variables": variables}, headers)
         elapsed = int((time.monotonic() - t0) * 1000)
-        out[n] = elapsed
+        out[n].append(elapsed)
         if status == 0:                  # connect fail — stop
             break
-        n *= 2
     return out
 
 
@@ -1112,7 +1268,10 @@ def main() -> int:
 
     # F.5 — CSRF-via-GET probe
     p = sub.add_parser("csrf-probe",
-                       help="GET /graphql?query=... — does the server accept queries via GET? (CSRF surface)")
+                       help="preflight read-only GET; confirm only an operator-supplied benign mutation in cookie context")
+    p.add_argument("--mutation", help="benign GraphQL mutation document to test over cross-origin GET")
+    p.add_argument("--expect-field", help="top-level data field proving the benign mutation executed")
+    p.add_argument("--origin", default="https://attacker.invalid", help="cross-origin Origin header for browser-equivalent request")
     p.set_defaults(func=cmd_csrf_probe)
 
     args = ap.parse_args()

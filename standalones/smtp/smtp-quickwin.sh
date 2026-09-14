@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TARGETS=""; TARGET=""; OUT="./smtp-quickwin"; PARALLEL=4
 EHLO_NAME="recon.local"
+INTERNAL_DOMAIN=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -13,6 +14,7 @@ while [ $# -gt 0 ]; do
         --targets)   TARGETS="$2"; shift 2 ;;
         --output|-o) OUT="$2"; shift 2 ;;
         --ehlo)      EHLO_NAME="$2"; shift 2 ;;
+        --internal-domain) INTERNAL_DOMAIN="$2"; shift 2 ;;
         --parallel)  PARALLEL="$2"; shift 2 ;;
         -h|--help)
             echo "Usage: $0 --target HOST:PORT | --targets file [-o dir]"
@@ -56,10 +58,12 @@ scan_one() {
                        "RCPT TO:<external@external.example>" "QUIT")" 8)
     echo "$relay" > "$d/relay_probe.txt"
     local relay_open=0
-    grep -E '^250[-\s]+(2\.[0-9.]+\s+)?(Ok|OK|Accepted|Recipient)' "$d/relay_probe.txt" >/dev/null && relay_open=1
+    local relay_rcpt_code
+    relay_rcpt_code=$(smtp_command_code "$relay" 3)
+    smtp_code_is_success "$relay_rcpt_code" && relay_open=1
 
     # 3. Internal relay test — receiving mail for an internal-looking recipient
-    local internal_domain="${HOST}"
+    local internal_domain="${INTERNAL_DOMAIN:-$HOST}"
     local internal
     internal=$(smtp_send "$HOST" "$PORT" \
         "$(smtp_dialog "EHLO $EHLO_NAME" \
@@ -67,7 +71,9 @@ scan_one() {
             "RCPT TO:<postmaster@${internal_domain}>" "QUIT")" 8)
     echo "$internal" > "$d/internal_relay.txt"
     local internal_ok=0
-    grep -E '^250.*(Ok|OK|Accepted)' "$d/internal_relay.txt" >/dev/null && internal_ok=1
+    local internal_rcpt_code
+    internal_rcpt_code=$(smtp_command_code "$internal" 3)
+    smtp_code_is_success "$internal_rcpt_code" && internal_ok=1
 
     # 4. VRFY user-enumeration test
     if [ "$has_vrfy" = "1" ]; then
@@ -86,8 +92,6 @@ scan_one() {
     # Classify
     if [ "$relay_open" = "1" ]; then
         tier="CRITICAL"; reason="OPEN RELAY — sender spoofing + external phish vehicle"
-    elif [ "$internal_ok" = "1" ]; then
-        tier="CRITICAL"; reason="internal-domain relay accepted unauth — internal phishing pivot"
     elif [ "$has_vrfy" = "1" ] || [ "$has_expn" = "1" ]; then
         tier="HIGH"; reason="VRFY/EXPN enabled — user enumeration possible"
     elif [ "$has_starttls" = "0" ]; then
@@ -106,7 +110,7 @@ scan_one() {
         echo "Banner: $banner_first"
         echo "STARTTLS: $has_starttls  VRFY: $has_vrfy  EXPN: $has_expn"
         echo "AUTH mechs: $auth_mechs"
-        echo "relay_open=$relay_open  internal_ok=$internal_ok"
+        echo "relay_open=$relay_open  local_delivery_accepted=$internal_ok"
         echo
         echo "Tier:   $tier"
         echo "Reason: $reason"
@@ -121,7 +125,7 @@ scan_one() {
     echo "$tier|$HOST:$PORT|$reason" >> "$OUT/_tiers.tsv"
 }
 
-export -f scan_one parse_target smtp_send smtp_dialog have log hit miss err crit
+export -f scan_one parse_target smtp_send smtp_dialog smtp_command_code smtp_code_is_success have log hit miss err crit
 export OUT EHLO_NAME _G _Y _R _C _RST
 
 if [ -n "$TARGET" ]; then

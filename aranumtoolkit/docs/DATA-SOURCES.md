@@ -1,27 +1,22 @@
-# Offline data sources — provenance & freshness
+# Offline data sources — provenance and freshness
 
-aranum embeds curated offline datasets so it works air-gapped. Judgment quality
-depends on their freshness. Each dataset carries an `updated` (ISO date) + `source`
-in its own file; this is the index. `make data-audit` warns when any is stale.
+`aranumtoolkit/data-sources.json` is the machine-readable source of truth for
+every embedded dataset and rule family. Each entry records its source, explicit
+owner, reviewed/refreshed date, maximum age, freshness policy, and either an
+exact SHA-256 checksum or a reproducible derivation.
 
-| dataset | file | source | updated |
-|---|---|---|---|
-| default credentials catalog | `standalones/creds/default-creds.json` (`_meta.updated`) | vendor docs + public default-cred lists | 2026-07-20 |
-| GTFOBins SUID subset | `standalones/linux/suid-gtfobins.sh` (header comment) | https://gtfobins.github.io/ (function=suid) | 2026-05 |
-| service metadata / priorities | `aranumtoolkit/network/service-metadata.json` | curated in-repo | tracked via git |
+Derivations are typed machine-readable objects, not free-form assertions. The
+audit validates declared JSON structure, hashes every input named by a source
+manifest, and checks discovered-content rules against their actual roots,
+markers, suffixes, and minimum inventory. Unsupported or malformed derivation
+types fail the gate.
 
-## CVE reference lists (embedded in scripts)
+`make data-audit` validates the manifest schema, file existence, checksums,
+derivations, and freshness. The CVE/version entry discovers every runtime and
+wiki file carrying a CVE marker so a new embedded rule cannot silently fall
+outside the inventory. A file being tracked by Git is not treated as evidence
+that its content was recently reviewed.
 
-CVE version-range checks live in the dispatchers/standalones themselves (e.g.
-`sudo-enum.sh`, `looney-check.sh`, `enum-ssh.sh`, `redis-rce-lua.sh`). They are
-**signals**, not confirmations — a distro may have backported a fix without a
-version bump (the scripts say so). Refresh cadence: review against new CVEs each
-release; the `Enhanced`/`Fixed` CHANGELOG sections record currency bumps.
-
-## Refresh policy
-
-- No live fetching at runtime (offline/minimal-dep constraint). Refresh is a
-  deliberate maintainer action recorded in the CHANGELOG.
-- Bump the dataset's `updated` field when you refresh it.
-- `make data-audit` greps the `updated` dates and warns when any is older than
-  ~9 months, so staleness is visible.
+Refreshes are deliberate maintainer actions: update the entry date, checksum or
+derivation, and changelog in the same change. No live fetching occurs at
+runtime, preserving air-gapped operation.

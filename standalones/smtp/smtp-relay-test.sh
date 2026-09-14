@@ -8,7 +8,8 @@
 #
 # Sends a probe email through each variation; non-2xx after RCPT TO means
 # that variation is blocked. Any 250 after RCPT TO means relay is open
-# via that form -- and you should immediately follow with smtp-phish-send.sh.
+# via an external-destination form is a relay signal. Normal external-to-local
+# delivery is expected and is never reported as an open relay.
 
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,11 +86,21 @@ for tt in "${TESTS[@]}"; do
     # so the RCPT reply is the last final-reply before the 221 QUIT reply. This is
     # robust to the variable number of 250- EHLO extension lines (the old positional
     # `sed -n 3p` counted an EHLO extension line as the RCPT reply).
-    rcpt_code=$(printf '%s\n' "$resp" | grep -E '^[2-5][0-9][0-9] ' | grep -vE '^221 ' | tail -1 | grep -oE '^[2-5][0-9][0-9]')
+    rcpt_code=$(smtp_command_code "$resp" 3)
     [ -z "$rcpt_code" ] && rcpt_code="???"
     interp=""
     case "$rcpt_code" in
-        250|251) interp=$(printf "%s[!! RELAY OPEN]%s" "$_R" "$_RST"); RELAYABLE+=("$id: $mailfrom -> $rcptto") ;;
+        250|251)
+            if [ "$id" = "18" ]; then
+                interp="expected local delivery"
+            elif [ "$id" = "19" ]; then
+                interp="accepted (destination indeterminate)"
+            elif [ "$id" = "16" ]; then
+                interp="accepted null recipient (not relay evidence)"
+            else
+                interp=$(printf "%s[!! RELAY OPEN]%s" "$_R" "$_RST")
+                RELAYABLE+=("$id: $mailfrom -> $rcptto")
+            fi ;;
         550|554) interp="closed" ;;
         553)     interp="rejected (policy)" ;;
         452|421) interp="temp-fail" ;;

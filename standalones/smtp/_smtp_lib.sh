@@ -35,3 +35,36 @@ smtp_dialog() {
     for line in "$@"; do s+="$line"$'\r\n'; done
     printf '%s' "$s"
 }
+
+# Print the final reply code associated with a command in a pipelined SMTP
+# transcript.  Command indexes are one-based; the server greeting is reply 0.
+# Multiline continuation lines ("250-") are deliberately ignored so an EHLO
+# extension can never be mistaken for the MAIL/RCPT/DATA result.
+smtp_command_code() {
+    local transcript="$1" command_index="$2"
+    printf '%s\n' "$transcript" | awk -v wanted="$((command_index + 1))" '
+        /^[2-5][0-9][0-9] / {
+            seen++
+            if (seen == wanted) { print substr($0, 1, 3); exit }
+        }
+    '
+}
+
+smtp_code_is_success() {
+    case "$1" in 250|251) return 0 ;; *) return 1 ;; esac
+}
+
+# Read one complete SMTP reply from an already-open descriptor. Diagnostic
+# lines emitted by netcat are ignored. The caller owns timeout/lifecycle.
+smtp_read_reply() {
+    local fd="$1" line code="" saw=0
+    while IFS= read -r -u "$fd" line; do
+        line="${line%$'\r'}"
+        [[ "$line" =~ ^([2-5][0-9][0-9])([-\ ]) ]] || continue
+        printf '%s\n' "$line"
+        saw=1
+        code="${BASH_REMATCH[1]}"
+        [ "${BASH_REMATCH[2]}" = " " ] && break
+    done
+    [ "$saw" = 1 ] && [ -n "$code" ]
+}

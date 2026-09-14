@@ -42,7 +42,8 @@ standalones/activemq/
 
 | Condition | Tier | Path |
 |---|---|---|
-| OpenWire port 61616 open + version < 5.18.3/5.17.6/5.16.7/5.15.16 | **CRITICAL** | `activemq-cve-2023-46604.py` — no auth needed |
+| OpenWire signature + observed affected version (< 5.18.3/5.17.6/5.16.7/5.15.16) | **CRITICAL candidate** | `activemq-cve-2023-46604.py` — no auth needed |
+| OpenWire signature with hidden/unvalidated version | MEDIUM / indeterminate | Obtain authoritative package/version evidence; do not claim the CVE |
 | Web console 8161 + admin:admin or other default creds | **CRITICAL** | `activemq-jolokia-rce.sh` |
 | Web console 8161 + version reachable but creds rejected | HIGH | Cred-spray candidate |
 | AMQP 5672 / STOMP 61613 only | MEDIUM | Message-protocol auth attempt |
@@ -61,11 +62,13 @@ with a single constructor arg — a URL. Spring fetches that URL, parses the XML
 The PoC script:
 1. Generates the Spring XML containing your shell command
 2. Stands up an HTTP server on the attacker box
-3. Sends a crafted OpenWire frame to port 61616
+3. Binds both the XML server and optional proof callback, then sends a crafted OpenWire frame
 4. Broker fetches the XML over HTTP → instantiates the bean → executes
 5. HTTP server is held briefly to give the broker time to fetch
 
-Fixed in 5.18.3 / 5.17.6 / 5.16.7 / 5.15.16. Anything older is vulnerable.
+Fixed in 5.18.3 / 5.17.6 / 5.16.7 / 5.15.16. Backports can make
+banner-derived versions ambiguous, so an unknown version is never promoted to a
+confirmed vulnerable-range verdict.
 
 ## Jolokia MLet RCE — admin path
 

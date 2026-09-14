@@ -14,12 +14,12 @@ Authorized-testing-only. Scope, safety invariants, and gating decisions are reco
 | Tool | Default behavior | Optional | Notes |
 |---|---|---|---|
 | [`../../aranumtoolkit/network/enum-jabber.sh`](../../aranumtoolkit/network/enum-jabber.sh) | 7-phase read-only XMPP server enum (banner / cert+SANs / SASL mechs / IBR-advertised / disco / MUC items / BOSH-WS / admin-API) | — | Auto-routed by `auto-enum.sh` from the `xmpp` category |
-| [`jabber-user-enum.py`](jabber-user-enum.py) | SASL PLAIN response-differential username enum (read-only) | `--out` JSONL, `--delay` rate-shape | Deliberately does NOT use XEP-0077 IBR conflict-probe (that technique writes) |
+| [`jabber-user-enum.py`](jabber-user-enum.py) | SASL response differential with randomized nonexistent controls (read-only) | `--out` JSONL, `--delay` rate-shape | Generic rejection is `INDISTINGUISHABLE`; only repeatable timing separation becomes `LIKELY_EXISTS` |
 | [`jabber-validate.py`](jabber-validate.py) | Single-credential SASL validation (SCRAM-SHA-256 → SCRAM-SHA-1 → PLAIN) | `--mechs` override, `JABBER_PASSWORD` env | NO spray. One user, one password, one attempt. |
 | [`jabber-admin-api-probe.sh`](jabber-admin-api-probe.sh) | Detect Ejabberd `/api/`, Prosody `mod_admin_telnet` (5582), `mod_admin_web` (/admin) | — | Read-only HEAD/banner only |
 | [`openfire-cve-2023-32315.py`](openfire-cve-2023-32315.py) `detect` | Path-traversal vulnerability probe (read-only) | — | Always safe to run during recon |
 | [`openfire-cve-2023-32315.py`](openfire-cve-2023-32315.py) `exploit` | **MODIFIES TARGET** — admin create + JSP webshell upload | Requires typed-FQDN confirmation, `--plugin-jar PATH`, writes `--log` | See "Cleanup procedure" below |
-| [`openfire-cve-2023-32315.py`](openfire-cve-2023-32315.py) `cleanup` | Reverse a prior `--exploit` run via the legitimate admin login | Scaffolded — see "Manual cleanup" below | |
+| [`openfire-cve-2023-32315.py`](openfire-cve-2023-32315.py) `cleanup` | Discover legitimate admin uninstall/delete actions, reverse them, and verify absence | Idempotent; returns nonzero with a structured recovery reason when the version-specific action is unsupported | |
 
 ## Typical workflow
 
@@ -52,6 +52,7 @@ JABBER_PASSWORD='Hunter2!' ./standalones/jabber/jabber-validate.py \
 #    Build your own audited webshell plugin first (see "Building a JSP plugin" below).
 ./standalones/jabber/openfire-cve-2023-32315.py --url http://10.0.0.5:9090 exploit \
     --plugin-jar ./my-audited-plugin.jar \
+    --proof-path health.jsp --proof-marker 'ARANUM-BENIGN-PROOF' \
     --log /tmp/openfire-exploit-10.0.0.5.json
 # Confirmation prompt will require you to type '10.0.0.5:9090' literally.
 ```
@@ -71,7 +72,11 @@ Run the detect+exploit cycle against it. Verify:
 1. `detect` reports `VULNERABLE`.
 2. `exploit` (with typed-FQDN confirm) actually creates the admin you can see in `/admin/user-summary.jsp` once logged in with the captured credential.
 3. The webshell plugin is reachable at the URL printed.
-4. `cleanup` (or the manual procedure below) removes both.
+4. `cleanup` removes both and records verified absence. The automated request
+   shapes have deterministic local fixture coverage. Plugin absence must be
+   observed in the authenticated plugin inventory; a missing proof URL and a
+   failed created-admin login are not sufficient. This live-container step
+   remains mandatory before an end-to-end cleanup claim.
 
 If any step fails, the corresponding code path is incorrect for your Openfire build and needs adjustment before engagement use. **Do not run `exploit` against a real target until lab verification passes.**
 
@@ -102,7 +107,7 @@ Minimal `plugin.xml`:
 
 Build with `zip -r my-plugin.jar plugin.xml web/`. Audit `web/webshell.jsp` before every engagement — the contents of that file are 100% your responsibility.
 
-## Manual cleanup (until the `cleanup` subcommand is lab-verified)
+## Manual cleanup fallback
 
 After `exploit`, the log file contains the admin credential and plugin name. To reverse manually:
 
@@ -120,6 +125,15 @@ After `exploit`, the log file contains the admin credential and plugin name. To 
    - Click `<admin_user from log>` → `Delete User` → confirm
 
 Both steps are reversible engagement-bounded changes; do them before disconnecting.
+
+The exploit preflight distinguishes an omitted `--plugin-jar` from a supplied
+nonexistent/unreadable file. Both exit before confirmation and before any HTTP
+mutation. Upload status alone never establishes deployment: the JAR filename
+defines the actual plugin context, and `--proof-path` plus `--proof-marker`
+must return a matching benign response before `full_chain_verified` is logged.
+The recovery-log destination is also opened/probed for atomic replacement
+during preflight; directories, symlinks, missing/unwritable parents, and
+unwritable files fail before confirmation or network access.
 
 ## What this directory does NOT do (and why)
 

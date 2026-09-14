@@ -13,7 +13,7 @@ Methodology:
     2. For each candidate username, attempt SASL PLAIN with the candidate
        and a deliberately wrong password.
     3. Classify the failure XML:
-         <not-authorized/>        -> USER_EXISTS  (server reached cred check)
+         <not-authorized/>        -> SASL_NOT_AUTHORIZED (neutral condition)
          <invalid-authzid/>       -> INVALID_FORMAT
          <account-disabled/>      -> EXISTS_DISABLED
          <credentials-expired/>   -> EXISTS_EXPIRED
@@ -23,10 +23,10 @@ Methodology:
        between known-good and bogus users is itself a signal even when the
        failure XML is identical.
 
-Many hardened servers (modern Ejabberd with the right auth_method config)
-return <not-authorized/> for every username. In that case this tool will
-report USER_EXISTS for every candidate and the timing column is the only
-useful signal. That's the intended degradation behavior.
+Many hardened servers return <not-authorized/> for every username. Randomized
+high-entropy control identities are therefore probed alongside candidates.
+Only a repeatable timing differential above the configured threshold becomes
+LIKELY_EXISTS; otherwise the categorical result is INDISTINGUISHABLE.
 
 The Openfire CVE-2023-32315 helper lives elsewhere — this tool is purely
 about who can authenticate, not about path-traversal admin bypass.
@@ -43,6 +43,8 @@ import socket
 import ssl
 import sys
 import time
+import random
+import statistics
 from pathlib import Path
 
 # --------------------------------------------------- colors
@@ -158,7 +160,7 @@ def _probe_user(ip: str, port: int, domain: str, user: str,
 
 # Map SASL failure conditions per RFC 6120 §6.5 to enumeration verdicts.
 _FAILURE_MAP = [
-    (re.compile(r"<not-authorized\s*/>"),          "USER_EXISTS"),
+    (re.compile(r"<not-authorized\s*/>"),          "SASL_NOT_AUTHORIZED"),
     (re.compile(r"<account-disabled\s*/>"),        "EXISTS_DISABLED"),
     (re.compile(r"<credentials-expired\s*/>"),     "EXISTS_EXPIRED"),
     (re.compile(r"<temporary-auth-failure\s*/>"),  "SERVER_ERROR"),
@@ -191,6 +193,38 @@ def _classify_sasl_response(user: str, resp: bytes, started: float, mech: str = 
             "elapsed_ms": elapsed_ms, "raw": text[:200]}
 
 
+def _apply_differential(results: list[dict], controls: list[dict], threshold_ms: int) -> list[dict]:
+    """Convert neutral SASL rejections only when repeated controls diverge."""
+    control_times = [r["elapsed_ms"] for r in controls
+                     if r.get("verdict") == "SASL_NOT_AUTHORIZED"]
+    control_median = statistics.median(control_times) if len(control_times) >= 2 else None
+    output = []
+    by_user: dict[str, list[dict]] = {}
+    for result in results:
+        by_user.setdefault(result["user"], []).append(result)
+    for user, probes in by_user.items():
+        representative = dict(probes[0])
+        generic = [p for p in probes if p.get("verdict") == "SASL_NOT_AUTHORIZED"]
+        if len(generic) != len(probes) or control_median is None or len(generic) < 2:
+            output.append(representative); continue
+        times = [p["elapsed_ms"] for p in generic]
+        deltas = [value - control_median for value in times]
+        repeatable = (all(delta >= threshold_ms for delta in deltas) or
+                      all(delta <= -threshold_ms for delta in deltas))
+        representative["elapsed_ms"] = int(statistics.median(times))
+        representative["control_median_ms"] = int(control_median)
+        representative["confidence"] = "medium" if repeatable else "none"
+        if repeatable:
+            representative["verdict"] = "LIKELY_EXISTS"
+            representative["detail"] = (f"repeatable SASL timing differential versus randomized controls "
+                                        f"(threshold={threshold_ms}ms)")
+        else:
+            representative["verdict"] = "INDISTINGUISHABLE"
+            representative["detail"] = "generic SASL rejection matches randomized controls"
+        output.append(representative)
+    return output
+
+
 def _scram_mech(feats: bytes) -> str | None:
     """Return the strongest offered SCRAM mechanism name, or None."""
     for m in (b"SCRAM-SHA-256", b"SCRAM-SHA-1"):
@@ -206,8 +240,8 @@ def _probe_user_scram(s, mech: str, user: str, timeout: float, started: float) -
     for a real user but rejects the client-first for a non-existent one is
     enumerable; the bogus client-final then maps to the same RFC-6120 verdicts as
     PLAIN. NOTE: hardened servers (ejabberd/prosody with anti-enum) return a
-    fabricated challenge for every username, so a USER_EXISTS verdict over SCRAM
-    is lower-confidence than over PLAIN — corroborate with response timing.
+    fabricated challenge for every username, so a generic rejection remains
+    neutral until randomized controls establish a repeatable differential.
     """
     hashname = "sha256" if mech.endswith("256") else "sha1"
     try:
@@ -278,6 +312,12 @@ def main() -> int:
     ap.add_argument("--delay", type=float, default=0.0,
                     help="seconds between probes (per ADR-001 D2 we never spray, but use this for rate-shaping)")
     ap.add_argument("--out", help="write per-user JSONL results to this file")
+    ap.add_argument("--control-count", type=int, default=3,
+                    help="randomized high-entropy nonexistent controls (default 3)")
+    ap.add_argument("--repeats", type=int, default=2,
+                    help="repeat each candidate/control to require a stable differential (default 2)")
+    ap.add_argument("--timing-threshold-ms", type=int, default=100,
+                    help="minimum repeatable median-control delta for LIKELY_EXISTS (default 100ms)")
     args = ap.parse_args()
 
     users = [l.strip() for l in Path(args.user_list).read_text().splitlines()
@@ -291,25 +331,37 @@ def main() -> int:
         print(_c("[!] --no-starttls — plaintext SASL. Use only on authorized lab targets.", "Y"))
     print()
 
-    out_fh = open(args.out, "w") if args.out else None
     use_starttls = not args.no_starttls
+    if args.control_count < 2 or args.repeats < 2 or args.timing_threshold_ms < 1:
+        print(_c("[!] controls/repeats must be >=2 and timing threshold >=1ms", "R"), file=sys.stderr)
+        return 2
+    controls = [f"aranum-control-{os.urandom(12).hex()}" for _ in range(args.control_count)]
+    schedule = [(user, False) for user in users for _ in range(args.repeats)] + \
+               [(user, True) for user in controls for _ in range(args.repeats)]
+    random.SystemRandom().shuffle(schedule)
+    candidate_probes, control_probes = [], []
+    for user, is_control in schedule:
+        result = _probe_user(args.host, args.port, args.domain, user, args.timeout, use_starttls)
+        result["is_control"] = is_control
+        (control_probes if is_control else candidate_probes).append(result)
+        if args.delay > 0:
+            time.sleep(args.delay)
+    final_results = _apply_differential(candidate_probes, control_probes, args.timing_threshold_ms)
 
-    counts: dict[str, int] = {}
-    timings: dict[str, list[int]] = {}
-    for user in users:
-        r = _probe_user(args.host, args.port, args.domain, user, args.timeout, use_starttls)
+    out_fh = open(args.out, "w") if args.out else None
+    counts: dict[str, int] = {}; timings: dict[str, list[int]] = {}
+    for r in final_results:
+        user = r["user"]
         v = r["verdict"]
         counts[v] = counts.get(v, 0) + 1
         timings.setdefault(v, []).append(r["elapsed_ms"])
-        flag = {"USER_EXISTS": _c("+", "G"), "EXISTS_DISABLED": _c("!", "Y"),
+        flag = {"LIKELY_EXISTS": _c("+", "G"), "EXISTS_DISABLED": _c("!", "Y"),
                 "EXISTS_EXPIRED": _c("!", "Y"), "STREAM_FAIL": _c("X", "R"),
                 "NO_MECH": _c("?", "Y")}.get(v, " ")
         print(f"  [{flag}] {user:30s}  {v:24s}  {r['elapsed_ms']:5d}ms  {r['detail']}")
         if out_fh:
             import json as _json
             out_fh.write(_json.dumps(r) + "\n")
-        if args.delay > 0:
-            time.sleep(args.delay)
 
     if out_fh:
         out_fh.close()
@@ -321,8 +373,8 @@ def main() -> int:
         ts = sorted(timings[v])
         med = ts[len(ts) // 2]
         print(f"  {v:24s}  ×{n:5d}  median {med}ms")
-    print(_c("[*] interpretation: if every candidate returned USER_EXISTS the server "
-             "doesn't differentiate via SASL XML — check the timing column for outliers", "C"))
+    print(_c("[*] generic rejections are INDISTINGUISHABLE unless repeated randomized-control "
+             "timings exceed the explicit threshold", "C"))
     return 0
 
 

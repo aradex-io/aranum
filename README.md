@@ -87,7 +87,7 @@ Each subsystem ships its own README documenting the per-tool surface — `standa
 
 | Script | Purpose |
 |---|---|
-| `standalones/creds/default-creds-sweep.py` | Multi-protocol default-credential sweep (SSH/MSSQL/MySQL/Redis/Mongo/…) |
+| `standalones/creds/default-creds-sweep.py` | HTTP(S) administrative-portal default-credential sweep; use SSH/database dispatchers for native authentication |
 | `standalones/creds/spray-scheduler.py` (D2.2) | Lockout-policy-aware wrapper around any spray tool — `--threshold N --interval M` (default 3 attempts / 30 minutes per principal) with persistent state for resume |
 | `standalones/creds/hash-format.py` (D2.2) | Convert captured NTLMv2 / NTLMv1 / AS-REP / TGS-REP from Responder / impacket / nxc output into `hashcat`- and `john`-ready files + `_index.tsv` |
 

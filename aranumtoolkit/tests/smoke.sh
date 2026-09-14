@@ -232,8 +232,23 @@ rc=$?
 [ "$rc" -eq 2 ] && p "openfire detect: rc=2 on connect-refused" \
                 || f "openfire detect: rc=$rc expected 2"
 
-# openfire exploit refuses without typed-FQDN
-out=$(echo "wrong" | timeout 5 python3 standalones/jabber/openfire-cve-2023-32315.py --url http://127.0.0.1:9090 exploit 2>&1)
+# openfire exploit refuses without typed-FQDN after its local-only plugin
+# preflight.  The preflight intentionally precedes confirmation so a missing
+# artifact cannot ever lead an operator toward a mutation path.
+OPENFIRE_SMOKE_DIR=$(mktemp -d /tmp/aranum-openfire-smoke.XXXXXX)
+OPENFIRE_SMOKE_JAR="$OPENFIRE_SMOKE_DIR/audit-proof.jar"
+python3 - "$OPENFIRE_SMOKE_JAR" <<'PY'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    archive.writestr("plugin.xml", "<plugin><name>Audit Proof</name></plugin>")
+PY
+out=$(echo "wrong" | timeout 5 python3 standalones/jabber/openfire-cve-2023-32315.py \
+    --url http://127.0.0.1:9090 exploit --plugin-jar "$OPENFIRE_SMOKE_JAR" \
+    --proof-marker aranum-openfire-smoke --log "$OPENFIRE_SMOKE_DIR/recovery.json" 2>&1)
+rm -f "$OPENFIRE_SMOKE_JAR"
+rmdir "$OPENFIRE_SMOKE_DIR"
 echo "$out" | grep -q "confirmation did not match" \
     && p "openfire exploit: ADR-001 D3 typed-FQDN refusal works" \
     || f "openfire exploit: typed-FQDN refusal broken"
@@ -356,10 +371,14 @@ echo "$out" | grep -q "harvested 0" && p "gql.py suggest: empty corpus, clean ex
 out=$(timeout 5 python3 standalones/graphql/gql.py --url http://127.0.0.1:1/graphql apq-probe 2>&1)
 echo "$out" | grep -q "APQ probe" && p "gql.py apq-probe: runs to completion" \
                                    || f "gql.py apq-probe broken"
-# csrf-probe against unreachable
+# csrf-probe against unreachable is explicitly indeterminate/nonzero
 out=$(timeout 5 python3 standalones/graphql/gql.py --url http://127.0.0.1:1/graphql csrf-probe 2>&1)
-echo "$out" | grep -q "CSRF-via-GET probe" && p "gql.py csrf-probe: runs to completion" \
-                                            || f "gql.py csrf-probe broken"
+rc=$?
+if [ "$rc" -eq 1 ] && echo "$out" | grep -q "indeterminate read-only preflight"; then
+    p "gql.py csrf-probe: unreachable target is indeterminate/nonzero"
+else
+    f "gql.py csrf-probe: rc=$rc expected indeterminate rc=1"
+fi
 # alias-DoS without --confirm refuses
 out=$(timeout 5 python3 standalones/graphql/gql.py --url http://127.0.0.1:1/graphql call currentUser --no-schema --alias-dos-check 2>&1)
 echo "$out" | grep -q "requires --confirm" && p "gql.py --alias-dos-check: refuses without --confirm" \
