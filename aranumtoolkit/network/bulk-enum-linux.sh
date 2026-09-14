@@ -520,7 +520,7 @@ printf '#endpoint_id\tuser\thost\tport\tplatform\n' > "$manifest_tmp"
 declare -A seen_endpoint_ids=()
 while IFS= read -r raw_spec || [ -n "$raw_spec" ]; do
     parsed=$(parse_spec "$raw_spec") || continue
-    IFS=$'\t' read -r parsed_user parsed_host parsed_port parsed_key parsed_artifact_id <<< "$parsed"
+    IFS=$'\t' read -r parsed_user parsed_host parsed_port _parsed_key parsed_artifact_id <<< "$parsed"
     eid="${parsed_artifact_id:-$(endpoint_key "$parsed_user" "$parsed_host" "$parsed_port")}"
     [ -n "${seen_endpoint_ids[$eid]:-}" ] && continue
     seen_endpoint_ids[$eid]=1

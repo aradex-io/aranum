@@ -91,8 +91,7 @@ else
 fi
 
 # Cleanup trap — restore config on exit unless --keep was requested.
-SAVED_DIR=""; SAVED_DBFILE=""; SAVED_AOF=""; SAVED_MASTERAUTH=""; SAVED_MASTERUSER=""
-SAVED_ROLE=""; SAVED_MASTER_HOST=""; SAVED_MASTER_PORT=""
+SAVED_DIR=""; SAVED_DBFILE=""; SAVED_AOF=""
 CONFIG_SNAPSHOT_COMPLETE=0
 on_exit() {
     local rc=$? cleanup_failed=0

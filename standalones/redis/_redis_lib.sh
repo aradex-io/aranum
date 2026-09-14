@@ -235,7 +235,11 @@ probe_module_load_capability() {
     if [ "$major" -lt 7 ] 2>/dev/null; then
         help=$(rcmd MODULE HELP 2>&1)
         if ! printf '%s' "$help" | grep -qiE '^(ERR|NOAUTH|NOPERM)|disabled|forbidden'; then
-            MODULE_LOAD_STATE="allowed"; MODULE_LOAD_REASON="legacy MODULE command ACL permits HELP"; return 0
+            # shellcheck disable=SC2034  # output globals consumed by scripts that source this library
+            MODULE_LOAD_STATE="allowed"
+            # shellcheck disable=SC2034  # output globals consumed by scripts that source this library
+            MODULE_LOAD_REASON="legacy MODULE command ACL permits HELP"
+            return 0
         fi
     fi
     return 0

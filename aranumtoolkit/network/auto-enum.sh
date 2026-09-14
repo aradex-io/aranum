@@ -537,8 +537,8 @@ PY
 
 record_queue_tasks_status() {
     local service="$1" status="$2" rc="$3" reason="$4"
-    local key task_id phase protocol risk priority ip port target_label
-    while IFS=$'\t' read -r key task_id phase protocol risk priority ip port target_label; do
+    local key task_id phase protocol risk priority _ip _port target_label
+    while IFS=$'\t' read -r key task_id phase protocol risk priority _ip _port target_label; do
         [ -n "$key" ] || continue
         record_task_result "$key" "$task_id" "$service" "$status" "$rc" "$reason"
     done < <(queue_task_rows "$service")
@@ -558,8 +558,8 @@ run_queue_dispatcher() {
     # endpoints.
     rm -f "$svc_out/.done" "$svc_out/.rc" 2>/dev/null || true
     local selected=0 done_count=0 failed_count=0 skipped_count=0 first_rc=0
-    local key task_id phase protocol risk priority ip port target_label
-    while IFS=$'\t' read -r key task_id phase protocol risk priority ip port target_label; do
+    local key task_id phase protocol risk priority _ip _port target_label
+    while IFS=$'\t' read -r key task_id phase protocol risk priority _ip _port target_label; do
         [ -n "$key" ] || continue
         selected=$((selected + 1))
         local task_out="$svc_out/task-$key"

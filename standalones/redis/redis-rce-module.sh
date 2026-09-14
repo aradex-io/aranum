@@ -42,6 +42,7 @@ INTERACTIVE=0
 LEAVE_SO=0
 EXPLOIT=0
 
+# shellcheck disable=SC2034  # PASS/USERNAME are consumed by the sourced Redis helpers
 while [ $# -gt 0 ]; do
     case "$1" in
         --target)      TARGET="$2"; shift 2 ;;
@@ -128,11 +129,10 @@ fi
 parse_target "$TARGET"
 
 # ---------- cleanup trap ----------
-SAVED_DIR=""; SAVED_DBFILE=""; SAVED_AOF=""; SAVED_MASTERAUTH=""; SAVED_MASTERUSER=""
+SAVED_DIR=""; SAVED_DBFILE=""; SAVED_AOF=""
 SAVED_ROLE=""; SAVED_MASTER_HOST=""; SAVED_MASTER_PORT=""
 ROGUE_PID=""
 LOADED=0
-REPLICATION_CHANGED=0
 on_exit() {
     local rc=$? unload_out
     local cleanup_failed=0
@@ -244,7 +244,6 @@ if ! replica_out=$(rcmd REPLICAOF "$LOCAL_IP" "$ROGUE_PORT" 2>&1); then
     err "REPLICAOF staging command failed: ${replica_out:-no response}"; exit 8
 fi
 redis_reply_is_ok "$replica_out" || { err "REPLICAOF staging failed: $replica_out"; exit 8; }
-REPLICATION_CHANGED=1
 
 # Wait for rogue to log "Sent N bytes payload"
 for _ in $(seq 1 20); do

@@ -49,6 +49,7 @@ scan_one() {
     local outfile="$OUT/${HOST}_${PORT}.txt"
     local tier="-" reason=""
     PASS="${PASS_OVERRIDE:-}"
+    # shellcheck disable=SC2034  # shared-library input consumed by rcmd/probe_redis
     USERNAME="${USERNAME_OVERRIDE:-}"
     {
         echo "Target: $HOST:$PORT"

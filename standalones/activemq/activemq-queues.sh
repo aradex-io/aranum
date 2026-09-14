@@ -62,7 +62,7 @@ hit "$TCOUNT topics found across ${#BROKERS[@]} broker(s)"
 
 # 4. For each queue: stats + browse messages
 mkdir -p "$OUT/queues"
-while IFS=$'\t' read -r BROKER_NAME safe q object_path; do
+while IFS=$'\t' read -r _broker_name safe q object_path; do
     [ -z "$q" ] && continue
     qdir="$OUT/queues/$safe"
     mkdir -p "$qdir"
