@@ -177,7 +177,7 @@ The successful ones (or ones returning anything other than "Insufficient scope")
 
 If `introspect` returns a 400 with `__schema disabled` errors, you can still:
 
-- Use the bundled catalog — `./gql.py ls --no-schema` lists 20+ standard ops
+- Use the bundled catalog — `./gql.py ls` lists standard operations when no cached schema is available
 - Use `./gql.py call <op> --no-schema` — sends the request with `String!` typed args. Server type errors will tell you the real expected type, letting you progressively refine.
 - Use the GitLab schema reference file (committed in gitlab.com source) as a local map — no live introspection needed.
 
@@ -200,7 +200,26 @@ When enabled, you get a one-line warning on stderr (`TLS verification DISABLED`)
 
 - Set `GQL_CACHE_DIR` to put schema caches outside the repo. Default: `./.cache/`.
 - Use `--show-query both` to print the constructed document for any `call` — useful for handing exact queries to Burp Repeater.
-- `--raw-response` gives the unmodified JSON for piping into `jq`.
+- `--raw-response` gives the unmodified JSON for piping into `jq`; transport,
+  HTTP, malformed-body, and GraphQL errors still return nonzero. Batched
+  responses succeed only when every member is a valid, error-free result.
+
+`csrf-probe` treats a read-only GET query as informational. A vulnerability
+verdict requires an operator-supplied benign mutation, an authenticated cookie
+context, and a response field proving the mutation executed despite the
+cross-origin request and missing CSRF token, for example:
+
+```bash
+./gql.py --cookie '_session=AUTHORIZED_TEST_SESSION' csrf-probe \
+  --mutation 'mutation { toggleTestFlag { ok } }' --expect-field toggleTestFlag
+```
+
+PAT, bearer, job-token, and custom CSRF-token headers are recognized
+case-insensitively, including when supplied through `--header`, as
+explicit/non-ambient defenses and cannot produce a cookie-CSRF verdict.
+Transport failures, ambiguous HTTP responses, GraphQL errors, and missing proof
+fields return nonzero as indeterminate rather than being reported as a clean or
+vulnerable result. A present but null proof field is also indeterminate.
 - For pagination-heavy ops (`projects`, `users`, anything `*Connection`), pass `--arg first=100` and walk `pageInfo` cursors yourself via `raw` if needed.
 
 ## Files

@@ -20,6 +20,7 @@ TARGET=""
 OUT="./redis-quickwin"
 PASS_LIST=""
 PASS_OVERRIDE=""
+USERNAME_OVERRIDE=""
 PARALLEL=4
 
 while [ $# -gt 0 ]; do
@@ -28,10 +29,11 @@ while [ $# -gt 0 ]; do
         --target)    TARGET="$2";  shift 2 ;;
         --output|-o) OUT="$2"; shift 2 ;;
         --pass|-p)   PASS_OVERRIDE="$2"; shift 2 ;;
+        --user|--username) USERNAME_OVERRIDE="$2"; shift 2 ;;
         --passlist)  PASS_LIST="$2"; shift 2 ;;
         --parallel)  PARALLEL="$2"; shift 2 ;;
         -h|--help)
-            echo "Usage: $0 --target host:port | --targets file [-o outdir] [--pass X | --passlist file] [--parallel N]"
+            echo "Usage: $0 --target host:port | --targets file [-o outdir] [--user ACL_USER --pass X | --passlist file] [--parallel N]"
             exit 0 ;;
         *) err "unknown arg: $1"; exit 1 ;;
     esac
@@ -47,6 +49,8 @@ scan_one() {
     local outfile="$OUT/${HOST}_${PORT}.txt"
     local tier="-" reason=""
     PASS="${PASS_OVERRIDE:-}"
+    # shellcheck disable=SC2034  # shared-library input consumed by rcmd/probe_redis
+    USERNAME="${USERNAME_OVERRIDE:-}"
     {
         echo "Target: $HOST:$PORT"
         echo "Time:   $(date -Is)"
@@ -92,13 +96,9 @@ scan_one() {
                 # shellcheck disable=SC2034  # collected for the per-host report log line below
                 proc_user=$(rcmd INFO server 2>/dev/null | awk -F: '/process_id|executable/{print $0}')
                 module_capable=0
-                [ "$ver_major" -ge 4 ] && module_capable=1
-
-                # Module RCE check — try MODULE LIST and see if denied
-                ml_out=$(rcmd MODULE LIST 2>&1)
-                if echo "$ml_out" | grep -qiE 'ERR unknown command|disabled|forbidden|not allowed'; then
-                    module_capable=0
-                fi
+                probe_module_load_capability
+                [ "$MODULE_LOAD_STATE" = "allowed" ] && module_capable=1
+                echo "MODULE LOAD capability: $MODULE_LOAD_STATE ($MODULE_LOAD_REASON)"
 
                 if [ "$AUTH_REQUIRED" = 0 ] && [ "$module_capable" = 1 ]; then
                     tier="CRITICAL"; reason="unauth + MODULE LOAD capable (v$REDIS_VERSION) → redis-rce-module.sh"
@@ -135,8 +135,8 @@ scan_one() {
     echo "$tier|$HOST:$PORT|$reason" >> "$OUT/_tiers.tsv"
 }
 
-export -f scan_one parse_target probe_redis try_default_creds rcmd save_config restore_config have_redis_cli log hit miss err crit
-export OUT PASS_OVERRIDE PASS_LIST _G _Y _R _C _RST
+export -f scan_one parse_target probe_redis try_default_creds rcmd save_config restore_config restore_replication_state probe_module_load_capability have_redis_cli log hit miss err crit _config_get_value
+export OUT PASS_OVERRIDE USERNAME_OVERRIDE PASS_LIST _G _Y _R _C _RST
 
 # ---------------- main ----------------
 : > "$OUT/_tiers.tsv"

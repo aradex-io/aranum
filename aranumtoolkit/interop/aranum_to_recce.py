@@ -47,6 +47,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -171,6 +172,58 @@ def _severity(finding: dict) -> str:
     return sev if sev in _SEVERITIES else "info"
 
 
+def _resolve_finding_endpoint(finding: dict, inventory_records: list[dict]
+                              ) -> tuple[int | None, str]:
+    """Resolve port/protocol without inventing TCP for ambiguous legacy data."""
+    ip = _resolve_ip(finding)
+    if not ip:
+        return None, ""
+    service = str(finding.get("service") or "").strip()
+    port = _resolve_port(finding)
+    explicit_protocol = str(finding.get("protocol") or "").lower()
+    candidates = [e for e in inventory_records if e["ip"] == ip
+                  and (port is None or e["port"] == port)
+                  and (e.get("service") == service or service in e.get("categories", []))]
+    choices = {(e["port"], e["protocol"]) for e in candidates if e.get("protocol")}
+    if port is None and len(choices) == 1:
+        port = next(iter(choices))[0]
+    protocols = {proto for candidate_port, proto in choices
+                 if port is None or candidate_port == port}
+    protocol = explicit_protocol if explicit_protocol in {"tcp", "udp"} else (
+        next(iter(protocols)) if len(protocols) == 1 else "")
+    return port, protocol
+
+
+def _coverage_states(doc: dict) -> dict[tuple[str, int, str], str]:
+    """Collapse coverage records with incomplete states taking precedence."""
+    out: dict[tuple[str, int, str], str] = {}
+    for record in (doc.get("summary", {}).get("coverage", []) or []):
+        try:
+            key = (str(record.get("host", "")), int(record.get("port")),
+                   str(record.get("protocol", "")).lower())
+        except (TypeError, ValueError):
+            continue
+        status = str(record.get("status", "")).lower()
+        if status == "skip":
+            status = "skipped"
+        prior = out.get(key)
+        rank = {"failed": 4, "skipped": 3, "unassessed": 2,
+                "done": 1, "confirmed": 1, "assessed_clean": 1, "ok": 1}
+        if prior is None or rank.get(status, 0) > rank.get(prior, 0):
+            out[key] = status
+    return out
+
+
+def _successful_coverage(doc: dict) -> set[tuple[str, int, str]]:
+    successful = {"done", "confirmed", "assessed_clean", "ok"}
+    return {key for key, status in _coverage_states(doc).items() if status in successful}
+
+
+def _authoritative_incomplete_coverage(doc: dict) -> set[tuple[str, int, str]]:
+    return {key for key, status in _coverage_states(doc).items()
+            if status in {"failed", "skipped", "unassessed"}}
+
+
 def _subnet_size(subnet: str) -> int:
     try:
         net = ipaddress.ip_network(subnet, strict=False)
@@ -198,19 +251,40 @@ def _ports_from_inventory(path: str) -> list[dict]:
         port = e.get("port")
         if not _is_ip(ip) or not isinstance(port, int):
             continue
+        protocol = str(e.get("proto") or e.get("protocol") or "").strip().lower()
+        if protocol not in {"tcp", "udp"}:
+            # Protocol-less inventory cannot prove a TCP endpoint.  Skip it
+            # unless another explicit source supplies the transport.
+            continue
         out.append({
             "ip": ip, "port": port,
-            "protocol": (e.get("proto") or "tcp").lower(),
+            "protocol": protocol,
             "service": e.get("service") or "",
             "product": e.get("product") or "",
             "version": e.get("version") or "",
             "extrainfo": e.get("extrainfo") or "",
             "hostname": e.get("hostname") or "",
+            "categories": [str(c).lower() for c in (e.get("categories") or [])],
         })
     return out
 
 
-def _ports_from_raw_tree(raw_dir: str, svc_ports: dict[str, set[int]] | None = None
+def _ports_from_scan(path: str) -> list[dict]:
+    """Use aranum's parser for XML, gnmap, and normal nmap inputs."""
+    spec = importlib.util.spec_from_file_location("_aranum_scan_parser", _NMAP_PARSE)
+    mod = importlib.util.module_from_spec(spec)          # type: ignore[arg-type]
+    spec.loader.exec_module(mod)                         # type: ignore[union-attr]
+    out = []
+    for entry in mod.dispatch(Path(path)):
+        item = dict(entry)
+        item["protocol"] = str(item.pop("proto", "") or "").lower()
+        item["categories"] = mod.categorize(int(item["port"]), str(item.get("service", "")))
+        out.append(item)
+    return out
+
+
+def _ports_from_raw_tree(raw_dir: str, svc_ports: dict[str, set[int]] | None = None,
+                         known_ports: list[dict] | None = None
                          ) -> list[dict]:
     """Enumerate (ip, port, service) from an aranum raw tree.
 
@@ -239,7 +313,11 @@ def _ports_from_raw_tree(raw_dir: str, svc_ports: dict[str, set[int]] | None = N
                     continue
             else:
                 continue
-            out.append({"ip": ip, "port": port, "protocol": "tcp",
+            matches = [e for e in (known_ports or []) if e["ip"] == ip and e["port"] == port
+                       and (e.get("service") == service or service in e.get("categories", []))]
+            protocols = {str(e.get("protocol", "")) for e in matches if e.get("protocol")}
+            protocol = next(iter(protocols)) if len(protocols) == 1 else ""
+            out.append({"ip": ip, "port": port, "protocol": protocol,
                         "service": service, "product": "", "version": "",
                         "extrainfo": "", "hostname": ""})
     return out
@@ -254,17 +332,18 @@ def _autodiscover(findings_path: str) -> dict[str, str | None]:
     # inventory.json anywhere obvious
     for cand in (os.path.join(reports, "inventory.json"),
                  os.path.join(session, "inventory.json"),
+                 os.path.join(session, "raw", "inventory.json"),
                  os.path.join(session, "inputs", "inventory.json")):
         if os.path.isfile(cand):
             found["inventory"] = cand
             break
-    # scan XML under inputs/
+    # Scan input under inputs/ — all formats accepted by nmap-parse.py.
     inputs = os.path.join(session, "inputs")
     if os.path.isdir(inputs):
-        xmls = [os.path.join(inputs, f) for f in sorted(os.listdir(inputs))
-                if f.endswith(".xml")]
-        if xmls:
-            found["nmap"] = xmls[0]
+        scans = [os.path.join(inputs, f) for f in sorted(os.listdir(inputs))
+                 if f.lower().endswith((".xml", ".gnmap", ".nmap"))]
+        if scans:
+            found["nmap"] = scans[0]
     # raw tree: a dir with <service>/<ip[_port]>/ leaves.
     def _looks_like_raw(cand: str) -> bool:
         if not os.path.isdir(cand):
@@ -319,7 +398,7 @@ def ingest(findings_path: str, out_dir: str, recce, *,
     def _host(ip: str):
         h = hosts.get(ip)
         if h is None:
-            h = Host(ip=ip, subnet=_subnet_of(ip), enumerated=True)
+            h = Host(ip=ip, subnet=_subnet_of(ip), enumerated=False)
             hosts[ip] = h
         return h
 
@@ -342,29 +421,49 @@ def ingest(findings_path: str, out_dir: str, recce, *,
 
     # 1) Native nmap parse (richest: OS + per-port product/version + scripts).
     src_counts = {"nmap": 0, "inventory": 0, "raw": 0, "findings": 0}
+    inventory_records: list[dict] = []
     if nmap_path:
-        from recce import parser as np
-        for h in np.parse_nmap_xml(nmap_path):
-            h.subnet = _subnet_of(h.ip)
-            h.enumerated = True
-            hosts[h.ip] = h
-            src_counts["nmap"] += len(h.ports)
+        if str(nmap_path).lower().endswith(".xml"):
+            from recce import parser as np
+            for h in np.parse_nmap_xml(nmap_path):
+                h.subnet = _subnet_of(h.ip)
+                h.enumerated = False
+                for p in h.ports:
+                    p.vuln_scanned = False
+                    inventory_records.append({"ip": h.ip, "port": p.portid,
+                                              "protocol": p.protocol,
+                                              "service": p.service,
+                                              "categories": []})
+                hosts[h.ip] = h
+                src_counts["nmap"] += len(h.ports)
+        else:
+            for e in _ports_from_scan(nmap_path):
+                inventory_records.append(e)
+                _ensure_port(_host(e["ip"]), e["port"], e["protocol"], e["service"],
+                             e.get("product", ""), e.get("version", ""), e.get("extrainfo", ""))
+                src_counts["nmap"] += 1
 
     # 2) aranum nmap-parse --json inventory — every discovered (ip,port,service).
     if inventory_path:
         for e in _ports_from_inventory(inventory_path):
+            inventory_records.append(e)
             _ensure_port(_host(e["ip"]), e["port"], e["protocol"], e["service"],
                          e["product"], e["version"], e["extrainfo"])
             src_counts["inventory"] += 1
 
     # 3) raw output tree — services that dispatched but produced no JSON port.
     if raw_dir:
-        for e in _ports_from_raw_tree(raw_dir, svc_ports):
+        for e in _ports_from_raw_tree(raw_dir, svc_ports, inventory_records):
+            if not e["protocol"]:
+                # Ambiguous/unknown raw paths are evidence containers, not proof
+                # of TCP. Inventory or task state must provide the transport.
+                continue
             _ensure_port(_host(e["ip"]), e["port"], e["protocol"], e["service"])
             src_counts["raw"] += 1
 
     # 4) Fold every aranum finding in as a recce Vuln on the right host/port,
     #    creating the port (via SERVICE_MAP for portless findings) if new.
+    authoritative_incomplete = _authoritative_incomplete_coverage(doc)
     skipped = 0
     seen: set[str] = set()
     n_vulns = 0
@@ -375,11 +474,14 @@ def ingest(findings_path: str, out_dir: str, recce, *,
             continue
         h = _host(ip)
         service = (f.get("service") or "").strip()
-        port = _resolve_port(f)
-        if port is None:
-            port = _primary_port(service, svc_ports)   # canonical port for the svc
+        port, protocol = _resolve_finding_endpoint(f, inventory_records)
         if port is not None:
-            _ensure_port(h, port, "tcp", service, vuln_scanned=True)
+            if not protocol:
+                skipped += 1
+                continue
+            finding_endpoint = (ip, port, protocol)
+            _ensure_port(h, port, protocol, service,
+                         vuln_scanned=finding_endpoint not in authoritative_incomplete)
             src_counts["findings"] += 1
 
         line = f.get("line") or ""
@@ -395,7 +497,7 @@ def ingest(findings_path: str, out_dir: str, recce, *,
         output = line + ("\n" + "\n".join(extras) if extras else "")
 
         v = Vuln(
-            ip=ip, port=port, protocol="tcp" if port is not None else "",
+            ip=ip, port=port, protocol=protocol if port is not None else "",
             script_id=f"aranum:{service or 'network'}", state="",
             title=(f.get("title") or line or f"aranum:{service}")[:200],
             output=output, severity=_severity(f), ids=cves, cwes=[],
@@ -413,12 +515,26 @@ def ingest(findings_path: str, out_dir: str, recce, *,
                  "ingest. Point --nmap/--inventory at the scan, or check the "
                  "findings.json.")
 
-    # Mark every open port vuln-scanned: aranum's per-service dispatchers ARE the
-    # vuln pass, so recce's Checklist "Vuln" column should reflect that.
+    # Completion comes only from target-specific execution state. Discovery,
+    # skipped tasks, failures, and raw directories do not prove enumeration.
+    for host_name, portid, protocol in _successful_coverage(doc):
+        host = hosts.get(host_name)
+        if host is None:
+            continue
+        for p in host.ports:
+            if p.portid == portid and p.protocol == protocol:
+                p.vuln_scanned = True
+    # A queue-derived failed/skipped state wins even if stale evidence or an
+    # older success record exists for this endpoint.
+    for host_name, portid, protocol in authoritative_incomplete:
+        host = hosts.get(host_name)
+        if host is None:
+            continue
+        for p in host.ports:
+            if p.portid == portid and p.protocol == protocol:
+                p.vuln_scanned = False
     for h in hosts.values():
-        h.enumerated = True
-        for p in h.ports:
-            p.vuln_scanned = True
+        h.enumerated = bool(h.ports) and all(bool(p.vuln_scanned) for p in h.ports)
 
     # 5) Write into the recce datastore + regenerate its spreadsheets.
     paths = recce_cli._open_paths(out_dir)

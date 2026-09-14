@@ -51,7 +51,7 @@ broker_version() {
 # Returns vulnerability classification on stdout: PATCHED|VULN_46604|UNKNOWN
 classify_version() {
     local ver="$1"
-    [ -z "$ver" ] && { echo "UNKNOWN"; return; }
+    [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "UNKNOWN"; return; }
     IFS=. read -r major minor patch <<< "$ver"
     # CVE-2023-46604 fixed in 5.18.3 / 5.17.6 / 5.16.7 / 5.15.16
     if [ "$major" = "5" ]; then
@@ -65,6 +65,13 @@ classify_version() {
     else
         echo "UNKNOWN"
     fi
+}
+
+extract_openwire_version() {
+    # OpenWire WireFormatInfo commonly exposes ProviderVersion. Require a full
+    # semantic version adjacent to explicit ActiveMQ/version evidence.
+    tr '\000' ' ' | grep -aoEi '(ProviderVersion|ActiveMQ)[^0-9]{0,24}5\.[0-9]+\.[0-9]+' | \
+        grep -oE '5\.[0-9]+\.[0-9]+' | head -1
 }
 
 # Test Jolokia auth — returns 0 if creds work

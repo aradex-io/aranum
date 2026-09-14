@@ -165,6 +165,27 @@ class TestCLIBulkMode(unittest.TestCase):
             html_text = (Path(td) / "report.html").read_text()
             self.assertIn("Per-host privesc verdict (bulk-enum)", html_text)
 
+    def test_malformed_pair_metadata_is_reported_as_partial(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            artifact = out / ("pair-" + "a" * 64)
+            artifact.mkdir()
+            (artifact / "_meta.json").write_text('{"host": "2001:db8::5", broken')
+            (artifact / "linenum.txt").write_text("user ALL=(ALL) NOPASSWD: ALL\n")
+
+            proc = subprocess.run(
+                [sys.executable, str(REPORT_PATH), td, "--findings-only"],
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+            self.assertIn("partial report", proc.stderr)
+            payload = json.loads((out / "findings.json").read_text())
+            self.assertTrue(payload["partial"])
+            self.assertEqual(payload["errors"][0]["type"], "invalid_bulk_metadata")
+            self.assertGreaterEqual(len(payload["findings"]), 1)
+            self.assertEqual({f["host"] for f in payload["findings"]}, {"(metadata-error)"})
+            self.assertNotIn(artifact.name, {f["host"] for f in payload["findings"]})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,10 +22,10 @@ produced a finding — the exporter merges every available port source:
 
 | Source | Flag | What it contributes |
 |---|---|---|
-| nmap scan XML | `--nmap scan.xml` | native recce parse: OS + per-port product/version + NSE scripts (richest) |
+| nmap scan | `--nmap scan.xml` | XML, gnmap, or normal output; native recce XML parse remains the richest source |
 | aranum inventory | `--inventory inventory.json` | every open `(ip, port, service)` from `nmap-parse --json` |
-| raw output tree | `--raw-dir raw/` | `<service>/<ip>_<port>/` (and bare `<ip>/`) leaves |
-| findings | *(always)* | ports embedded in findings; a **portless** finding is pinned to its service's canonical port via aranum's own `SERVICE_MAP`, so no service is ever dropped |
+| raw output tree | `--raw-dir raw/` | `<service>/<ip>_<port>_<protocol>/` leaves; protocol is inferred only from an unambiguous inventory match |
+| findings | *(always)* | explicit finding endpoints; a missing protocol is accepted only when inventory uniquely resolves it |
 
 Point it at an aranum **session dir** (`outputs/<session>/`) and it
 auto-discovers the `findings.json`, the scan XML under `inputs/`, and the `raw/`
@@ -69,7 +69,7 @@ the boundary, so aranum's CC-BY-NC-SA and recce's MIT license stay independent.
 | aranum `findings.json` field | recce model |
 |---|---|
 | `host` (or first IP in `line` for `(dispatcher)` buckets) | `Host.ip` (+ `/24` `subnet`) |
-| `port` (or `:PORT` / `PORT/tcp` from `line`; else `SERVICE_MAP` canonical port) | `Port.portid` (marked `vuln_scanned`) |
+| `port` + `protocol` (or an unambiguous inventory match) | exact `Port` endpoint (marked `vuln_scanned` only after successful coverage) |
 | `service` | `Port.service`, and `Vuln.script_id = aranum:<service>` |
 | `severity` | `Vuln.severity` (same critical/high/medium/low/info vocab) |
 | `title` / `line` | `Vuln.title` / `Vuln.output` |
@@ -84,8 +84,10 @@ the boundary, so aranum's CC-BY-NC-SA and recce's MIT license stay independent.
 - **Re-runnable.** recce's `upsert_host` merges by host and dedups vulns by key,
   so re-ingesting the same engagement never duplicates rows and never wipes the
   operator's spreadsheet ticks. Port sources are merged (union), never doubled.
-- **Every open port is marked `vuln_scanned`.** aranum's per-service dispatchers
-  *are* the vuln pass, so recce's Checklist reflects that.
+- **Execution state is authoritative.** An open port is marked `vuln_scanned`
+  only when `summary.coverage` records successful/clean execution for that exact
+  host, port, protocol, and service, or an exact finding proves the endpoint was
+  assessed. Failed, skipped, and merely discovered ports remain incomplete.
 - **Unattributable findings** (no IP anywhere) are counted and skipped rather
   than filed under a junk host.
 - **`SERVICE_MAP` is loaded live** from `../network/nmap-parse.py`, so the

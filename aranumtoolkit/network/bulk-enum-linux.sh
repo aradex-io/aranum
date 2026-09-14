@@ -58,6 +58,8 @@ LINENUM="$PROJECT_ROOT/standalones/linux/linenum-fast.sh"
 
 # ---------- defaults ----------
 TARGETS=""
+AUTHORIZED_PAIRS=""
+INPUT_FILE=""
 OUTDIR="./bulk-enum-results"
 SSH_USER=""
 SSH_KEY=""
@@ -80,12 +82,15 @@ HOST_TIMEOUT=600
 
 usage() {
     cat <<EOF
-Usage: $0 --targets <file> [-o <outdir>] [options]
+Usage: $0 (--targets <file> | --authorized-pairs <jsonl>) [-o <outdir>] [options]
 
 Required:
   --targets FILE         one host per line. Format: 'host', 'user@host', or
                          'user@host:port'. Lines starting with '#' are skipped.
                          A bare host uses --user (or current \$USER).
+  --authorized-pairs FILE
+                         versioned JSON Lines emitted by ssh-key-triage.py;
+                         each row supplies its own key, user, bare host, and port
 
 Output:
   -o, --output DIR       results dir (default: $OUTDIR)
@@ -148,6 +153,7 @@ EXTRA_SSH_OPTS_ARR=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --targets)         TARGETS="$2"; shift 2 ;;
+        --authorized-pairs) AUTHORIZED_PAIRS="$2"; shift 2 ;;
         -o|--output)       OUTDIR="$2"; shift 2 ;;
         -u|--user)         SSH_USER="$2"; shift 2 ;;
         -k|--key)          SSH_KEY="$2"; shift 2 ;;
@@ -169,13 +175,20 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -z "$TARGETS" ] && { usage; exit 1; }
-[ ! -f "$TARGETS" ] && { err "targets file not found: $TARGETS"; exit 2; }
+if { [ -z "$TARGETS" ] && [ -z "$AUTHORIZED_PAIRS" ]; } || \
+   { [ -n "$TARGETS" ] && [ -n "$AUTHORIZED_PAIRS" ]; }; then
+    err "exactly one of --targets or --authorized-pairs is required"
+    usage
+    exit 1
+fi
+[ -n "$TARGETS" ] && [ ! -f "$TARGETS" ] && { err "targets file not found: $TARGETS"; exit 2; }
+[ -n "$AUTHORIZED_PAIRS" ] && [ ! -f "$AUTHORIZED_PAIRS" ] && { err "authorized-pairs file not found: $AUTHORIZED_PAIRS"; exit 2; }
 [ ! -r "$LINENUM" ] && { err "linenum-fast.sh missing or unreadable: $LINENUM"; exit 2; }
+have python3 || { err "python3 is required for safe metadata serialization"; exit 2; }
 
 # Resource-cap parallelism — protects local fd limits / process table at scale.
-if [ "$PARALLEL" -gt 16 ]; then
-    err "parallel capped at 16 (you asked for $PARALLEL); use multiple runs for higher fanout"
+if ! [[ "$PARALLEL" =~ ^[0-9]+$ ]] || [ "$PARALLEL" -lt 1 ] || [ "$PARALLEL" -gt 16 ]; then
+    err "parallel must be an integer in 1..16 (you asked for $PARALLEL)"
     exit 2
 fi
 
@@ -205,7 +218,58 @@ if [ -n "$SSH_KEY" ] && [ ! -r "$SSH_KEY" ]; then
     err "--key not readable: $SSH_KEY"; exit 2
 fi
 
-mkdir -p "$OUTDIR"
+mkdir -p "$OUTDIR" || { err "cannot create output directory: $OUTDIR"; exit 2; }
+[ -d "$OUTDIR" ] || { err "output path is not a directory: $OUTDIR"; exit 2; }
+
+# ssh-key-triage handoff normalization. Validate every JSONL row before any
+# endpoint consumer sees it, then encode free-form strings so xargs transports
+# each record as one shell argument without re-parsing display strings.
+if [ -n "$AUTHORIZED_PAIRS" ]; then
+    INPUT_FILE="$OUTDIR/.authorized_pairs.normalized"
+    if ! python3 - "$AUTHORIZED_PAIRS" > "$INPUT_FILE" <<'PY'
+import base64, hashlib, json, os, pathlib, sys
+
+SCHEMA = "aranum.authorized-ssh-pair/v1"
+path = pathlib.Path(sys.argv[1])
+count = 0
+seen_ids = set()
+for lineno, raw in enumerate(path.read_text(errors="strict").splitlines(), 1):
+    if not raw.strip():
+        continue
+    try:
+        row = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"authorized-pairs line {lineno}: invalid JSON: {exc}")
+    if not isinstance(row, dict) or row.get("schema") != SCHEMA:
+        raise SystemExit(f"authorized-pairs line {lineno}: expected schema {SCHEMA}")
+    key, user, host, port = row.get("key"), row.get("user"), row.get("host"), row.get("port")
+    if not all(isinstance(v, str) and v and not any(ord(c) < 32 for c in v)
+               for v in (key, user, host)):
+        raise SystemExit(f"authorized-pairs line {lineno}: key/user/host must be nonempty control-free strings")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise SystemExit(f"authorized-pairs line {lineno}: port must be an integer in 1..65535")
+    if not pathlib.Path(key).is_file() or not os.access(key, os.R_OK):
+        raise SystemExit(f"authorized-pairs line {lineno}: key is not a readable file: {key}")
+    identity_bytes = json.dumps(
+        [key, user, host, port], ensure_ascii=False, separators=(",", ":")
+    ).encode()
+    artifact_id = "pair-" + hashlib.sha256(identity_bytes).hexdigest()
+    if artifact_id in seen_ids:
+        continue
+    seen_ids.add(artifact_id)
+    enc = lambda value: base64.b64encode(value.encode()).decode()
+    print(f"__ARANUM_PAIR_V1__:{enc(key)}:{enc(user)}:{enc(host)}:{port}:{artifact_id}")
+    count += 1
+if count == 0:
+    raise SystemExit("authorized-pairs manifest contains no endpoint rows")
+PY
+    then
+        err "authorized-pairs validation failed"
+        exit 2
+    fi
+else
+    INPUT_FILE="$TARGETS"
+fi
 
 # ---------- G.7 --throttle (parity with auto-enum.sh) ----------
 if [ "$THROTTLE" = 1 ]; then
@@ -225,12 +289,16 @@ fi
 RUN_LOG="$OUTDIR/run.log"
 run_log() { printf "%s  %s\n" "$(date -Iseconds)" "$*" >> "$RUN_LOG"; }
 run_log "=== bulk-enum-linux run started ==="
-run_log "targets=$TARGETS outdir=$OUTDIR parallel=$PARALLEL resume=$RESUME throttle=$THROTTLE retries=$RETRIES preflight=$PREFLIGHT"
+run_log "input=${AUTHORIZED_PAIRS:-$TARGETS} outdir=$OUTDIR parallel=$PARALLEL resume=$RESUME throttle=$THROTTLE retries=$RETRIES preflight=$PREFLIGHT"
 run_log "user=${SSH_USER:-<bare/agent>} key=${SSH_KEY:-<none>} pass=${SSH_PASS:+<set>}"
 run_log "linenum=$LINENUM ($(wc -l < "$LINENUM") lines)"
 
 # Copy the input list to the output dir for audit
-cp -- "$TARGETS" "$OUTDIR/hosts.txt"
+if [ -n "$AUTHORIZED_PAIRS" ]; then
+    cp -- "$AUTHORIZED_PAIRS" "$OUTDIR/authorized-pairs.jsonl"
+else
+    cp -- "$TARGETS" "$OUTDIR/hosts.txt"
+fi
 
 # Per-engagement known_hosts (ADR-002 D3)
 KNOWN_HOSTS="$OUTDIR/known_hosts"
@@ -249,7 +317,8 @@ done
 # switch that all BatchMode / PubkeyAuthentication / -i decisions key off — never
 # the mere presence of a password.
 auth_mode() {
-    if [[ -n "$SSH_KEY" && -n "$SSH_PASS" ]]; then
+    local key="${1:-$SSH_KEY}"
+    if [[ -n "$key" && -n "$SSH_PASS" ]]; then
         printf 'KEY_THEN_PASS'
     elif [[ -n "$SSH_PASS" ]]; then
         printf 'PASS'
@@ -261,6 +330,7 @@ auth_mode() {
 # ---------- common ssh args (mode-aware, ADR-006 canonical spec table) ----------
 ssh_base_args() {
     local mode="$1"
+    local key="${2:-$SSH_KEY}"
     local args=(
         -o "ConnectTimeout=$CONNECT_TIMEOUT"
         -o "ServerAliveInterval=15"
@@ -272,8 +342,8 @@ ssh_base_args() {
     case "$mode" in
         KEY)
             args+=(-o "BatchMode=yes" -o "PreferredAuthentications=publickey")
-            if [[ -n "$SSH_KEY" ]]; then
-                args+=(-i "$SSH_KEY" -o "IdentitiesOnly=yes")
+            if [[ -n "$key" ]]; then
+                args+=(-i "$key" -o "IdentitiesOnly=yes")
             fi
             ;;
         PASS)
@@ -292,7 +362,7 @@ ssh_base_args() {
                 -o "BatchMode=no"
                 -o "PreferredAuthentications=publickey,keyboard-interactive,password"
                 -o "NumberOfPasswordPrompts=1"
-                -i "$SSH_KEY"
+                -i "$key"
                 -o "IdentitiesOnly=yes"
             )
             ;;
@@ -345,10 +415,65 @@ classify_status() {
     printf '%s\t%s\n' "$status" "$fail"
 }
 
-# Parse a target spec line into "user host port"
+# Serialize metadata with a real JSON encoder. Shell interpolation cannot safely
+# represent domain users, quoted paths, or control characters in JSON strings.
+# Write atomically so report.py never observes a half-written object.
+write_meta_json() {
+    local meta_path="$1"
+    shift
+    python3 - "$meta_path" "$@" <<'PY'
+import json, os, pathlib, sys
+
+(
+    meta_path, host, user, port, rc, status, fail_reason, auth_mode,
+    attempts, started, elapsed_s, size_bytes, err_bytes, ssh_port,
+    key, artifact_id, pass_used,
+) = sys.argv[1:]
+obj = {
+    "host": host,
+    "user": user,
+    "port": int(port),
+    "rc": int(rc),
+    "status": status,
+    "fail_reason": fail_reason,
+    "auth_mode": auth_mode,
+    "attempts": int(attempts),
+    "started": started,
+    "elapsed_s": int(elapsed_s),
+    "size_bytes": int(size_bytes),
+    "err_bytes": int(err_bytes),
+    "ssh_port": int(ssh_port),
+    "key": key,
+    "key_used": key,
+    "artifact_id": artifact_id,
+    "pass_used": pass_used == "true",
+}
+dest = pathlib.Path(meta_path)
+tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
+try:
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, dest)
+finally:
+    try:
+        tmp.unlink()
+    except FileNotFoundError:
+        pass
+PY
+}
+
+# Parse a target spec/manifest record into "user host port key artifact-id".
 parse_spec() {
     local spec="$1"
-    local user host port rest
+    local user host port rest key="$SSH_KEY"
+    if [[ "$spec" == __ARANUM_PAIR_V1__:* ]]; then
+        local _marker key64 user64 host64 artifact_id
+        IFS=: read -r _marker key64 user64 host64 port artifact_id <<< "$spec"
+        key=$(printf '%s' "$key64" | base64 -d) || return 1
+        user=$(printf '%s' "$user64" | base64 -d) || return 1
+        host=$(printf '%s' "$host64" | base64 -d) || return 1
+        printf '%s\t%s\t%s\t%s\t%s\n' "$user" "$host" "$port" "$key" "$artifact_id"
+        return 0
+    fi
     # strip comments + whitespace
     spec="${spec%%#*}"
     spec="${spec#"${spec%%[![:space:]]*}"}"
@@ -367,37 +492,96 @@ parse_spec() {
     else
         host="$rest"; port="$SSH_PORT"
     fi
-    printf '%s\t%s\t%s\n' "$user" "$host" "$port"
+    printf '%s\t%s\t%s\t%s\t\n' "$user" "$host" "$port" "$key"
 }
+
+safe_component() {
+    local value="${1//[^A-Za-z0-9._-]/_}"
+    value="${value#.}"; value="${value%.}"
+    printf '%s' "${value:-$2}"
+}
+
+endpoint_key() {
+    local user="$1" host="$2" port="$3" digest
+    digest=$(printf '%s\0%s\0%s\0linux' "$user" "$host" "$port" | sha256sum | awk '{print substr($1,1,12)}')
+    printf '%s--%s--p%s--%s' "$(safe_component "$user" user)" \
+        "$(safe_component "$host" host)" "$port" "$digest"
+}
+
+# Materialize one canonical endpoint manifest before parallel workers start.
+# This also deduplicates repeated input rows so two processes never write the
+# same endpoint directory concurrently.
+ENDPOINTS_TSV="$OUTDIR/endpoints.tsv"
+DISPATCH_TARGETS="$OUTDIR/.targets.normalized"
+manifest_tmp="$ENDPOINTS_TSV.tmp.$$"
+targets_tmp="$DISPATCH_TARGETS.tmp.$$"
+printf '#endpoint_id\tuser\thost\tport\tplatform\n' > "$manifest_tmp"
+: > "$targets_tmp"
+declare -A seen_endpoint_ids=()
+while IFS= read -r raw_spec || [ -n "$raw_spec" ]; do
+    parsed=$(parse_spec "$raw_spec") || continue
+    IFS=$'\t' read -r parsed_user parsed_host parsed_port _parsed_key parsed_artifact_id <<< "$parsed"
+    eid="${parsed_artifact_id:-$(endpoint_key "$parsed_user" "$parsed_host" "$parsed_port")}"
+    [ -n "${seen_endpoint_ids[$eid]:-}" ] && continue
+    seen_endpoint_ids[$eid]=1
+    printf '%s\t%s\t%s\t%s\tlinux\n' "$eid" "$parsed_user" "$parsed_host" "$parsed_port" >> "$manifest_tmp"
+    if [ -n "$parsed_artifact_id" ]; then
+        # Preserve the validated encoded pair record so its per-row key and
+        # collision-resistant artifact identity survive the xargs boundary.
+        printf '%s\n' "$raw_spec" >> "$targets_tmp"
+    elif [[ "$parsed_host" == *:* ]]; then
+        printf '%s@[%s]:%s\n' "$parsed_user" "$parsed_host" "$parsed_port" >> "$targets_tmp"
+    else
+        printf '%s@%s:%s\n' "$parsed_user" "$parsed_host" "$parsed_port" >> "$targets_tmp"
+    fi
+done < "$INPUT_FILE"
+mv -f "$manifest_tmp" "$ENDPOINTS_TSV"
+mv -f "$targets_tmp" "$DISPATCH_TARGETS"
+
+if [ "$RESUME" = 1 ]; then
+    while IFS=$'\t' read -r eid parsed_user parsed_host parsed_port _platform; do
+        [ "$eid" = "#endpoint_id" ] && continue
+        [[ "$eid" == pair-* ]] && continue
+        legacy_safe="${parsed_host//[^A-Za-z0-9._:-]/_}"
+        legacy_dir="$OUTDIR/${legacy_safe:-host}"
+        endpoint_dir="$OUTDIR/$eid"
+        [ -e "$endpoint_dir" ] && continue
+        [ -e "$legacy_dir" ] || continue
+        host_count=$(awk -F '\t' -v h="$parsed_host" 'NR>1 && $3==h {n++} END {print n+0}' "$ENDPOINTS_TSV")
+        if [ "$host_count" -ne 1 ]; then
+            err "ambiguous legacy resume state for $parsed_host: multiple user/port endpoints share one host-keyed directory"
+            err "rerun without --resume or move the legacy evidence manually"
+            exit 2
+        fi
+        mv "$legacy_dir" "$endpoint_dir" || { err "failed to migrate legacy state for $parsed_host"; exit 2; }
+        miss "migrated unambiguous legacy state $(basename "$legacy_dir") -> $eid"
+    done < "$ENDPOINTS_TSV"
+fi
 
 # ---------- per-host execution ----------
 run_one_host() {
     local spec="$1"
-    local parsed user host port
+    local parsed user host port key artifact_id
     parsed=$(parse_spec "$spec") || return 0   # blank / comment line
-    IFS=$'\t' read -r user host port <<< "$parsed"
+    IFS=$'\t' read -r user host port key artifact_id <<< "$parsed"
 
     # Sanitise host into a single safe path component for the OUTPUT dir only —
     # a hostile/malformed targets line (e.g. ../../x) must never make mkdir
     # escape $OUTDIR (OPSEC §9). The ssh connection below still uses $host.
-    local safe_host="${host//[^A-Za-z0-9._:-]/_}"
-    case "$safe_host" in ""|"."|"..") safe_host="host" ;; esac
-    local hdir="$OUTDIR/$safe_host"
+    local endpoint_id="${artifact_id:-$(endpoint_key "$user" "$host" "$port")}"
+    local hdir="$OUTDIR/$endpoint_id"
     mkdir -p "$hdir"
 
     if [ "$RESUME" = 1 ] && [ -e "$hdir/.done" ]; then
-        run_log "resume-skip: $host (prior rc=0)"
+        run_log "resume-skip: $user@$host:$port identity=$endpoint_id (prior rc=0)"
         return 0
     fi
 
-    # IPv6 addresses must be bracketed in the ssh destination spec —
-    # `ssh user@2001:db8::1` is ambiguous (older OpenSSH treats the trailing
-    # `:1` as a port); `ssh user@[2001:db8::1]` is unambiguous. IPv4 +
-    # hostnames pass through untouched.
+    # OpenSSH's ssh destination takes a bare IPv6 host. URI/SCP brackets are
+    # literal hostname characters here and break resolution.
     local dest_host="$host"
-    [[ "$host" == *:* ]] && dest_host="[$host]"
 
-    local mode; mode=$(auth_mode)
+    local mode; mode=$(auth_mode "$key")
 
     if [ "$DRY_RUN" = 1 ]; then
         printf '[DRY] %s@%s:%s  (mode=%s)  ->  %s/linenum.txt\n' "$user" "$dest_host" "$port" "$mode" "$hdir"
@@ -405,8 +589,10 @@ run_one_host() {
         return 0
     fi
 
+    [ "$RESUME" = 1 ] || rm -f "$hdir/.done" 2>/dev/null || true
+
     local ssh_args=()
-    while IFS= read -r a; do ssh_args+=("$a"); done < <(ssh_base_args "$mode")
+    while IFS= read -r a; do ssh_args+=("$a"); done < <(ssh_base_args "$mode" "$key")
     ssh_args+=(-p "$port" "$user@$dest_host")
 
     # Per-host wall-clock cap, rebuilt here from the exported scalar (arrays
@@ -446,28 +632,24 @@ run_one_host() {
     t1=$(date +%s); elapsed=$((t1 - t0))
     run_log "end: $user@$host:$port rc=$rc status=$status elapsed=${elapsed}s attempts=$attempt"
 
-    # Write _meta.json (small enough to hand-build; no python dep on the operator's box)
-    cat > "$hdir/_meta.json" <<META
-{
-  "host":        "$host",
-  "user":        "$user",
-  "port":        $port,
-  "rc":          $rc,
-  "status":      "$status",
-  "fail_reason": "$fail",
-  "auth_mode":   "$mode",
-  "attempts":    $attempt,
-  "started":     "$(date -u -Iseconds -d @"$t0")",
-  "elapsed_s":   $elapsed,
-  "size_bytes":  $(stat -c %s "$hdir/linenum.txt" 2>/dev/null || echo 0),
-  "err_bytes":   $(stat -c %s "$hdir/linenum.err" 2>/dev/null || echo 0),
-  "ssh_port":    $port,
-  "key_used":    "${SSH_KEY:-}",
-  "pass_used":   $([ -n "$SSH_PASS" ] && echo true || echo false)
-}
-META
+    local started size_bytes err_bytes pass_used
+    started=$(date -u -Iseconds -d @"$t0")
+    size_bytes=$(stat -c %s "$hdir/linenum.txt" 2>/dev/null || echo 0)
+    err_bytes=$(stat -c %s "$hdir/linenum.err" 2>/dev/null || echo 0)
+    [ -n "$SSH_PASS" ] && pass_used=true || pass_used=false
+    if ! write_meta_json "$hdir/_meta.json" \
+        "$host" "$user" "$port" "$rc" "$status" "$fail" "$mode" \
+        "$attempt" "$started" "$elapsed" "$size_bytes" "$err_bytes" \
+        "$port" "${key:-}" "$endpoint_id" "$pass_used"; then
+        err "failed to serialize metadata for $user@$host:$port"
+        run_log "metadata-error: $user@$host:$port identity=$endpoint_id"
+        return 1
+    fi
 
-    [ "$rc" -eq 0 ] && touch "$hdir/.done"
+    if [ "$rc" -eq 0 ]; then
+        local done_tmp="$hdir/.done.$$"
+        : > "$done_tmp" && mv -f "$done_tmp" "$hdir/.done"
+    fi
 
     # Optional inter-host delay under --throttle
     [ "${ENUM_THROTTLE:-0}" = 1 ] && sleep "$ENUM_THROTTLE_DELAY"
@@ -477,7 +659,7 @@ META
 # Subshell exports — xargs spawns one bash per host, so functions + state must
 # travel through env. The EXTRA_SSH_OPTS array is persisted to $SSH_EXTRA_FILE
 # above and read on demand inside ssh_base_args.
-export -f run_one_host parse_spec ssh_base_args auth_mode classify_status run_log
+export -f run_one_host parse_spec safe_component endpoint_key ssh_base_args auth_mode classify_status write_meta_json run_log
 export -f have log hit miss err
 export RUN_LOG OUTDIR LINENUM RESUME DRY_RUN SSH_USER SSH_KEY SSH_PASS SSH_PORT
 export CONNECT_TIMEOUT KNOWN_HOSTS SSH_EXTRA_FILE ENUM_THROTTLE ENUM_THROTTLE_DELAY
@@ -487,18 +669,18 @@ export RETRIES RETRY_BACKOFF HOST_TIMEOUT
 # Auth-probe the first non-comment host before burning the whole list. On
 # AUTH_FAIL we print a loud warning but CONTINUE (operator may hold per-host creds).
 preflight_probe() {
-    local first_spec pf_parsed pf_user pf_host pf_port pf_dest pf_mode pf_rc pf_err
+    local first_spec pf_parsed pf_user pf_host pf_port pf_key _pf_artifact_id pf_dest pf_mode pf_rc pf_err
     local pf_status pf_reason
-    first_spec=$(grep -vE '^\s*(#|$)' "$TARGETS" | head -1)
+    first_spec=$(grep -vE '^\s*(#|$)' "$INPUT_FILE" | head -1)
     [ -z "$first_spec" ] && return 0
     pf_parsed=$(parse_spec "$first_spec") || return 0
     [ -z "$pf_parsed" ] && return 0
-    IFS=$'\t' read -r pf_user pf_host pf_port <<< "$pf_parsed"
-    pf_dest="$pf_host"; [[ "$pf_host" == *:* ]] && pf_dest="[$pf_host]"
-    pf_mode=$(auth_mode)
+    IFS=$'\t' read -r pf_user pf_host pf_port pf_key _pf_artifact_id <<< "$pf_parsed"
+    pf_dest="$pf_host"
+    pf_mode=$(auth_mode "$pf_key")
 
     local pf_args=()
-    while IFS= read -r a; do pf_args+=("$a"); done < <(ssh_base_args "$pf_mode")
+    while IFS= read -r a; do pf_args+=("$a"); done < <(ssh_base_args "$pf_mode" "$pf_key")
     pf_args+=(-p "$pf_port" "$pf_user@$pf_dest")
 
     pf_err=$(mktemp "$OUTDIR/.preflight.XXXXXX")
@@ -511,7 +693,7 @@ preflight_probe() {
     pf_rc=$?
     IFS=$'\t' read -r pf_status pf_reason < <(classify_status "$pf_rc" "$pf_err")
     rm -f "$pf_err"
-    run_log "preflight: $pf_user@$pf_host:$pf_port rc=$pf_rc status=$pf_status"
+    run_log "preflight: $pf_user@$pf_host:$pf_port rc=$pf_rc status=$pf_status reason=$pf_reason"
     if [ "$pf_status" = "AUTH_FAIL" ]; then
         err "auth failed against first host — check creds/transport before burning the list (continuing anyway)"
     else
@@ -521,7 +703,7 @@ preflight_probe() {
 }
 
 # ---------- dispatch loop ----------
-total_hosts=$(grep -cvE '^\s*(#|$)' "$TARGETS" || true)
+total_hosts=$(grep -cvE '^\s*(#|$)' "$DISPATCH_TARGETS" || true)
 echo "[*] $total_hosts host(s) to enumerate -> $OUTDIR (parallel=$PARALLEL)"
 run_log "dispatch: $total_hosts hosts, parallel=$PARALLEL"
 
@@ -536,34 +718,51 @@ fi
 
 # Stream non-comment / non-blank target lines into xargs -P. `-I{}` implies
 # one-arg-per-invocation so no -n1 needed.
-grep -vE '^\s*(#|$)' "$TARGETS" | xargs -I{} -P"$PARALLEL" \
-    bash -c 'run_one_host "$@"' _ {}
+dispatch_rc=0
+grep -vE '^\s*(#|$)' "$DISPATCH_TARGETS" | xargs -d '\n' -I{} -P"$PARALLEL" \
+    bash -c 'run_one_host "$@"' _ {} || dispatch_rc=$?
 
 # ---------- post-run summary ----------
 ok=0; fail=0; skip=0
 auth_fail=0; unreach=0; timeout=0; remote_err=0; host_timeout=0
 declare -a failed_hosts=()
 {
-    printf '#host\tstatus\trc\telapsed_s\tsize_kb\tfail_reason\n'
+    printf '#host\tstatus\trc\telapsed_s\tsize_kb\tfail_reason\tuser\tport\tartifact_id\tkey\n'
     for hdir in "$OUTDIR"/*/; do
         [ -d "$hdir" ] || continue
-        host=$(basename "$hdir")
         [ -f "$hdir/_meta.json" ] || { skip=$((skip+1)); continue; }
-        rc=$(grep -oE '"rc":[[:space:]]*-?[0-9]+' "$hdir/_meta.json" | head -1 | grep -oE '\-?[0-9]+$' || echo "?")
-        st=$(grep -oE '"status":[[:space:]]*"[A-Z_]+"' "$hdir/_meta.json" | head -1 | grep -oE '[A-Z_]+' | tail -1 || echo "?")
-        fr=$(grep -oE '"fail_reason":[[:space:]]*"[^"]*"' "$hdir/_meta.json" | head -1 | sed -E 's/.*"fail_reason":[[:space:]]*"([^"]*)".*/\1/' || echo "")
-        el=$(grep -oE '"elapsed_s":[[:space:]]*[0-9]+' "$hdir/_meta.json" | head -1 | grep -oE '[0-9]+$' || echo 0)
-        sz=$(grep -oE '"size_bytes":[[:space:]]*[0-9]+' "$hdir/_meta.json" | head -1 | grep -oE '[0-9]+$' || echo 0)
+        meta_fields=()
+        mapfile -t meta_fields < <(python3 - "$hdir/_meta.json" <<'PY'
+import json, pathlib, sys
+obj = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+for field in ("host", "user", "port", "artifact_id", "key", "rc",
+              "status", "fail_reason", "elapsed_s", "size_bytes"):
+    value = obj.get(field, obj.get("key_used", "") if field == "key" else "")
+    print(value)
+PY
+        )
+        if [ "${#meta_fields[@]}" -ne 10 ]; then
+            host="<metadata-error>"; user="?"; port="?"
+            artifact_id=$(basename "$hdir"); key_used=""; rc="?"
+            st="METADATA_ERROR"; fr="invalid _meta.json"; el=0; sz=0
+            run_log "metadata-error: unable to summarize $hdir/_meta.json"
+        else
+            host=${meta_fields[0]}; user=${meta_fields[1]}; port=${meta_fields[2]}
+            artifact_id=${meta_fields[3]}; key_used=${meta_fields[4]}; rc=${meta_fields[5]}
+            st=${meta_fields[6]}; fr=${meta_fields[7]}; el=${meta_fields[8]}; sz=${meta_fields[9]}
+        fi
         sz_kb=$(( (sz + 1023) / 1024 ))
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$host" "$st" "$rc" "$el" "$sz_kb" "$fr"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$host" "$st" "$rc" "$el" "$sz_kb" "$fr" "$user" "$port" "$artifact_id" "$key_used"
+        endpoint_label="$user@$host:${port}[$artifact_id]"
         case "$st" in
             OK)          ok=$((ok+1)) ;;
-            AUTH_FAIL)   auth_fail=$((auth_fail+1)); fail=$((fail+1)); failed_hosts+=("$host($st)") ;;
-            UNREACHABLE) unreach=$((unreach+1));     fail=$((fail+1)); failed_hosts+=("$host($st)") ;;
-            TIMEOUT)     timeout=$((timeout+1));     fail=$((fail+1)); failed_hosts+=("$host($st)") ;;
-            REMOTE_ERR)  remote_err=$((remote_err+1)); fail=$((fail+1)); failed_hosts+=("$host($st)") ;;
-            HOST_TIMEOUT) host_timeout=$((host_timeout+1)); fail=$((fail+1)); failed_hosts+=("$host($st)") ;;
-            *)           fail=$((fail+1)); failed_hosts+=("$host(rc=$rc)") ;;
+            AUTH_FAIL)   auth_fail=$((auth_fail+1)); fail=$((fail+1)); failed_hosts+=("$endpoint_label($st)") ;;
+            UNREACHABLE) unreach=$((unreach+1));     fail=$((fail+1)); failed_hosts+=("$endpoint_label($st)") ;;
+            TIMEOUT)     timeout=$((timeout+1));     fail=$((fail+1)); failed_hosts+=("$endpoint_label($st)") ;;
+            REMOTE_ERR)  remote_err=$((remote_err+1)); fail=$((fail+1)); failed_hosts+=("$endpoint_label($st)") ;;
+            HOST_TIMEOUT) host_timeout=$((host_timeout+1)); fail=$((fail+1)); failed_hosts+=("$endpoint_label($st)") ;;
+            *)           fail=$((fail+1)); failed_hosts+=("$endpoint_label(rc=$rc)") ;;
         esac
     done
 } > "$OUTDIR/_summary.tsv"
@@ -577,9 +776,14 @@ if [ "$fail" -gt 0 ]; then
     printf '  - %s\n' "${failed_hosts[@]}"
 fi
 echo "Summary: $OUTDIR/_summary.tsv"
-echo "Per-host: $OUTDIR/<host>/linenum.txt"
+echo "Per-target: $OUTDIR/<host-or-authorized-pair-id>/linenum.txt"
 echo "Next: aranumtoolkit/network/report.py $OUTDIR    # findings.json + report.md + report.html"
 run_log "complete: OK=$ok FAIL=$fail SKIP=$skip (AUTH_FAIL=$auth_fail UNREACHABLE=$unreach TIMEOUT=$timeout HOST_TIMEOUT=$host_timeout REMOTE_ERR=$remote_err)"
+
+if [ "$dispatch_rc" -ne 0 ]; then
+    err "one or more targets failed before complete metadata was written (xargs rc=$dispatch_rc)"
+    exit 1
+fi
 
 # Exit 0 even on per-host failures — the per-host rcs/statuses are in _meta.json.
 # The orchestrator only fails on systemic problems (no targets, bad args).

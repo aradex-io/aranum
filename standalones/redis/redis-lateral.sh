@@ -25,6 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------- args ----------
 TARGET=""
 PASS=""
+USERNAME=""
 OUT="./redis-lateral"
 SAMPLE=200             # how many random keys to sample per DB
 MAX_VALUE_BYTES=4096   # truncate big values
@@ -34,6 +35,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --target)    TARGET="$2"; shift 2 ;;
         --pass|-p)   PASS="$2"; shift 2 ;;
+        --user|--username) USERNAME="$2"; shift 2 ;;
         --output|-o) OUT="$2"; shift 2 ;;
         --sample)    SAMPLE="$2"; shift 2 ;;
         --max-bytes) MAX_VALUE_BYTES="$2"; shift 2 ;;
@@ -47,6 +49,7 @@ Required:
 
 Options:
   --pass PASSWORD        AUTH password
+  --user USERNAME        Redis 6+ named ACL user
   --output|-o DIR        output dir (default: $OUT)
   --sample N             keys to sample per DB for value scan (default: $SAMPLE)
   --max-bytes N          truncate values longer than this for credential grep (default: $MAX_VALUE_BYTES)
@@ -243,7 +246,12 @@ for db_line in $DBS; do
 
     # Build raw-mode redis-cli base args for the value queries (strips "1)" / quotes)
     raw_args=(--raw -n "$db_idx" -h "$HOST" -p "$PORT")
-    [ -n "${PASS:-}" ] && raw_args+=(-a "$PASS" --no-auth-warning)
+    if [ -n "${USERNAME:-}" ]; then
+        raw_args+=(--user "$USERNAME")
+        [ -n "${PASS:-}" ] && raw_args+=(--pass "$PASS" --no-auth-warning)
+    elif [ -n "${PASS:-}" ]; then
+        raw_args+=(-a "$PASS" --no-auth-warning)
+    fi
 
     for k in "${keys_collected[@]}"; do
         t=$(redis-cli "${raw_args[@]}" TYPE "$k" 2>/dev/null | tr -d '\r')

@@ -8,7 +8,7 @@
       3. Service registry key permissions allow FullControl/Write       -> set ImagePath
 #>
 [CmdletBinding()]
-param()
+param([switch]$LibraryOnly)
 
 function Get-CurrentSids {
     $ident = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -32,9 +32,19 @@ function Test-CanWrite($path) {
     return @($false, $null)
 }
 
+function Get-ServiceExecutablePath([string]$CommandLine) {
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) { return $null }
+    $expanded = [Environment]::ExpandEnvironmentVariables($CommandLine.Trim())
+    if ($expanded -match '^"([^"]+)"') { return $Matches[1] }
+    if ($expanded -match '^(.+?\.(?:exe|com|bat|cmd))(?=\s|$)') { return $Matches[1] }
+    return ($expanded -split '\s+', 2)[0]
+}
+
+if ($LibraryOnly) { return }
+
 Write-Host "=== Modifiable service binaries ===" -ForegroundColor Cyan
 Get-CimInstance Win32_Service | ForEach-Object {
-    $exe = ($_.PathName -replace '^"([^"]+)".*','$1') -replace '^([^\s]+).*','$1'
+    $exe = Get-ServiceExecutablePath $_.PathName
     if ($exe -and (Test-Path $exe)) {
         $r = Test-CanWrite $exe
         if ($r[0]) {

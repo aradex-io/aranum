@@ -1,0 +1,91 @@
+{
+  "format_version": 1,
+  "entries": [
+    {
+      "id": "default-credentials-catalog",
+      "path": "standalones/creds/default-creds.json",
+      "source": "Vendor documentation and public default-credential references",
+      "owner": "aranum maintainers",
+      "refreshed": "2026-07-20",
+      "max_age_days": 270,
+      "freshness_policy": "Review credentials and product fingerprints at least every nine months",
+      "sha256": "0d9d18e68c36a211b585d4ef48955dbf06a4ba53958640815b3e50d9e61291f6"
+    },
+    {
+      "id": "gtfobins-suid-subset",
+      "path": "standalones/linux/suid-gtfobins.sh",
+      "source": "https://gtfobins.github.io/ with function=suid",
+      "owner": "aranum maintainers",
+      "refreshed": "2026-05-01",
+      "max_age_days": 270,
+      "freshness_policy": "Compare the curated subset to upstream at least every nine months",
+      "sha256": "8c381b8cf25809aa7322ce66866144b520b91f97457ea939734516be214183ab"
+    },
+    {
+      "id": "service-classification-metadata",
+      "path": "aranumtoolkit/network/service-metadata.json",
+      "source": "Aranum dispatcher and report contracts",
+      "owner": "network/report maintainers",
+      "refreshed": "2026-09-13",
+      "max_age_days": 180,
+      "freshness_policy": "Review when dispatchers, severity rules, or service actions change",
+      "derivation": {
+        "type": "json-structure",
+        "required_keys": ["schema_version", "defaults", "phase_catalog", "services"]
+      }
+    },
+    {
+      "id": "engagement-profile-rules",
+      "path": "aranumtoolkit/network/engagement-profiles.json",
+      "source": "Aranum planning and engagement-profile contracts",
+      "owner": "planner maintainers",
+      "refreshed": "2026-09-13",
+      "max_age_days": 180,
+      "freshness_policy": "Review with planner risk/priority contract changes",
+      "derivation": {
+        "type": "json-structure",
+        "required_keys": ["schema_version", "defaults", "profiles"]
+      }
+    },
+    {
+      "id": "graphql-fallback-catalog",
+      "path": "standalones/graphql/gitlab_catalog.json",
+      "source": "GitLab GraphQL reference for CE and EE",
+      "owner": "GraphQL specialist maintainers",
+      "refreshed": "2026-09-13",
+      "max_age_days": 180,
+      "freshness_policy": "Review against supported GitLab schemas every six months",
+      "sha256": "e2daa3c900a7b88991f2afe80c1b87d5af17e779627482f5f628c9cedb0290b8"
+    },
+    {
+      "id": "redis-module-build-provenance",
+      "path": "standalones/redis/module/SOURCE.json",
+      "source": "Redis 7.4.0 module API header and local aranum module source",
+      "owner": "Redis specialist maintainers",
+      "refreshed": "2026-09-14",
+      "max_age_days": 270,
+      "freshness_policy": "Verify vendored source checksums and supported compiler targets before release",
+      "derivation": {
+        "type": "source-manifest",
+        "input_sections": ["redis_header", "module_source"]
+      }
+    },
+    {
+      "id": "embedded-cve-version-rule-families",
+      "discover": {
+        "roots": ["aranumtoolkit/network", "standalones", "wiki"],
+        "suffixes": [".py", ".sh", ".ps1", ".json", ".md"],
+        "marker_regex": "CVE-[0-9]{4}-[0-9]+"
+      },
+      "source": "Vendor advisories and release-specific CVE references cited by each rule family",
+      "owner": "specialist and dispatcher maintainers",
+      "refreshed": "2026-09-13",
+      "max_age_days": 90,
+      "freshness_policy": "Review all discovered embedded CVE/version rule files each release and at least quarterly",
+      "derivation": {
+        "type": "discovered-content",
+        "minimum_files": 1
+      }
+    }
+  ]
+}

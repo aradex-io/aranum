@@ -1,0 +1,15 @@
+{
+  "format_version": 1,
+  "redis_header": {
+    "path": "redismodule.h",
+    "version": "7.4.0",
+    "source": "https://github.com/redis/redis/blob/7.4.0/src/redismodule.h",
+    "sha256": "69052148e4fdf6df1afceee325ca7ae770e667cee0317d103a4274f868aa3381"
+  },
+  "module_source": {
+    "path": "system.c",
+    "source": "Aranum maintained Redis module source",
+    "sha256": "147b8ab84f6eb7239c326fca58087ea8a154be075debeaabb393702813c0b9b1"
+  },
+  "artifact_policy": "Build system.so locally with the documented Makefile; no architecture-specific binary is distributed."
+}

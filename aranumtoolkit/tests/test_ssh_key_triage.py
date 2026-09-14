@@ -110,9 +110,10 @@ def test_probe_argv_is_nondestructive_publickey_only():
     assert argv[-1] == "true"  # benign remote command
 
 
-def test_probe_argv_ipv6_bracketed():
+def test_probe_argv_ipv6_is_bare_for_openssh_destination():
     argv = skt.build_probe_argv("/tmp/k", "root", "2001:db8::1", 2222, "/tmp/kh", 8)
-    assert "root@[2001:db8::1]" in argv
+    assert "root@2001:db8::1" in argv
+    assert "root@[2001:db8::1]" not in argv
     assert "2222" in argv
 
 
@@ -159,8 +160,9 @@ def test_matrix_assembly_with_mocked_ssh(keydir, tmp_path, monkeypatch):
 
     doc = json.loads((outdir / "key-triage.json").read_text())
     assert doc["tool"] == "ssh-key-triage"
-    # 2 keys x 1 user x 2 hosts = 4 probes
-    assert len(doc["matrix"]) == 4
+    # The encrypted key is inventory-only even though its passphrase was
+    # validated; only the directly probeable key consumes auth attempts.
+    assert len(doc["matrix"]) == 2
     by_host = {}
     for m in doc["matrix"]:
         by_host.setdefault(m["host"], set()).add(m["accepted"])
@@ -174,13 +176,11 @@ def test_matrix_assembly_with_mocked_ssh(keydir, tmp_path, monkeypatch):
     assert "PasswordAuthentication=no" in argv_log
     assert "PubkeyAuthentication=no" not in argv_log
 
-    # authorized-pairs.txt has exactly the accepted triples
-    pairs = [l for l in (outdir / "authorized-pairs.txt").read_text().splitlines()
-             if l and not l.startswith("#")]
-    assert len(pairs) == 2  # both keys accepted on 10.0.0.1
-    for p in pairs:
-        key, user, host = p.split(",")
-        assert user == "root" and host == "10.0.0.1"
+    pairs = [json.loads(l) for l in (outdir / "authorized-pairs.jsonl").read_text().splitlines()]
+    assert len(pairs) == 1
+    assert pairs[0]["schema"] == skt.AUTHORIZED_PAIR_SCHEMA
+    assert pairs[0]["user"] == "root" and pairs[0]["host"] == "10.0.0.1"
+    assert pairs[0]["port"] == 22
 
 
 def _write(path: Path, content: str) -> Path:
@@ -215,7 +215,7 @@ def test_dry_run_produces_schema_no_probes(keydir, tmp_path, monkeypatch):
     assert doc["matrix"] == []  # no probes on dry-run
     assert doc["planned_probes"] >= 1
     assert (outdir / "key-triage.md").is_file()
-    assert (outdir / "authorized-pairs.txt").is_file()
+    assert (outdir / "authorized-pairs.jsonl").is_file()
 
 
 def test_output_schema_fields_present_after_run(keydir, tmp_path, monkeypatch):
@@ -236,6 +236,42 @@ def test_output_schema_fields_present_after_run(keydir, tmp_path, monkeypatch):
     m = doc["matrix"][0]
     for field in ("key", "user", "host", "port", "rc", "status", "accepted"):
         assert field in m
+
+
+def test_attempt_cap_applies_after_probeability_filter():
+    inventory = skt.annotate_probeability([
+        {"path": "/keys/00-invalid", "error": "bad key", "encrypted": False, "public_key": None},
+        {"path": "/keys/01-valid", "error": None, "encrypted": False, "public_key": "ssh-ed25519 AAA"},
+    ])
+    plan = skt.build_probe_plan(inventory, ["alice"], [("host.test", 2222)], 1)
+    assert plan == [("/keys/01-valid", "alice", "host.test", 2222)]
+    assert inventory[0]["probe_skip_reason"].startswith("inventory error")
+
+
+def test_unlocked_encrypted_key_is_inventory_only():
+    inventory = skt.annotate_probeability([
+        {"path": "/keys/enc", "error": None, "encrypted": True,
+         "unlocked": True, "public_key": "ssh-rsa AAA"},
+    ])
+    assert inventory[0]["probeable"] is False
+    assert "ssh-agent" in inventory[0]["probe_skip_reason"]
+
+
+def test_global_rate_limiter_uses_one_start_timeline():
+    state = {"now": 0.0}
+    sleeps = []
+
+    def clock():
+        return state["now"]
+
+    def sleeper(delay):
+        sleeps.append(delay)
+        state["now"] += delay
+
+    limiter = skt.StartRateLimiter(0.5, clock=clock, sleeper=sleeper)
+    starts = [limiter.wait(), limiter.wait(), limiter.wait(), limiter.wait()]
+    assert starts == [0.0, 0.5, 1.0, 1.5]
+    assert sleeps == [0.5, 0.5, 0.5]
 
 
 if __name__ == "__main__":

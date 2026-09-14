@@ -220,8 +220,16 @@ Given a directory/glob of unknown private keys and a host list:
    **key→hosts→users acceptance matrix** ("this key opens hosts A,C as root; that
    key opens nothing we can see"). Honors `--targets/--nmap`, `--users` list,
    parallelism cap, per-engagement known_hosts — same conventions as bulk-enum.
-3. **Output**: `key-triage.json` + a human matrix (`key-triage.md`) + optional
-   `authorized-pairs.txt` (key,user,host) ready to feed `bulk-enum-linux.sh`.
+3. **Output**: `key-triage.json` + a human matrix (`key-triage.md`) +
+   `authorized-pairs.jsonl`. Each accepted row uses the versioned
+   `aranum.authorized-ssh-pair/v1` schema and carries the key, user, host, and
+   port for direct `bulk-enum-linux.sh --authorized-pairs` consumption. The
+   consumer derives its artifact/resume identity from the entire tuple rather
+   than the host alone; separate users, ports, or keys cannot share a result
+   directory or summary row, including on IPv6. Metadata is atomically encoded
+   by a JSON serializer. Reporting resolves opaque pair directories through the
+   canonical metadata and marks malformed metadata as a partial error instead of
+   treating the directory hash as a host or silently dropping it.
 
 This is authorized-testing triage of operator-held key material against
 operator-authorized hosts — pure auth validation, no spraying of passwords, no
@@ -331,10 +339,16 @@ the built argv: password paths assert `BatchMode=yes` is ABSENT and
 `PasswordAuthentication=no` present. This makes the 1a bug impossible to re-ship in
 another language.
 
+Only locally valid, unencrypted keys are eligible for MATCH. An encrypted key
+successfully unlocked for inventory still remains inventory-only because probe
+workers never receive or interactively supply passphrases.
+
 **Sequencing (non-blocking rec honored):** 1a lands FIRST as its own atomic `fix`
 commit (with its regression test incl. a KEY_THEN_PASS case) before the additive
 workstreams. ssh-key-triage adds lockout hygiene: `--max-per-user N` cap +
-`--throttle` inter-attempt delay, one key per connection. SMB transport (1c)
+`--throttle` global probe-start spacing, one key per connection. The attempt
+cap is applied after inventory filtering, so invalid or inventory-only keys do
+not consume a valid key's budget. SMB transport (1c)
 documents that it breaks ADR-002 D1's no-on-disk-artifact guarantee (base64 payload
 executes via the service control manager) — labeled and opt-in only.
 
@@ -358,7 +372,7 @@ The 1a root cause is confirmed and the core fix is correct. Three integration/co
 
 1. **sshpass + encrypted key in the key+pass fallback misfires.** With `BatchMode=no` and a passphrase-protected key, ssh prompts `Enter passphrase for key …`; sshpass matches `assword` by default, so it will not answer the passphrase (hang/timeout) or, worse, feed the login password to the wrong prompt. Document the limitation and prefer agent-loaded keys for the fallback case.
 2. **SMB transport breaks the "no on-disk artifact" guarantee.** impacket `wmiexec`/`smbexec` retrieve output via a transient file on `ADMIN$` — unlike the SSH/WinRM stdin-pipe paths (ADR-002 D1). This is acceptable behind the admin-only `--transport smb` opt-in, but it must be stated plainly rather than implied to share the memory-only property; confirm the payload path leaves nothing behind.
-3. **`ssh-key-triage` lockout hygiene.** Pubkey auth *failures* still increment PAM `pam_tally`/AD bad-password counters on some configs regardless of `MaxAuthTries`. Add a per-user attempt cap, conservative default parallelism, honor `--throttle`, `--dry-run` prints the plan, and a loud lockout warning. The `-o IdentitiesOnly=yes -o PreferredAuthentications=publickey -o PasswordAuthentication=no … true` probe is otherwise appropriately non-destructive.
+3. **`ssh-key-triage` lockout hygiene.** Pubkey auth *failures* still increment PAM `pam_tally`/AD bad-password counters on some configs regardless of `MaxAuthTries`. Add a per-user attempt cap after inventory filtering, conservative default parallelism, global probe-start spacing under `--throttle`, `--dry-run` prints the plan, and a loud lockout warning. The `-o IdentitiesOnly=yes -o PreferredAuthentications=publickey -o PasswordAuthentication=no … true` probe is otherwise appropriately non-destructive.
 4. **Test the regression from blocking-issue 1.** T1 must add a `--key --pass` case asserting `-i` is present AND `PubkeyAuthentication` is *not* `no`; likewise T4 should assert the key-triage argv actually carries `IdentitiesOnly`/publickey-only (the safety-critical part), not just matrix assembly.
 5. **Land 1a first, on its own.** 1a is a self-contained `fix` (file-owned: script + test). Do not gate the CRITICAL fix behind the Windows-transport/new-tool integration pass and the WS5 offline packaging. Commit/merge it independently; the rest can follow into the same MINOR `v0.33.0`.
 6. **Minor:** xargs-spawned child shells inherit exported *functions* (`export -f`) but not `set -uo pipefail`; helper code added to `_lib.sh` for T1 runs without nounset/pipefail in the per-host subshell. Not a fail cause, but re-assert options inside `run_one_host` if new pipelines are added.

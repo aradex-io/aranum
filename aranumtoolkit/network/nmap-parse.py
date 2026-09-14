@@ -234,11 +234,109 @@ def categorize(port: int, service: str) -> list[str]:
     cats = []
     svc = (service or "").lower()
     for cat, (ports, regex) in SERVICE_MAP.items():
+        # X11's well-known range is only a heuristic. Positive incompatible
+        # evidence (notably TLS on appliance port 6000) and an unknown service
+        # must stay out of the X11 dispatcher until Nmap actually identifies
+        # X11. This prevents a port number from overriding observed protocol.
+        if cat == "x11":
+            if re.match(regex, svc):
+                cats.append(cat)
+            continue
         if port in ports:
             cats.append(cat); continue
         if re.match(regex, svc):
             cats.append(cat)
     return cats
+
+
+BAMBU_PORTS = {990, 3000, 3002, 6000, 8883}
+_BAMBU_BANNER_RE = re.compile(r"\bBBL-P003\s+FTP\s+Server\b", re.I)
+_BAMBU_TLS_RE = re.compile(r"\b(?:BBL\s+Technologies|Bambu(?:\s+Lab)?)\b", re.I)
+_BAMBU_COMPATIBLE_SERVICE_RE = {
+    990: re.compile(r"^(?:ftp|ftps|ssl/ftp)$", re.I),
+    6000: re.compile(r"^(?:ssl|tls)$", re.I),
+    8883: re.compile(r"^(?:mqtt|mqtts|ssl/mqtt|ssl)$", re.I),
+}
+
+
+def correlate_devices(entries: list[dict], *, add_categories: bool = True) -> list[dict]:
+    """Conservatively correlate host-level vendor identity from scan evidence.
+
+    A common port is never enough. A Bambu correlation requires evidence on at
+    least two distinct host endpoints, one of which must carry explicit
+    BBL/Bambu identity. Multiple regex matches in one record count as only one
+    endpoint, and an unidentified characteristic port contributes no evidence.
+    """
+    by_host: dict[str, list[dict]] = defaultdict(list)
+    for entry in entries:
+        by_host[entry["ip"]].append(entry)
+
+    correlations: list[dict] = []
+    for host, host_entries in by_host.items():
+        observed_ports = {e["port"] for e in host_entries}
+        tuple_ports = sorted(observed_ports & BAMBU_PORTS)
+        endpoint_signals: dict[tuple[int, str], set[str]] = defaultdict(set)
+        identity_endpoints: set[tuple[int, str]] = set()
+        for entry in host_entries:
+            port = int(entry["port"])
+            proto = str(entry.get("proto", "tcp") or "tcp").lower()
+            endpoint = (port, proto)
+            evidence_text = " ".join(
+                str(entry.get(k, ""))
+                for k in ("service", "product", "version", "extrainfo")
+            )
+            if _BAMBU_BANNER_RE.search(evidence_text):
+                endpoint_signals[endpoint].add("identity-ftps-banner:BBL-P003")
+                identity_endpoints.add(endpoint)
+            elif _BAMBU_TLS_RE.search(evidence_text):
+                # Deliberately one identity group per endpoint: for example,
+                # "Bambu Lab BBL-P003 FTP Server" must not become two signals.
+                endpoint_signals[endpoint].add("identity-vendor:BBL/Bambu")
+                identity_endpoints.add(endpoint)
+
+            service_re = _BAMBU_COMPATIBLE_SERVICE_RE.get(port)
+            service = str(entry.get("service", "") or "")
+            if service_re and service_re.match(service):
+                endpoint_signals[endpoint].add(f"compatible-service:{service.lower()}")
+
+        # Qualify on independent endpoints, not raw regex/signal count. A lone
+        # product/banner record, duplicate records for one endpoint, or a tuple
+        # of unidentified characteristic ports therefore cannot correlate.
+        evidence_endpoints = sorted(endpoint_signals)
+        if not identity_endpoints or len(evidence_endpoints) < 2:
+            continue
+
+        signals = [
+            f"{group}@{port}/{proto}"
+            for port, proto in evidence_endpoints
+            for group in sorted(endpoint_signals[(port, proto)])
+        ]
+
+        record = {
+            "type": "vendor-device",
+            "vendor": "Bambu Lab",
+            "host": host,
+            "severity": "low",
+            "confidence": "likely",
+            "signals": signals,
+            "ports": tuple_ports,
+            "evidence_endpoints": [f"{port}/{proto}" for port, proto in evidence_endpoints],
+        }
+        correlations.append(record)
+        for entry in host_entries:
+            if entry["port"] not in BAMBU_PORTS:
+                continue
+            entry.setdefault("correlations", []).append("bambu-lab-device")
+            if add_categories and "bambu" not in entry["categories"]:
+                entry["categories"].append("bambu")
+            # Strong host correlation plus endpoint placement is sufficient to
+            # suppress known-incompatible generic protocol guesses. No payload
+            # is sent to 3000/3002/6000 by this parser or the Bambu dispatcher.
+            if entry["port"] in (3000, 3002):
+                entry["categories"] = [c for c in entry["categories"] if c not in ("http", "https")]
+            if entry["port"] == 6000:
+                entry["categories"] = [c for c in entry["categories"] if c != "x11"]
+    return correlations
 
 
 def parse_xml(path: Path):
@@ -377,6 +475,49 @@ def dispatch(path: Path) -> Iterable[dict]:
     return parse_nmap(path)
 
 
+def parse_hosts(path: Path) -> list[dict]:
+    """Preserve discovered host state independently from open services."""
+    suffix = path.suffix.lower()
+    text = path.read_text(errors="replace")
+    hosts: dict[str, dict] = {}
+    if suffix == ".xml" or text.lstrip().startswith("<?xml") or "<nmaprun" in text[:1024]:
+        tree = _parse_xml_hardened(path)
+        for host in tree.iterfind("host"):
+            status = host.find("status")
+            state = status.get("state", "unknown") if status is not None else "unknown"
+            addr = host.find("address[@addrtype='ipv4']")
+            if addr is None:
+                addr = host.find("address[@addrtype='ipv6']")
+            if addr is None or not addr.get("addr"):
+                continue
+            hostname_el = host.find("hostnames/hostname")
+            ip = str(addr.get("addr"))
+            hosts[ip] = {"ip": ip, "hostname": (hostname_el.get("name", "")
+                         if hostname_el is not None else ""), "state": state}
+    elif suffix == ".gnmap" or ("Host: " in text and ("Ports:" in text or "Status:" in text)):
+        for line in text.splitlines():
+            m = re.match(r"Host:\s+(\S+)\s+\(([^)]*)\)(?:\s+Status:\s+(\S+)|\s+Ports:)", line)
+            if not m:
+                continue
+            ip, hostname, state = m.groups()
+            current = hosts.get(ip, {"ip": ip, "hostname": hostname, "state": "up"})
+            if state:
+                current["state"] = state.lower()
+            hosts[ip] = current
+    else:
+        current: dict | None = None
+        for line in text.splitlines():
+            match = NMAP_HOST_RE.match(line)
+            if match:
+                name, parenthesized_ip = match.groups()
+                ip = parenthesized_ip or name
+                current = {"ip": ip, "hostname": name if parenthesized_ip else "", "state": "up"}
+                hosts[ip] = current
+            elif current is not None and (line.startswith("Host seems down") or "host down" in line.lower()):
+                current["state"] = "down"
+    return sorted(hosts.values(), key=lambda item: item["ip"])
+
+
 def main():
     ap = argparse.ArgumentParser(description="Parse nmap output into a service inventory.")
     ap.add_argument("input", help="Path to .xml / .gnmap / .nmap file")
@@ -403,6 +544,7 @@ def main():
 
     try:
         entries = list(dispatch(path))
+        hosts = parse_hosts(path)
     except Exception as e:                              # noqa: BLE001
         # Surface DOCTYPE / entity-expansion rejections cleanly. Cover both
         # backends: defusedxml raises defusedxml.common.EntitiesForbidden /
@@ -443,6 +585,7 @@ def main():
             return 2
     for e in entries:
         e["categories"] = [] if args.no_cat else categorize(e["port"], e["service"])
+    device_correlations = correlate_devices(entries, add_categories=not args.no_cat)
 
     def fmt_ip_port(ip, port):
         # Wrap IPv6 in brackets so the result is unambiguous to shell splitters.
@@ -469,11 +612,16 @@ def main():
                 unknown.append(ip_port)
         out = {
             "summary": {
-                "hosts":      len({e["ip"] for e in entries}),
+                # ``hosts`` remains the compatibility alias for all up hosts.
+                "hosts":      len({h["ip"] for h in hosts if h["state"] in ("up", "unknown")}),
+                "hosts_up":   len({h["ip"] for h in hosts if h["state"] in ("up", "unknown")}),
+                "hosts_with_open_ports": len({e["ip"] for e in entries}),
                 "open_ports": len(entries),
                 "unknown":    sorted(set(unknown)),
                 "categories": {c: sorted(set(v)) for c, v in bucket.items()},
+                "device_correlations": device_correlations,
             },
+            "hosts": hosts,
             "entries": entries,
         }
         print(json.dumps(out, indent=2))

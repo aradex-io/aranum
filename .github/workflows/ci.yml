@@ -1,7 +1,8 @@
 name: aranum CI
 
 # G.5 of iteration G. Runs on push + PR against main. The pipeline mirrors
-# `make test` (lint -> unittest -> smoke) so a green CI run is the same as
+# `make test` (lint -> unittest -> pytest -> smoke -> data-audit) so CI runs
+# every component in the declared local quality gate.
 # a green local `make test`.
 #
 # Smoke includes a "git working tree clean" check, so PR branches should
@@ -44,8 +45,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends shellcheck
 
-      - name: Install defusedxml (optional — nmap-parse.py uses stdlib fallback if missing, but CI exercises both)
-        run: pip install --quiet defusedxml
+      - name: Install test dependencies
+        run: pip install --quiet defusedxml pytest
 
       - name: Show tool versions
         run: |
@@ -64,6 +65,13 @@ jobs:
       - name: make unittest
         run: make unittest
 
+      - name: make pytest
+        run: make pytest
+
       - name: make smoke
         if: matrix.python-version == '3.11'
         run: make smoke
+
+      - name: make data-audit
+        if: matrix.python-version == '3.11'
+        run: make data-audit

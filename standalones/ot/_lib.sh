@@ -10,7 +10,7 @@
 #   1. Every dispatcher checks $OT_CONFIRMED=1 before any probe leaves the
 #      test box. The orchestrator (standalones/ot/ot-enum.sh) sets this after the
 #      typed-confirmation prompt.
-#   2. Throttle floor = 500ms per-host probe spacing — non-overridable.
+#   2. Throttle floor = 500ms between global probe starts — non-overridable.
 #   3. Concurrency ceiling = 4 hosts in flight, default 2.
 #   4. Write-side function codes are NOT exposed by any helper here.
 #
@@ -104,14 +104,85 @@ EOF
 # Bound the operator's --max-parallel value to OT_MAX_PARALLEL_HARD.
 ot_clamp_parallel() {
     local req="$1"
+    if ! [[ "$req" =~ ^[0-9]+$ ]]; then
+        err "--max-parallel must be an integer (got '$req')" >&2
+        return 2
+    fi
     if [ "$req" -gt "$OT_MAX_PARALLEL_HARD" ]; then
-        err "requested --max-parallel=$req exceeds OT ceiling ($OT_MAX_PARALLEL_HARD) — clamping."
+        err "requested --max-parallel=$req exceeds OT ceiling ($OT_MAX_PARALLEL_HARD) — clamping." >&2
         echo "$OT_MAX_PARALLEL_HARD"
     elif [ "$req" -lt 1 ]; then
         echo 1
     else
         echo "$req"
     fi
+}
+
+# Persist the rate gate through a caller-supplied state file. The orchestrator
+# gives every protocol dispatcher the same file, preventing the first target in
+# a new protocol group from bypassing the floor. A lock also makes the gate safe
+# if a future caller overlaps groups.
+ot_global_start_gate() {
+    local state_file="$1" lock_file="${1}.lock"
+    if command -v flock >/dev/null 2>&1; then
+        (
+            flock -x 9
+            [ -s "$state_file" ] && ot_throttle_sleep
+            printf 'started\n' > "$state_file"
+        ) 9> "$lock_file"
+    else
+        # ot_run_targets forces one worker when flock is absent, and the
+        # orchestrator dispatches protocol groups serially. Together those
+        # constraints keep this lockless state transition serialized.
+        [ -s "$state_file" ] && ot_throttle_sleep
+        printf 'started\n' > "$state_file"
+    fi
+}
+
+# Run one callback per target with a hard concurrency bound and one global
+# start-rate gate. Dispatchers supply a callback name; this helper owns all
+# backgrounding so OT_MAX_PARALLEL cannot silently become a logging-only knob.
+ot_run_targets() {
+    local target_file="$1" callback="$2"
+    local max_parallel="${OT_MAX_PARALLEL:-$OT_MAX_PARALLEL_DEFAULT}"
+    max_parallel=$(ot_clamp_parallel "$max_parallel") || return 2
+    # The state-file fallback in ot_global_start_gate is safe only when one
+    # worker reaches it at a time. Without flock, deliberately give up
+    # parallelism rather than let workers sleep concurrently and then burst.
+    if [ "$max_parallel" -gt 1 ] && ! command -v flock >/dev/null 2>&1; then
+        err "flock unavailable — forcing serial OT scheduling to preserve the 500 ms global start floor" >&2
+        max_parallel=1
+    fi
+    local rate_state="${OT_RATE_STATE_FILE:-}" local_rate_state=""
+    if [ -z "$rate_state" ]; then
+        local_rate_state=$(mktemp "${TMPDIR:-/tmp}/aranum-ot-rate.XXXXXX") || return 2
+        rate_state="$local_rate_state"
+    fi
+    local active=0 overall_rc=0 rc
+    local target
+    while IFS= read -r target; do
+        [ -z "$target" ] && continue
+        [[ "$target" =~ ^[[:space:]]*# ]] && continue
+        while [ "$active" -ge "$max_parallel" ]; do
+            if wait -n; then rc=0; else rc=$?; fi
+            [ "$rc" -ne 0 ] && [ "$overall_rc" -eq 0 ] && overall_rc="$rc"
+            active=$((active - 1))
+        done
+        # Gate inside the worker wrapper so the protected event is the callback
+        # start itself, not merely the parent's background-process creation.
+        (
+            ot_global_start_gate "$rate_state"
+            "$callback" "$target"
+        ) &
+        active=$((active + 1))
+    done < "$target_file"
+    while [ "$active" -gt 0 ]; do
+        if wait -n; then rc=0; else rc=$?; fi
+        [ "$rc" -ne 0 ] && [ "$overall_rc" -eq 0 ] && overall_rc="$rc"
+        active=$((active - 1))
+    done
+    [ -n "$local_rate_state" ] && rm -f "$local_rate_state" "${local_rate_state}.lock"
+    return "$overall_rc"
 }
 
 # Parse a targets line in the canonical OT triple form `ip:port/proto`.

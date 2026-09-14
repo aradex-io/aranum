@@ -74,6 +74,13 @@ class TestCacheKey(unittest.TestCase):
         b = G.cache_key(self.URL, {"PRIVATE-TOKEN": "P2"})
         self.assertNotEqual(a, b)
 
+    def test_custom_auth_header_names_are_case_insensitive(self):
+        canonical = G.cache_key(self.URL, {"Authorization": "Bearer P1"})
+        custom_case = G.cache_key(self.URL, {"aUtHoRiZaTiOn": "Bearer P1"})
+        other = G.cache_key(self.URL, {"authorization": "Bearer P2"})
+        self.assertEqual(canonical, custom_case)
+        self.assertNotEqual(custom_case, other)
+
     def test_anon_path_is_stable(self):
         a = G.cache_key(self.URL, {})
         b = G.cache_key(self.URL, {})

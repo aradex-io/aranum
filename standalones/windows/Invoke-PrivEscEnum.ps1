@@ -21,7 +21,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$OutFile
+    [string]$OutFile,
+    [switch]$LibraryOnly
 )
 
 if ($OutFile) {
@@ -40,6 +41,40 @@ function Sub($t) {
 }
 function Hit($t) { Write-Host "[+] $t" -ForegroundColor Green }
 function Miss($t) { Write-Host "[-] $t" -ForegroundColor DarkGray }
+
+function Get-ServiceExecutablePath([string]$CommandLine) {
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) { return $null }
+    $expanded = [Environment]::ExpandEnvironmentVariables($CommandLine.Trim())
+    if ($expanded -match '^"([^"]+)"') { return $Matches[1] }
+    if ($expanded -match '^(.+?\.(?:exe|com|bat|cmd))(?=\s|$)') { return $Matches[1] }
+    return ($expanded -split '\s+', 2)[0]
+}
+
+function Get-UnquotedLoaderCandidates([string]$CommandLine) {
+    if ([string]::IsNullOrWhiteSpace($CommandLine) -or $CommandLine.TrimStart().StartsWith('"')) {
+        return @()
+    }
+    $exe = Get-ServiceExecutablePath $CommandLine
+    if (-not $exe) { return @() }
+    $candidates = @()
+    foreach ($match in [regex]::Matches($exe, ' ')) {
+        $candidate = $exe.Substring(0, $match.Index) + '.exe'
+        if ($candidate -ne $exe -and $candidates -notcontains $candidate) { $candidates += $candidate }
+    }
+    return $candidates
+}
+
+function Get-SysvolRoot([string]$UserDnsDomain = $env:USERDNSDOMAIN,
+                        [string]$UserDomain = $env:USERDOMAIN,
+                        [string]$ComputerName = $env:COMPUTERNAME) {
+    $domain = if ($UserDnsDomain) { $UserDnsDomain }
+              elseif ($UserDomain -and $UserDomain -ne $ComputerName) { $UserDomain }
+              else { $null }
+    if ($domain) { return "\\$domain\SYSVOL" }
+    return $null
+}
+
+if ($LibraryOnly) { return }
 
 # ---------- 1. SYSTEM ----------
 Section "SYSTEM INFO"
@@ -94,13 +129,16 @@ Get-CimInstance Win32_Service | ForEach-Object {
     $p = $_.PathName
     if ($p -and $p -notmatch '^"' -and $p -match ' ' -and $p -notmatch '^[A-Za-z]:\\Windows\\') {
         Hit "$($_.Name) -> $p (StartMode=$($_.StartMode), State=$($_.State))"
+        foreach ($candidate in Get-UnquotedLoaderCandidates $p) {
+            "    loader candidate: $candidate"
+        }
     }
 }
 
 Sub "Service binary write-check (current user)"
 $svcs = Get-CimInstance Win32_Service | Where-Object { $_.PathName }
 foreach ($s in $svcs) {
-    $exe = ($s.PathName -replace '^"([^"]+)".*','$1') -replace '^([^\s]+).*','$1'
+    $exe = Get-ServiceExecutablePath $s.PathName
     if (Test-Path $exe -ErrorAction SilentlyContinue) {
         try {
             $acl = Get-Acl $exe -ErrorAction Stop
@@ -158,7 +196,14 @@ Sub "Unattended install files"
 }
 
 Sub "Group Policy Preferences (Groups.xml, Services.xml, ...)"
-@('\\$env:USERDOMAIN\SYSVOL','C:\ProgramData\Microsoft\Group Policy\History') | ForEach-Object {
+$gppRoots = @('C:\ProgramData\Microsoft\Group Policy\History')
+$sysvolRoot = Get-SysvolRoot
+if ($sysvolRoot) {
+    $gppRoots = @($sysvolRoot) + $gppRoots
+} else {
+    Miss "SYSVOL search skipped: no joined-domain DNS/NetBIOS name is available"
+}
+$gppRoots | ForEach-Object {
     if (Test-Path $_) {
         Get-ChildItem $_ -Recurse -Include 'Groups.xml','Services.xml','Scheduledtasks.xml','DataSources.xml','Printers.xml','Drives.xml' -ErrorAction SilentlyContinue |
             ForEach-Object { Hit $_.FullName }
@@ -212,7 +257,7 @@ $searchPaths = @("$env:USERPROFILE\Desktop","$env:USERPROFILE\Documents",
 foreach ($p in $searchPaths) {
     if (Test-Path $p) {
         Get-ChildItem $p -Recurse -Include *.txt,*.ini,*.config,*.xml,*.ps1,*.bat,*.cmd,*.kdbx -ErrorAction SilentlyContinue |
-            Select-String -Pattern 'password|passwd|secret|api[_-]?key|token=' -SimpleMatch -ErrorAction SilentlyContinue |
+            Select-String -Pattern '(?i)password|passwd|secret|api[_-]?key|token\s*=' -ErrorAction SilentlyContinue |
             Select-Object -First 200 Path, LineNumber, Line
     }
 }

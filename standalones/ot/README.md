@@ -20,8 +20,12 @@
 2. **`--ics-confirm` + typed `ICS-CONFIRMED` prompt before any probe.**
    The orchestrator (`ot-enum.sh`) sets `OT_CONFIRMED=1` only after the
    prompt; every dispatcher refuses without it.
-3. **Throttle floor 500 ms per host (non-overridable).** Operator-supplied
-   `--throttle aggressive` is ignored. Concurrency ceiling 4, default 2.
+3. **Global start floor 500 ms (non-overridable).** Operator-supplied
+   `--throttle aggressive` is ignored. The shared bounded scheduler spaces
+   every probe start, persists the gate across protocol dispatcher groups, and
+   enforces concurrency ceiling 4, default 2. If `flock` is unavailable, the
+   scheduler warns and forces serial execution; it never trades away the global
+   500 ms floor for parallelism.
 4. **No auto-routing.** `aranumtoolkit/network/auto-enum.sh` does not invoke anything in
    `standalones/ot/`. It surfaces detected OT ports via a sentinel category
    (`ot-untouched`) with a hint, but does not probe.

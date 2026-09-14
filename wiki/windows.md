@@ -146,7 +146,7 @@ write; editing the script is code execution at next task trigger.
 - `standalones/windows/Get-WritablePathDirs.ps1` — writable directories in system PATH.
 - `standalones/windows/Get-NamedPipes.ps1` — enumerate named pipes (Potato pivot target).
 - `standalones/windows/Get-PrintNightmare.ps1` — PrintNightmare (CVE-2021-34527) applicability.
-- `standalones/windows/Get-ADCSMisconfig.ps1` — ADCS ESC1–ESC8 misconfigurations.
+- `standalones/windows/Get-ADCSMisconfig.ps1` — local ADSI coverage for ADCS ESC1, ESC2, and ESC4. Use the Certipy-backed LDAP path for broader ESC coverage.
 - `standalones/windows/Test-CoercedAuth.ps1` — PetitPotam/PrinterBug-style NTLM coercion signal check.
 - `standalones/windows/Get-PetitPotamSignals.ps1` — MS-EFSRPC/MS-DFSNM coercion surface enumeration.
 - `standalones/windows/Invoke-PrivEscEnum.ps1` — full sweep, runs most of the above.

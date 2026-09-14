@@ -58,9 +58,10 @@ done
 command -v curl >/dev/null 2>&1 || { err "curl not installed"; exit 1; }
 URL="${URL%/}"
 MGR="$URL/manager/text"
-# shellcheck disable=SC2206  # intentional: build curl auth args as an array
 AUTH=(-u "$USER:$PASS")
-CURL=(curl -s $INSECURE --connect-timeout 8 --max-time 60)
+CURL=(curl -s)
+[ -n "$INSECURE" ] && CURL+=("$INSECURE")
+CURL+=(--connect-timeout 8 --max-time 60)
 
 # --- detect: is the manager reachable and do the creds work? ---
 detect() {

@@ -78,7 +78,7 @@ fi
 if [ -r /proc/1/cmdline ]; then
     p1=$(tr '\0' ' ' < /proc/1/cmdline 2>/dev/null)
     case "$p1" in
-        *systemd*|*/sbin/init*|*/lib/systemd/systemd*)
+        *systemd*|*/sbin/init*)
             echo "[!!] PID 1 = '${p1% }' — possible host PID namespace (--pid=host)" ;;
     esac
 fi

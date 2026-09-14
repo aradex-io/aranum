@@ -134,18 +134,38 @@ EOF
 # Dot-stuff body lines starting with .
 BODY_STUFFED=$(printf '%s' "$BODY" | sed 's/^\./../')
 
-# Full dialog
-DIALOG=$(printf 'EHLO %s\r\nMAIL FROM:<%s>\r\nRCPT TO:<%s>\r\nDATA\r\n%s\r\n\r\n%s\r\n.\r\nQUIT\r\n' \
-    "$EHLO_NAME" "$FROM_ADDR" "$TO_ADDR" \
-    "$(printf '%s' "$HEADERS" | sed 's/$/\r/')" \
-    "$BODY_STUFFED")
-
 log "Sending..."
-RESP=$(printf '%s' "$DIALOG" | timeout 15 nc -nv "$HOST" "$PORT" 2>&1)
-echo "$RESP"
+coproc SMTP_NC { timeout 15 nc -nv "$HOST" "$PORT" 2>&1; }
+SMTP_READ_FD="${SMTP_NC[0]}"
+SMTP_WRITE_FD="${SMTP_NC[1]}"
 
-if echo "$RESP" | grep -qiE '^250 .*(ok|queued|accepted)'; then
+smtp_stage() {
+    local expected="$1" command="$2" reply code
+    printf '%s\r\n' "$command" >&"$SMTP_WRITE_FD"
+    reply=$(smtp_read_reply "$SMTP_READ_FD") || return 70
+    printf '%s\n' "$reply"
+    code=$(printf '%s\n' "$reply" | tail -1 | cut -c1-3)
+    [[ "$code" =~ $expected ]]
+}
+
+greeting=$(smtp_read_reply "$SMTP_READ_FD") || { err "SMTP greeting not received"; exit 70; }
+printf '%s\n' "$greeting"
+smtp_stage '^(250)$' "EHLO $EHLO_NAME" || { err "EHLO rejected"; exit 71; }
+smtp_stage '^(250)$' "MAIL FROM:<$FROM_ADDR>" || { err "MAIL FROM rejected"; exit 72; }
+smtp_stage '^(250|251)$' "RCPT TO:<$TO_ADDR>" || { err "Recipient rejected"; exit 73; }
+smtp_stage '^(354)$' "DATA" || { err "DATA command rejected"; exit 74; }
+
+printf '%s\r\n\r\n%s\r\n.\r\n' \
+    "$(printf '%s' "$HEADERS" | sed 's/$/\r/')" "$BODY_STUFFED" >&"$SMTP_WRITE_FD"
+final_reply=$(smtp_read_reply "$SMTP_READ_FD") || { err "No final delivery reply"; exit 75; }
+printf '%s\n' "$final_reply"
+final_code=$(printf '%s\n' "$final_reply" | tail -1 | cut -c1-3)
+if [[ "$final_code" =~ ^(250|251)$ ]]; then
     hit "Message accepted"
-else
-    err "Send may have failed — review the response above"
+    printf 'QUIT\r\n' >&"$SMTP_WRITE_FD"
+    smtp_read_reply "$SMTP_READ_FD" >/dev/null || true
+    wait "$SMTP_NC_PID" 2>/dev/null || true
+    exit 0
 fi
+err "Message body rejected after DATA"
+exit 76

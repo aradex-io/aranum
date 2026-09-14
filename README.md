@@ -87,7 +87,7 @@ Each subsystem ships its own README documenting the per-tool surface — `standa
 
 | Script | Purpose |
 |---|---|
-| `standalones/creds/default-creds-sweep.py` | Multi-protocol default-credential sweep (SSH/MSSQL/MySQL/Redis/Mongo/…) |
+| `standalones/creds/default-creds-sweep.py` | HTTP(S) administrative-portal default-credential sweep; use SSH/database dispatchers for native authentication |
 | `standalones/creds/spray-scheduler.py` (D2.2) | Lockout-policy-aware wrapper around any spray tool — `--threshold N --interval M` (default 3 attempts / 30 minutes per principal) with persistent state for resume |
 | `standalones/creds/hash-format.py` (D2.2) | Convert captured NTLMv2 / NTLMv1 / AS-REP / TGS-REP from Responder / impacket / nxc output into `hashcat`- and `john`-ready files + `_index.tsv` |
 
@@ -309,6 +309,12 @@ Planner outputs:
 | `guidance.json` | Manual handoffs, gated surfaces, and next-step recommendations for dashboard rendering |
 
 Profiles live in `aranumtoolkit/network/engagement-profiles.json`; service priorities and safety metadata live in `aranumtoolkit/network/service-metadata.json`.
+That metadata is also the execution-capability contract: `task_execution:
+"phased"` exposes independently runnable phase tasks, while the default
+`"monolithic"` mode emits one canonical `phase: "all"` task because one
+dispatcher invocation already performs its complete assessment. A phase filter
+selects a monolithic service only when it includes every phase declared for that
+service; unsupported staged queue records fail before the dispatcher starts.
 
 ## Unified report (iteration E)
 
@@ -547,8 +553,21 @@ never writes to targets.
 ```bash
 aranum ssh-key-triage --keys ~/loot/keys/ --targets hosts.txt --users root,deploy \
     --passwords pass.txt --max-per-user 3 --throttle 0.5 -o ./triage
-# -> key-triage.json / key-triage.md / authorized-pairs.txt (feed bulk-enum-linux.sh)
+# -> key-triage.json / key-triage.md / authorized-pairs.jsonl
+aranumtoolkit/network/bulk-enum-linux.sh \
+    --authorized-pairs ./triage/authorized-pairs.jsonl -o ./estate
 ```
+
+Only locally valid, unencrypted private keys are placed in the probe plan.
+Encrypted keys that were unlocked for inventory remain inventory-only because
+OpenSSH is intentionally never given or prompted for a passphrase. The versioned
+JSONL handoff preserves each accepted key, user, host, and port without reparsing
+display strings. Authorized-pair artifacts, resume markers, and summary rows use a
+collision-resistant identity over the exact key/user/host/port tuple, so shared
+hosts, nondefault ports, multiple users, and multiple keys do not overwrite.
+`report.py` resolves those opaque artifact IDs through the canonical metadata;
+invalid metadata produces an explicit partial report and nonzero status.
+`--throttle` spaces starts globally even when probes run in parallel.
 
 **Thick-client / workstation enumeration.** `standalones/windows/Get-ThickClientEnum.ps1`
 and `standalones/linux/thickclient-hunt.sh` (also inlined into `Invoke-PrivEscEnum.ps1` /

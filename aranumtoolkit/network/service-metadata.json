@@ -3,6 +3,7 @@
   "defaults": {
     "dispatcher": null,
     "manual": true,
+    "task_execution": "monolithic",
     "priority_base": 300,
     "risk": "read-safe",
     "default_enabled": true,
@@ -12,9 +13,6 @@
     "tags": ["network", "triage"],
     "followups": [],
     "docs": [],
-    "confidence": "medium",
-    "priority": "P3",
-    "next_actions": ["Review evidence and validate impact"],
     "phases": [
       {
         "id": "1",
@@ -123,14 +121,28 @@
     "ssh": {
       "dispatcher": "enum-ssh.sh",
       "manual": false,
+      "task_execution": "phased",
       "phases": [
         {"id": "1", "name": "discovery", "description": "Banner and auth-method discovery"},
         {"id": "2", "name": "enumeration", "description": "Key-only / auth posture checks"}
       ]
     },
+    "bambu": {
+      "dispatcher": "enum-bambu.sh",
+      "manual": false,
+      "priority_base": 100,
+      "confidence": "low",
+      "priority": "P4",
+      "tags": ["iot", "printer", "correlation-only"],
+      "next_actions": ["Validate the recorded multi-signal scan evidence manually"],
+      "phases": [
+        {"id": "1", "name": "correlation", "description": "Render prior bounded BBL/Bambu scan correlation without a live probe"}
+      ]
+    },
     "ftp": {
       "dispatcher": "enum-ftp.sh",
       "manual": false,
+      "task_execution": "phased",
       "phases": [
         {"id": "1", "name": "discovery", "description": "Server and banner discovery"},
         {"id": "2", "name": "enumeration", "description": "Anonymous and auth checks"}

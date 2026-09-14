@@ -9,7 +9,93 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- R1 orchestration and queue state now validate the complete task schema,
+  invoke the real dispatcher once per selected task with an exact endpoint and
+  parsed phase/risk/priority/protocol/task contract, record task-scoped
+  completion, isolate each run's result state, and fail the process when any
+  selected dispatcher fails. Explicitly empty queues fail; intentionally
+  priority-filtered zero-task runs remain successful and auditable. The shared
+  dispatcher phase gate now keeps FTP discovery separate from anonymous/auth
+  enumeration, and successful non-queue runs archive stale authoritative queue
+  snapshots from the same output directory. Reporting treats output-local queue
+  state as exclusive, uses parent state only as a legacy fallback, and accepts
+  current records only when their run ID matches the published run state.
+  Service metadata now centrally distinguishes phase-aware FTP/SSH from the
+  monolithic dispatcher fleet: monolithic services plan one canonical `all`
+  task and staged records fail before dispatch. FTP Nmap and credentialed NXC
+  checks honor each selected endpoint port instead of forcing port 21; mixed
+  port target sets are partitioned into correctly scoped NXC calls.
+- Planner/parser/reporting identity is endpoint-aware across TCP and UDP;
+  duplicate tasks and findings are stable across shard/source relocation, IPv6
+  dispatcher evidence is attributed consistently, and clean/failed/unassessed
+  coverage is represented separately from affected hosts.
+- Bulk Linux/Windows output uses collision-safe endpoint directories and
+  manifests, with bounded concurrency and conservative legacy resume migration.
+- Merged results require schema v2 sources, report partial evidence-copy failure
+  via exit 3 and `complete=false`, and disclose mixed redaction state.
+- Recce export auto-discovers all supported scan formats, refuses protocol-less
+  endpoint guesses, and marks only exact, queue-authorized successfully assessed
+  endpoints complete; unselected endpoints cannot inherit service-wide evidence.
+- Dependency and output-directory failures are fatal; the local and CI test
+  inventories now run the same unit, pytest, smoke, lint, and data-audit gates.
+
+- Preserved discovered endpoint ports throughout Windows SSH, SSH evidence,
+  LDAP, IMAP, POP3, SMTP, and FTP enumeration, including implicit TLS on
+  IMAPS/POP3S/SMTPS/FTPS and exact POP3 authentication-response parsing.
+- Restricted X11 routing to compatible service identity and added a conservative
+  Low-severity Bambu Lab multi-signal correlation. It requires explicit vendor
+  identity plus compatible protocol or identity evidence on another distinct
+  endpoint; multiple matches from one record and unidentified ports cannot
+  self-confirm. The Bambu dispatcher records parser evidence only and performs
+  no live device probe.
+- Corrected writable APT hit accounting, Windows unquoted-service executable and
+  loader-candidate parsing, regex credential matching, SYSVOL path construction,
+  and ADCS ESC1/ESC2 low-privilege effective-enrollment predicates.
+- Enforced the OT concurrency ceiling and one global 500 ms start-rate gate
+  across all seven read-side protocol dispatchers. The gate state persists
+  between serial protocol groups instead of resetting in each dispatcher. When
+  `flock` is unavailable, scheduling degrades explicitly to one worker so
+  parallel fallback workers cannot sleep together and start as a burst.
+- OpenSSH command builders now pass bare IPv6 hosts; brackets remain limited to
+  URL and target-file syntaxes that require them.
+- SMTP specialists now associate multiline replies with the exact EHLO/MAIL/RCPT/DATA stage, distinguish normal inbound delivery and accepted null recipients from unauthenticated external relay, require an actual external destination for an open-relay verdict, require final DATA acceptance for send success, handle SPF hardfail/no-DMARC records, and make failed DNS resolution indeterminate/nonzero rather than "wide open."
+- Redis specialists prove module-load policy/ACL capability (including TCP denial for `enable-module-command local`), support named ACL users, prohibit exploit-runtime provenance fetches, preserve empty replication credentials, require successful command status plus an exact trimmed `OK` for module and SSH-key staging/cleanup, verify staged key length and configuration readback, propagate command/restoration failures, and snapshot/verify exact persistence, replication-upstream, and replication-auth restoration. Any unproved cleanup state returns status 77 even when the main operation already failed.
+- ActiveMQ specialists require observed affected-version evidence for CVE-2023-46604 candidates, bind proof listeners before payload delivery, and structurally discover multiple broker/queue object names with safe Jolokia encoding.
+- GraphQL raw and batched output preserve transport, HTTP, malformed-body, and per-member GraphQL failure status; loop classification preserves false/zero/empty/null field presence; CSRF requires a proved non-null cookie-authenticated mutation result without PAT/bearer/job/custom CSRF-token defenses, recognizes auth header names case-insensitively, and returns nonzero for uncertain read-only or mutation outcomes; alias timing uses the selected resolver with repeated randomized samples; documented catalog commands match the parser.
+- Jabber generic SASL rejection is neutral unless repeated randomized controls establish a timing differential. Openfire now preflights plugin/log/proof inputs and atomic log writability before confirmation, records each mutation atomically, requires a verified deployed endpoint, and requires authenticated plugin-inventory proof for verified cleanup.
+
+### Changed
+
+- `ssh-key-triage` now excludes invalid and encrypted/unlocked inventory-only keys
+  before applying `--max-per-user`, spaces starts globally under `--throttle`,
+  and emits versioned `authorized-pairs.jsonl`. `bulk-enum-linux.sh` consumes that
+  manifest directly, including per-row key, user, host, and port. Authorized-pair
+  artifacts, resume markers, and summary rows use a collision-resistant identity
+  over that complete tuple. Metadata is atomically JSON-encoded, and `report.py`
+  resolves opaque pair artifact directories back to the canonical endpoint and
+  authentication identity while surfacing malformed metadata as a partial error.
+- SSH authenticated evidence filenames encode the exact username bytes, avoiding
+  normalization collisions such as `CORP\alice` versus `CORP_alice`.
+- Windows guidance now claims local ADSI coverage only for implemented ADCS ESC1,
+  ESC2, and ESC4 checks; Certipy remains the documented broader follow-up.
+- Root credential-sweeper documentation now states its shipped HTTP(S) administrative-portal scope and points native authentication to the protocol dispatchers.
+
+### Added
+
+- Deterministic specialist semantic fixtures for SMTP, Redis, ActiveMQ, GraphQL, Jabber, and Openfire lifecycle paths.
+- Manifest-driven offline data provenance/freshness auditing with typed derivations validated against JSON structure, checksummed source-manifest inputs, and all discovered embedded CVE/version rule families.
+
+### Tests
+
+- Added R1 regression coverage for scheduler resume/failure semantics, parser
+  and planner endpoint identity, report coverage/deduplication, merge integrity,
+  Recce completion state, bulk endpoint collisions, and quality-gate parity.
+- Added offline R2 regression coverage for endpoint ports, implicit TLS stdin
+  paths, POP3 false positives, APT predicates, PowerShell service/SYSVOL/ADCS
+  logic, Bambu/X11 routing, JSONL auth handoff, global SSH rate limiting, bare
+  IPv6 OpenSSH destinations, and bounded OT scheduling.
 
 ## [v0.33.0] — 2026-07-28
 

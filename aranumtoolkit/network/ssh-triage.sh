@@ -310,7 +310,6 @@ auth_probe_os() {
     local host="$1" port="$2"
     local user="${TRIAGE_USER:-${USER:-root}}"
     local dest_host="$host"
-    [[ "$host" == *:* ]] && dest_host="[$host]"
 
     if [ -n "${TRIAGE_PASS:-}" ] && ! have sshpass; then
         if [ "$_SSHPASS_WARNED" = 0 ]; then
@@ -470,7 +469,11 @@ main() {
         if [ "$source" = "targets" ]; then
             spec="$raw"
         else
-            spec="$host"; [ "$port" != "22" ] && spec="$spec:$port"
+            if [[ "$host" == *:* ]]; then
+                spec="[$host]"; [ "$port" != "22" ] && spec="$spec:$port"
+            else
+                spec="$host"; [ "$port" != "22" ] && spec="$spec:$port"
+            fi
         fi
 
         case "$os" in

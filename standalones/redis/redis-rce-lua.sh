@@ -22,15 +22,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TARGET=""
 PASS=""
+USERNAME=""
 OUT="./redis-lua"
 VERIFY=0
 
 usage() {
     cat <<EOF
-Usage: $0 --target host[:port] [--pass P] [-o OUTDIR] [--verify]
+Usage: $0 --target host[:port] [--user ACL_USER --pass P] [-o OUTDIR] [--verify]
 
   --target host[:port]   Redis target (port defaults to 6379)
   --pass P               AUTH password if the instance requires it
+  --user ACL_USER        Redis 6+ named ACL user
   -o, --output OUTDIR    output dir (default ./redis-lua)
   --verify               run a BENIGN EVAL marker to confirm scripting is reachable
                          (no exploitation — just proves the interpreter answers)
@@ -38,10 +40,12 @@ Usage: $0 --target host[:port] [--pass P] [-o OUTDIR] [--verify]
 EOF
 }
 
+# shellcheck disable=SC2034  # PASS/USERNAME are consumed by the sourced Redis helpers
 while [ $# -gt 0 ]; do
     case "$1" in
         --target)     TARGET="$2"; shift 2 ;;
         --pass|-p)    PASS="$2"; shift 2 ;;
+        --user|--username) USERNAME="$2"; shift 2 ;;
         --output|-o)  OUT="$2"; shift 2 ;;
         --verify)     VERIFY=1; shift ;;
         -h|--help)    usage; exit 0 ;;
@@ -70,12 +74,10 @@ report="$OUT/${HOST}_${PORT}.txt"
 
 # --- version gate for the Lua bit-lib overflow (CVE-2024-31449, fixed 7.4.1) ---
 ver="${REDIS_VERSION:-}"
-lua_cve="unknown"
 if [ -n "$ver" ]; then
     # vulnerable if version < 7.4.1 (coarse: covers 6.x/7.0-7.4.0 maintenance lines)
     lowest=$(printf '%s\n%s\n' "$ver" "7.4.1" | sort -V | head -1)
     if [ "$ver" != "7.4.1" ] && [ "$lowest" = "$ver" ]; then
-        lua_cve="candidate"
         crit "CVE-2024-31449 (Lua bit-lib EVAL stack overflow) candidate — Redis $ver < 7.4.1"
         echo "LUA_RCE: CVE-2024-31449 candidate (Redis $ver < 7.4.1) — authenticated EVAL" >> "$report"
     else

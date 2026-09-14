@@ -15,6 +15,7 @@ Run: cd <repo> && python3 -m pytest tests/test_bulk_enum_linux_auth.py -x -q
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -23,12 +24,14 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "aranumtoolkit" / "network" / "bulk-enum-linux.sh"
+REPORT = REPO / "aranumtoolkit" / "network" / "report.py"
 
 # Shim template: record argv (one per line), drain stdin, emit optional stderr,
 # exit configurable rc. The argv-output path is baked in per shim instance.
 SHIM = """#!/usr/bin/env bash
 printf '%s\\n' "$@" >> {argv_file!r}
 cat >/dev/null 2>&1 || true
+if [ -n "${{SHIM_STDOUT:-}}" ]; then printf '%s\\n' "$SHIM_STDOUT"; fi
 if [ -n "${{SHIM_STDERR:-}}" ]; then printf '%s\\n' "$SHIM_STDERR" >&2; fi
 # Optional sleep so the --host-timeout wrapper (coreutils `timeout`) can fire.
 [ "${{SHIM_SLEEP:-0}}" != "0" ] && sleep "$SHIM_SLEEP"
@@ -202,6 +205,123 @@ def test_preflight_auth_fail_continues(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert "auth failed against first host" in proc.stdout, proc.stdout
     assert (outdir / "_summary.tsv").exists()
+
+
+def test_authorized_pairs_jsonl_is_directly_consumed_with_bare_ipv6(tmp_path):
+    bindir = tmp_path / "bin"; bindir.mkdir()
+    ssh_argv = tmp_path / "ssh.argv"
+    _make_shim(bindir, "ssh", ssh_argv)
+    keyfile = tmp_path / "key with space"
+    keyfile.write_text("fake private key\n"); keyfile.chmod(0o600)
+    manifest = tmp_path / "authorized-pairs.jsonl"
+    manifest.write_text(json.dumps({
+        "schema": "aranum.authorized-ssh-pair/v1",
+        "key": str(keyfile), "user": "alice", "host": "2001:db8::5", "port": 2222,
+    }) + "\n")
+    outdir = tmp_path / "out"
+    env = dict(os.environ)
+    env["PATH"] = str(bindir) + os.pathsep + env["PATH"]
+    env["SHIM_RC"] = "0"; env["SHIM_STDERR"] = ""; env["SHIM_SLEEP"] = "0"
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "--authorized-pairs", str(manifest), "-o", str(outdir),
+         "--no-preflight", "--host-timeout", "0"],
+        capture_output=True, text=True, timeout=30, env=env,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    argv = ssh_argv.read_text().splitlines()
+    assert str(keyfile) in argv
+    assert "alice@2001:db8::5" in argv
+    assert "alice@[2001:db8::5]" not in argv
+    assert "2222" in argv
+
+
+def test_authorized_pairs_artifacts_resume_and_summary_are_identity_safe(tmp_path):
+    bindir = tmp_path / "bin"; bindir.mkdir()
+    ssh_argv = tmp_path / "ssh.argv"
+    _make_shim(bindir, "ssh", ssh_argv)
+    keys = []
+    for name in ('key-"a"\\copy', "key-b"):
+        key = tmp_path / name
+        key.write_text("fake private key\n"); key.chmod(0o600)
+        keys.append(key)
+    records = [
+        {"key": str(keys[0]), "user": "alice", "host": "2001:db8::5", "port": 22},
+        {"key": str(keys[0]), "user": "alice", "host": "2001:db8::5", "port": 2222},
+        {"key": str(keys[1]), "user": "alice", "host": "2001:db8::5", "port": 22},
+        {"key": str(keys[0]), "user": "CORP\\alice", "host": "2001:db8::5", "port": 22},
+        # An exact repeated authorization must not race the same artifact or run twice.
+        {"key": str(keys[0]), "user": "alice", "host": "2001:db8::5", "port": 22},
+    ]
+    manifest = tmp_path / "authorized-pairs.jsonl"
+    manifest.write_text("".join(json.dumps({
+        "schema": "aranum.authorized-ssh-pair/v1", **record,
+    }) + "\n" for record in records))
+    outdir = tmp_path / "out"
+    env = dict(os.environ)
+    env.update({
+        "PATH": str(bindir) + os.pathsep + env["PATH"],
+        "SHIM_RC": "0", "SHIM_STDERR": "", "SHIM_SLEEP": "0", "NO_COLOR": "1",
+        "SHIM_STDOUT": "tuser ALL=(ALL) NOPASSWD: ALL",
+    })
+    base_cmd = [
+        "bash", str(SCRIPT), "--authorized-pairs", str(manifest), "-o", str(outdir),
+        "--no-preflight", "--host-timeout", "0", "-P", "1",
+    ]
+    proc = subprocess.run(base_cmd, capture_output=True, text=True, timeout=30, env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    meta_files = sorted(outdir.glob("pair-*/_meta.json"))
+    assert len(meta_files) == 4
+    metas = [json.loads(path.read_text()) for path in meta_files]
+    expected = {(r["user"], r["host"], r["port"], r["key"]) for r in records}
+    assert len(expected) == 4
+    observed = {(m["user"], m["host"], m["port"], m["key_used"]) for m in metas}
+    assert observed == expected
+    assert len({m["artifact_id"] for m in metas}) == 4
+    assert all(path.parent.name == meta["artifact_id"] for path, meta in zip(meta_files, metas))
+
+    summary_rows = [line.split("\t") for line in (outdir / "_summary.tsv").read_text().splitlines()
+                    if line and not line.startswith("#")]
+    assert len(summary_rows) == 4
+    assert {(row[6], row[0], int(row[7]), row[8]) for row in summary_rows} == {
+        (m["user"], m["host"], m["port"], m["artifact_id"]) for m in metas
+    }
+    assert {row[9] for row in summary_rows} == {str(key) for key in keys}
+    assert "CORP\\alice" in {row[6] for row in summary_rows}
+
+    report = subprocess.run(
+        [sys.executable, str(REPORT), str(outdir), "--findings-only"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert report.returncode == 0, report.stdout + report.stderr
+    payload = json.loads((outdir / "findings.json").read_text())
+    findings = payload["findings"]
+    assert findings
+    assert {finding["host"] for finding in findings} == {"2001:db8::5"}
+    assert {finding["port"] for finding in findings} == {"22", "2222"}
+    assert "CORP\\alice" in {finding["user"] for finding in findings}
+    assert {finding["key"] for finding in findings} == {str(key) for key in keys}
+    assert all(finding["artifact_id"].startswith("pair-") for finding in findings)
+    assert not any(finding["host"].startswith("pair-") for finding in findings)
+    assert payload.get("partial") is not True
+    before_resume = ssh_argv.read_text().count("bash -s -- -v")
+    assert before_resume == 4
+    resumed = subprocess.run(base_cmd + ["--resume"], capture_output=True, text=True,
+                             timeout=30, env=env)
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+    assert ssh_argv.read_text().count("bash -s -- -v") == before_resume
+
+
+def test_authorized_pairs_rejects_wrong_schema_before_ssh(tmp_path):
+    manifest = tmp_path / "bad.jsonl"
+    manifest.write_text('{"schema":"wrong","key":"x","user":"u","host":"h","port":22}\n')
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "--authorized-pairs", str(manifest),
+         "-o", str(tmp_path / "out"), "--no-preflight"],
+        capture_output=True, text=True, timeout=20,
+    )
+    assert proc.returncode == 2
+    assert "schema" in (proc.stdout + proc.stderr)
 
 
 if __name__ == "__main__":

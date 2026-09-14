@@ -91,6 +91,21 @@ The operator can override (`--ssh-opt 'UserKnownHostsFile=~/.ssh/known_hosts'`) 
 
 If scale ever crosses 5000 the design has to change (batch + persistent queue + async-io). This ADR explicitly scopes 50–500 and flags the 5000+ revisit.
 
+### R1 amendment — endpoint identity and resume state (2026-09-14)
+
+Bulk output identity is the full endpoint, not the hostname alone. Linux and
+Windows orchestrators now write collision-safe endpoint directories plus a
+top-level endpoint manifest. The identity includes the connection principal,
+host, port, and platform/transport discriminator, so repeated hosts on different
+ports or with different users cannot overwrite each other.
+
+For backward compatibility, an unambiguous hostname-only legacy directory may
+be migrated during `--resume`. If multiple requested endpoints share that host,
+the tool refuses legacy migration instead of guessing which endpoint owns the
+marker. A fresh non-resume attempt invalidates any old completion marker before
+transport starts and recreates it atomically only after success. Parallelism is
+validated in the bounded range 1–16 before work begins.
+
 ## Out of scope for J (explicitly)
 
 - **No agent / no persistence.** Per CLAUDE.md §9 invariant 4. Bulk-enum is a one-shot per host; nothing lives on the victim afterwards.

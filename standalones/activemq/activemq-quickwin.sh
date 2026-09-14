@@ -53,7 +53,17 @@ scan_one() {
         sig=$(printf '' | timeout 5 nc -nv "$HOST" "$PORT" 2>&1 | head -c 256)
         echo "$sig" > "$d/openwire_banner.txt"
         if echo "$sig" | grep -qi 'ActiveMQ\|MagicID'; then
-            tier="CRITICAL"; reason="OpenWire signature; if version <5.18.3/5.17.6/5.16.7/5.15.16 -> CVE-2023-46604 unauth RCE"
+            local ow_version ow_class
+            ow_version=$(printf '%s' "$sig" | extract_openwire_version)
+            ow_class=$(classify_version "$ow_version")
+            case "$ow_class" in
+                VULN_46604)
+                    tier="CRITICAL"; reason="OpenWire signature + affected ActiveMQ version $ow_version — CVE-2023-46604 candidate" ;;
+                PATCHED)
+                    tier="LOW"; reason="OpenWire signature; observed ActiveMQ version $ow_version is outside maintained vulnerable ranges" ;;
+                *)
+                    tier="MEDIUM"; reason="OpenWire signature confirmed; version unknown/unvalidated, so CVE-2023-46604 status is indeterminate" ;;
+            esac
             echo "$HOST:$PORT" >> "$OUT/_openwire_targets.txt"
         else
             # Still classify potential ActiveMQ if any byte returned
@@ -120,7 +130,7 @@ scan_one() {
     echo "$tier|$HOST:$PORT|$reason" >> "$OUT/_tiers.tsv"
 }
 
-export -f scan_one parse_target broker_version curl_auth jolokia_url have log hit miss err crit
+export -f scan_one parse_target broker_version classify_version extract_openwire_version curl_auth jolokia_url have log hit miss err crit
 export OUT CRED_LIST _R _G _Y _C _RST
 
 if [ -n "$TARGET" ]; then

@@ -361,6 +361,10 @@ phase_smb() {
             "$OUTDIR"/smb/nxc_*.txt 2>/dev/null || true
         grep -hEio 'user:\[[^]]+\]|user rid:\[[^]]+\]' "$OUTDIR"/smb/*.txt 2>/dev/null || true
         grep -hEio 'user:[[:space:]]*[A-Za-z0-9._$-]+' "$OUTDIR"/../smb/*.txt 2>/dev/null || true
+        if [ -n "$ENUM_OUT" ] && [ -d "$ENUM_OUT/smb" ]; then
+            grep -hEio '[A-Za-z0-9._-]+\$?\)?[[:space:]]+\(SidTypeUser\)|user:[[:space:]]*[A-Za-z0-9._$-]+|user:\[[^]]+\]|user rid:\[[^]]+\]' \
+                "$ENUM_OUT"/smb/*.txt 2>/dev/null || true
+        fi
     } | sed -E 's/.*[Uu]ser:?[[:space:]\[]*//;s/[])]*$//;s/.*\\//;s/\$//' \
         | grep -E '^[A-Za-z0-9._-]{2,64}$' | sort -u > "$OUTDIR/smb/users.txt"
 

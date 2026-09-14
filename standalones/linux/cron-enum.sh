@@ -48,7 +48,8 @@ echo "=== at jobs + cron/at access control ==="
 for f in /etc/cron.allow /etc/cron.deny /etc/at.allow /etc/at.deny; do
     [ -e "$f" ] && { echo "  $f:"; sed 's/^/    /' "$f" 2>/dev/null; }
 done
-ls -la /var/spool/cron/atjobs /var/spool/at 2>/dev/null | grep -vE '^total|^d' | head -20
+find /var/spool/cron/atjobs /var/spool/at -mindepth 1 -maxdepth 1 ! -type d \
+    -exec ls -ld -- {} + 2>/dev/null | head -20
 command -v atq >/dev/null 2>&1 && { echo "  atq:"; atq 2>/dev/null | sed 's/^/    /'; }
 
 echo
