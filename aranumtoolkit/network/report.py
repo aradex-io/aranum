@@ -439,6 +439,7 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     # at T4 — write-side is hard-prohibited (ADR-005 D2).
     (re.compile(r"\bOPC-UA endpoint advertises 'None' security policy:", re.I), "low"),
     (re.compile(r"\bOT-ID (Modbus|S7|EtherNet/IP|BACnet|OPC-UA|DNP3|IEC-104)\b", re.I), "low"),
+    (re.compile(r"\bBAMBU_LAB_CORRELATED:", re.I),                   "low"),
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
 
@@ -961,7 +962,8 @@ def _endpoint_in_text(line: str, endpoints: list[dict], service: str) -> dict | 
 
 def _refresh_finding_identity(finding: dict) -> None:
     seed = "|".join(str(finding.get(k, "")) for k in
-                    ("service", "host", "port", "protocol", "severity", "evidence_identity"))
+                    ("service", "host", "port", "protocol", "severity",
+                     "evidence_identity", "user", "key", "artifact_id"))
     finding["finding_id"] = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(seed.encode()).hexdigest()[:14]}"
 
 
@@ -994,7 +996,8 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
             finding["evidence_identity"] = identity
         _refresh_finding_identity(finding)
         key = tuple(str(finding.get(k, "")) for k in
-                    ("host", "port", "protocol", "service", "severity", "evidence_identity"))
+                    ("host", "port", "protocol", "service", "severity",
+                     "evidence_identity", "user", "key", "artifact_id"))
         path = str(finding.get("evidence_path", ""))
         finding["evidence_paths"] = [p for p in finding.get("evidence_paths", [path]) if p]
         prior = deduped.get(key)
@@ -1213,7 +1216,81 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
 
 
 # ---------------------------------------------------- bulk-enum walker
-def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None = None) -> Iterable[dict]:
+def _bulk_identity(host_dir: Path) -> tuple[dict, dict[str, str]]:
+    """Load one bulk artifact's canonical endpoint identity.
+
+    Authorized-pair directory names are opaque collision-resistant storage
+    keys. They must never become reported hosts; their user/host/port/key
+    identity comes only from validated metadata.
+    """
+    meta_path = host_dir / "_meta.json"
+    try:
+        obj = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot parse canonical metadata: {exc}") from exc
+    if not isinstance(obj, dict):
+        raise ValueError("canonical metadata root must be a JSON object")
+
+    is_pair = host_dir.name.startswith("pair-")
+    raw_host = obj.get("host")
+    host = raw_host if isinstance(raw_host, str) and raw_host else host_dir.name
+    raw_user = obj.get("user", "")
+    user = raw_user if isinstance(raw_user, str) else ""
+    raw_key = obj.get("key", obj.get("key_used", ""))
+    key = raw_key if isinstance(raw_key, str) else ""
+    raw_port = obj.get("port", obj.get("ssh_port", ""))
+    artifact_id = obj.get("artifact_id", host_dir.name)
+    raw_protocol = obj.get("protocol", "tcp")
+
+    if any(ord(ch) < 32 for value in (host, user, key) for ch in value):
+        raise ValueError("canonical host/user/key contains a control character")
+    if raw_port == "":
+        port = ""
+    elif isinstance(raw_port, int) and not isinstance(raw_port, bool) and 1 <= raw_port <= 65535:
+        port = str(raw_port)
+    else:
+        raise ValueError("canonical port must be an integer in 1..65535")
+    if not isinstance(artifact_id, str) or not artifact_id:
+        raise ValueError("canonical artifact_id must be a nonempty string")
+    if not isinstance(raw_protocol, str) or raw_protocol.lower() not in {"tcp", "udp"}:
+        raise ValueError("canonical protocol must be tcp or udp")
+    protocol = raw_protocol.lower()
+
+    if is_pair:
+        if not all((host, user, key, port)):
+            raise ValueError("authorized-pair metadata requires user, host, port, and key")
+        identity_bytes = json.dumps(
+            [key, user, host, int(port)], ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        expected_id = "pair-" + hashlib.sha256(identity_bytes).hexdigest()
+        if artifact_id != expected_id or host_dir.name != expected_id:
+            raise ValueError("authorized-pair artifact_id does not match canonical identity")
+
+    return obj, {
+        "host": host,
+        "port": port,
+        "user": user,
+        "key": key,
+        "artifact_id": artifact_id,
+        "protocol": protocol,
+    }
+
+
+def _with_bulk_identity(finding: dict, identity: dict[str, str]) -> dict:
+    finding.update({
+        "user": identity["user"],
+        "key": identity["key"],
+        "artifact_id": identity["artifact_id"],
+    })
+    return finding
+
+
+def walk_findings_bulk(
+    out_dir: Path,
+    extra_rules,
+    service_metadata: dict | None = None,
+    diagnostics: list[dict] | None = None,
+) -> Iterable[dict]:
     """Walk a bulk-enum output tree. Each top-level subdir is one host. The
     host's output file selects the rule set + service label:
         linenum.txt  -> _BULK_RULES     + service='linenum'  (Linux, J)
@@ -1233,28 +1310,50 @@ def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None
         meta = host_dir / "_meta.json"
         if not meta.is_file():
             continue
+        metadata_error = ""
+        try:
+            _meta_obj, identity = _bulk_identity(host_dir)
+        except ValueError as exc:
+            metadata_error = str(exc)
+            _meta_obj = {}
+            identity = {
+                "host": "(metadata-error)",
+                "port": "",
+                "user": "",
+                "key": "",
+                "artifact_id": host_dir.name,
+                "protocol": "tcp",
+            }
+            diagnostic = {
+                "type": "invalid_bulk_metadata",
+                "artifact_id": host_dir.name,
+                "path": str(meta.relative_to(out_dir)),
+                "error": metadata_error,
+            }
+            if diagnostics is not None:
+                diagnostics.append(diagnostic)
+            _svc = "linenum" if (host_dir / "linenum.txt").is_file() else "winenum"
+            yield _with_bulk_identity(_structured_finding(
+                identity["host"], identity["port"], _svc, "medium",
+                f"[bulk-enum] PARTIAL: invalid canonical metadata ({metadata_error})",
+                str(meta.relative_to(out_dir)), service_metadata,
+                identity["protocol"]), identity)
         # ADR-006 D1a-2 integration: a host that AUTH_FAIL'd / was UNREACHABLE /
         # timed out did NOT produce clean enumeration. Without surfacing the
         # per-host status, an empty linenum.txt reads as "no findings = clean",
         # hiding a whole failed sweep. Emit a synthetic finding so the operator
         # sees the host was not (fully) enumerated.
-        try:
-            _meta_obj = json.loads(meta.read_text())
-        except Exception:
-            _meta_obj = {}
-        _host = str(_meta_obj.get("host") or host_dir.name)
-        _port = str(_meta_obj.get("port") or _meta_obj.get("ssh_port") or "")
-        _protocol = str(_meta_obj.get("protocol") or "tcp")
         _status = str(_meta_obj.get("status", "")).upper()
         if _status and _status != "OK":
             _reason = str(_meta_obj.get("fail_reason", "") or _status)
             _svc = "linenum" if (host_dir / "linenum.txt").is_file() else "winenum"
             _sev = "medium" if _status in (
                 "AUTH_FAIL", "UNREACHABLE", "TIMEOUT", "HOST_TIMEOUT") else "low"
-            yield _structured_finding(
-                _host, _port, _svc, _sev,
+            yield _with_bulk_identity(_structured_finding(
+                identity["host"], identity["port"], _svc, _sev,
                 f"[bulk-enum] host NOT fully enumerated — status={_status} ({_reason})",
-                str(meta.relative_to(out_dir)), service_metadata, _protocol)
+                str(meta.relative_to(out_dir)), service_metadata,
+                identity["protocol"]), identity)
         for fname, rules, svc in (
             ("linenum.txt", linux_rules, "linenum"),
             ("winenum.txt", win_rules,   "winenum"),
@@ -1266,21 +1365,20 @@ def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None
                 text = evidence.read_text(errors="replace")
             except Exception:
                 continue
-            host = _host
             for line in text.splitlines():
                 sev = _classify(line, rules)
                 if sev is None:
                     continue
-                yield _structured_finding(
-                    host,
-                    _port,
+                yield _with_bulk_identity(_structured_finding(
+                    identity["host"],
+                    identity["port"],
                     svc,
                     sev,
                     line,
                     str(evidence.relative_to(out_dir)),
                     service_metadata,
-                    _protocol,
-                )
+                    identity["protocol"],
+                ), identity)
 
 
 # ---------------------------------------------------- renderers
@@ -1572,9 +1670,11 @@ def main() -> int:
 
     # Auto-detect bulk-enum vs auto-enum layout
     bulk_mode = _is_bulk_enum_dir(out_dir)
+    report_diagnostics: list[dict] = []
     if bulk_mode:
         print(_c(f"[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
-        findings = finalize_findings(out_dir, walk_findings_bulk(out_dir, rules, service_metadata))
+        findings = finalize_findings(out_dir, walk_findings_bulk(
+            out_dir, rules, service_metadata, report_diagnostics))
         per_host = _per_host_verdicts(findings)
     else:
         findings = finalize_findings(out_dir, walk_findings(out_dir, rules, service_metadata))
@@ -1592,6 +1692,17 @@ def main() -> int:
         "summary":       summary,
         "findings":      findings,
     }
+    if report_diagnostics:
+        findings_json["partial"] = True
+        findings_json["errors"] = report_diagnostics
+        for diagnostic in report_diagnostics:
+            print(
+                _c(
+                    f"[!] partial report: {diagnostic['path']}: {diagnostic['error']}",
+                    "R",
+                ),
+                file=sys.stderr,
+            )
     if per_host:
         # Sort by verdict (worst first), then host name
         findings_json["per_host"] = {
@@ -1621,8 +1732,9 @@ def main() -> int:
             json.dumps(_to_sarif(findings_json["findings"], label), indent=2))
         print(_c("[+] findings.sarif written (SARIF 2.1.0)", "G"))
 
+    result_rc = 1 if report_diagnostics else 0
     if args.findings_only:
-        return 0
+        return result_rc
 
     md = render_markdown(findings, summary, label, redactor, per_host)
     (out_dir / "report.md").write_text(md)
@@ -1632,7 +1744,7 @@ def main() -> int:
         (out_dir / "report.html").write_text(render_html(md))
         print(_c(f"[+] report.html written", "G"))
 
-    return 0
+    return result_rc
 
 
 if __name__ == "__main__":

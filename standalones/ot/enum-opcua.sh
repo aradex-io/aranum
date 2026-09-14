@@ -22,8 +22,9 @@ if ! have nmap; then
     exit 0
 fi
 
-while read -r target; do
-    [ -z "$target" ] && continue
+probe_opcua_target() {
+    local target="$1"
+    [ -z "$target" ] && return 0
     read -r ip port <<< "$(split_ipport "$target")"
     mkdir -p "$OUT/$ip"
     out_file="$OUT/$ip/opcua_${port}.txt"
@@ -61,8 +62,8 @@ while read -r target; do
         fi
     fi
 
-    ot_throttle_sleep
-done < "$TARGETS"
+}
+ot_run_targets "$TARGETS" probe_opcua_target || exit $?
 
 cat > "$OUT/_hints.txt" <<'EOF'
 OPC-UA OT follow-ups (READ-SIDE ONLY):

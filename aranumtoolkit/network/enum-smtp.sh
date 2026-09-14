@@ -7,6 +7,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 parse_common_args "$@" || exit 1
 log "smtp: $(wc -l < "$TARGETS") targets -> $OUT"
 
+smtp_exchange() {
+    local ip="$1" port="$2" connect="$1:$2"
+    [[ "$ip" == *:* ]] && connect="[$ip]:$port"
+    if [ "$port" = "465" ]; then
+        have openssl || { echo "openssl unavailable for implicit SMTPS" >&2; return 127; }
+        timeout 8 openssl s_client -quiet -connect "$connect" -servername "$ip"
+    else
+        have nc || { echo "nc unavailable for SMTP" >&2; return 127; }
+        timeout 8 nc -nv "$ip" "$port"
+    fi
+}
+
 probe_one() {
     local target="$1"
     read -r ip port <<< "$(split_ipport "$target")"
@@ -16,22 +28,22 @@ probe_one() {
 
     # 1. Banner
     {
-        echo "QUIT" | timeout 5 nc -nv "$ip" "$port" 2>&1 | head -5
+        echo "QUIT" | smtp_exchange "$ip" "$port" 2>&1 | head -5
     } > "$d/banner.txt"
 
     # 2. EHLO capabilities
     {
-        printf 'EHLO recon.local\r\nQUIT\r\n' | timeout 5 nc -nv "$ip" "$port" 2>&1
+        printf 'EHLO recon.local\r\nQUIT\r\n' | smtp_exchange "$ip" "$port" 2>&1
     } > "$d/ehlo.txt"
 
     # 3. VRFY/EXPN test (try a known nonexistent and a known-likely user)
     {
         echo "--- VRFY root ---"
-        printf 'EHLO recon.local\r\nVRFY root\r\nVRFY nonexistent_xyzzy_user\r\nEXPN root\r\nQUIT\r\n' | timeout 5 nc -nv "$ip" "$port" 2>&1
+        printf 'EHLO recon.local\r\nVRFY root\r\nVRFY nonexistent_xyzzy_user\r\nEXPN root\r\nQUIT\r\n' | smtp_exchange "$ip" "$port" 2>&1
     } > "$d/vrfy_expn.txt"
 
     # 4. STARTTLS probe — does the server offer encryption, and what cert?
-    if grep -qi starttls "$d/ehlo.txt"; then
+    if [ "$port" != "465" ] && grep -qi starttls "$d/ehlo.txt"; then
         echo | timeout 10 openssl s_client -connect "$ip:$port" -starttls smtp -servername "$ip" \
             > "$d/starttls.txt" 2>&1
     fi
@@ -50,7 +62,7 @@ probe_one() {
         "source-route|MAIL FROM:<probe@external.example>|RCPT TO:<@${ip}:target@external.example>"; do
         vid=${variant%%|*}; rest=${variant#*|}; mfrom=${rest%%|*}; rcpt=${rest#*|}
         resp=$(printf 'EHLO recon.local\r\n%s\r\n%s\r\nQUIT\r\n' "$mfrom" "$rcpt" \
-                 | timeout 5 nc -nv "$ip" "$port" 2>&1)
+                 | smtp_exchange "$ip" "$port" 2>&1)
         printf -- '--- variant: %s ---\n%s\n\n' "$vid" "$resp" >> "$d/relay_probe.txt"
         code=$(printf '%s\n' "$resp" | grep -E '^[2-5][0-9][0-9] ' | grep -vE '^221 ' | tail -1 | grep -oE '^[2-5][0-9][0-9]')
         case "$code" in 250|251) relay_hit="$relay_hit $vid" ;; esac
@@ -74,7 +86,7 @@ probe_one() {
     log "$ip:$port  banner: ${BANNER:0:80}"
 }
 
-export -f probe_one split_ipport hit log
+export -f probe_one smtp_exchange split_ipport hit log have
 export OUT
 
 while read -r t; do

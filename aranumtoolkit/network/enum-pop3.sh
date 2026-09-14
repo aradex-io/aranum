@@ -11,10 +11,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 parse_common_args "$@" || exit 1
 log "pop3: $(wc -l < "$TARGETS") targets -> $OUT"
 
-if ! have nc; then
-    miss "nc not installed — pop3 dispatcher cannot probe"
-    exit 0
-fi
+pop3_exchange() {
+    local ip="$1" port="$2" connect="$1:$2"
+    [[ "$ip" == *:* ]] && connect="[$ip]:$port"
+    if [ "$port" = "995" ]; then
+        have openssl || return 127
+        timeout 8 openssl s_client -quiet -connect "$connect" -servername "$ip"
+    else
+        have nc || return 127
+        timeout 8 nc -nv -w 5 "$ip" "$port"
+    fi
+}
 
 while read -r target; do
     [ -z "$target" ] && continue
@@ -26,8 +33,7 @@ while read -r target; do
         # POP3S — TLS probe
         if have openssl; then
             printf 'CAPA\r\nQUIT\r\n' | \
-                timeout 8 openssl s_client -quiet -connect "$ip:$port" \
-                    -servername "$ip" < /dev/null \
+                pop3_exchange "$ip" "$port" \
                     > "$OUT/$ip/banner_${port}.txt" 2>&1 || true
         else
             miss "openssl not installed — skipping TLS banner for $ip:$port"
@@ -35,7 +41,7 @@ while read -r target; do
     else
         # Plain POP3
         printf 'CAPA\r\nQUIT\r\n' | \
-            timeout 5 nc -nv -w 3 "$ip" "$port" \
+            pop3_exchange "$ip" "$port" \
             > "$OUT/$ip/banner_${port}.txt" 2>&1 || true
     fi
 
@@ -63,17 +69,18 @@ while read -r target; do
     fi
 
     # ---------- optional cred check ----------
-    if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_PASS:-}" ] && [ "$port" != "995" ]; then
+    if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_PASS:-}" ]; then
         printf 'USER %s\r\nPASS %s\r\nSTAT\r\nQUIT\r\n' \
             "$ENUM_USER" "$ENUM_PASS" | \
-            timeout 8 nc -nv -w 5 "$ip" "$port" \
+            pop3_exchange "$ip" "$port" \
             > "$OUT/$ip/authtry_${port}.txt" 2>&1 || true
-        if grep -q '+OK' "$OUT/$ip/authtry_${port}.txt" 2>/dev/null; then
-            # Must see +OK after PASS (second +OK line)
-            ok_count=$(grep -c '+OK' "$OUT/$ip/authtry_${port}.txt" 2>/dev/null || echo 0)
-            if [ "$ok_count" -ge 2 ]; then
-                hit "POP3 AUTH SUCCESS: $ip:$port"
-            fi
+        # With USER/PASS/STAT/QUIT there is one greeting followed by one reply
+        # per command. The third status line is therefore the PASS result; an
+        # accepted USER or QUIT can never substitute for it.
+        pass_reply=$(grep -E '^\+OK([[:space:]]|$)|^-ERR([[:space:]]|$)' \
+            "$OUT/$ip/authtry_${port}.txt" 2>/dev/null | sed -n '3p')
+        if [[ "$pass_reply" == +OK* ]]; then
+            hit "POP3 AUTH SUCCESS: $ip:$port"
         fi
     fi
 

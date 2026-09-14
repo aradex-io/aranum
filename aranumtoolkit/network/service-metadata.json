@@ -127,6 +127,18 @@
         {"id": "2", "name": "enumeration", "description": "Key-only / auth posture checks"}
       ]
     },
+    "bambu": {
+      "dispatcher": "enum-bambu.sh",
+      "manual": false,
+      "priority_base": 100,
+      "confidence": "low",
+      "priority": "P4",
+      "tags": ["iot", "printer", "correlation-only"],
+      "next_actions": ["Validate the recorded multi-signal scan evidence manually"],
+      "phases": [
+        {"id": "1", "name": "correlation", "description": "Render prior bounded BBL/Bambu scan correlation without a live probe"}
+      ]
+    },
     "ftp": {
       "dispatcher": "enum-ftp.sh",
       "manual": false,

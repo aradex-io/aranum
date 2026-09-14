@@ -237,6 +237,30 @@ class TestSSHArgvBuilder(unittest.TestCase):
         # an argv element — no on-disk artifact, no base64 wrapping needed.
         self.assertEqual(argv[-2:], ["-Command", "-"])
 
+    def test_ipv6_destination_is_bare_for_openssh(self):
+        tgt = W.Target("alice", "2001:db8::9", 2222, "alice@[2001:db8::9]:2222", True)
+        argv, _mode = W.build_ssh_argv(
+            tgt, user="alice", key=None, password=None, ssh_port=2222,
+            connect_timeout=10, known_hosts=Path("/tmp/kh"),
+        )
+        self.assertIn("alice@2001:db8::9", argv)
+        self.assertNotIn("alice@[2001:db8::9]", argv)
+
+    def test_ssh_transport_prefers_discovered_nondefault_port(self):
+        tgt = W.Target("alice", "host.test", 2222, "alice@host.test:2222", True)
+        args = _args(ssh_port=22, output=tempfile.mkdtemp())
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return mock.Mock(returncode=0, stdout="ok", stderr="")
+
+        with mock.patch.object(W.subprocess, "run", side_effect=fake_run):
+            result = W.SSHTransport().run(tgt, "Write-Output hi", args)
+        self.assertEqual(result.status, "OK")
+        self.assertEqual(result.endpoint_port, 2222)
+        self.assertEqual(captured["cmd"][captured["cmd"].index("-p") + 1], "2222")
+
 
 # --------------------------------------------------------------------- payload wrapping: ssh (raw stdin) vs smb (base64)
 class TestPayloadWrapping(unittest.TestCase):

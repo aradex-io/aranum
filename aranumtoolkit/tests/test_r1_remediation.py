@@ -476,7 +476,7 @@ class TestOrchestratorStateMachine(unittest.TestCase):
                 "schema_version": 1, "service": "ssh", "target": {
                     "ip": "192.0.2.22", "port": 22, "proto": "tcp"},
                 "target_label": "192.0.2.22:22", "task_id": "ssh::phase1"})
-            self.assertFalse(any(task_dirs[0].rglob("_key_only_22.txt")),
+            self.assertFalse(any(task_dirs[0].rglob("_key_only_*_22.txt")),
                              "phase-1 queue task executed phase-2 auth-posture logic")
             probes = (root / "probe.log").read_text().splitlines()
             self.assertEqual(len([line for line in probes if line.startswith("nc:")]), 1)
@@ -510,7 +510,7 @@ class TestOrchestratorStateMachine(unittest.TestCase):
                 capture_output=True, text=True, timeout=30, env=env)
             self.assertEqual(phase2.returncode, 0, phase2.stdout + phase2.stderr)
             phase2_dir = next((root / "phase2" / "ssh").glob("task-*"))
-            self.assertTrue(any(phase2_dir.rglob("_key_only_22.txt")),
+            self.assertTrue(any(phase2_dir.rglob("_key_only_*_22.txt")),
                             "phase-2 queue task did not execute auth-posture logic")
 
     def test_explicit_empty_fails_filtered_zero_succeeds_and_exact_duplicate_is_one_task(self):
@@ -601,7 +601,7 @@ class TestOrchestratorStateMachine(unittest.TestCase):
             actual_nmap = [line for line in (root / "probe.log").read_text().splitlines()
                            if line.startswith("nmap:-Pn")]
             self.assertEqual(len(actual_nmap), 1)
-            self.assertIn("-p2121", actual_nmap[0])
+            self.assertRegex(actual_nmap[0], r"-p\s*2121(?:\s|$)")
             actual_nxc = [line for line in (root / "probe.log").read_text().splitlines()
                           if line.startswith("nxc:ftp ")]
             self.assertEqual(len(actual_nxc), 1)

@@ -7,30 +7,71 @@ parse_common_args "$@" || exit 1
 task_phase_require || exit 1
 log "ftp: $(wc -l < "$TARGETS") targets -> $OUT"
 
+ftp_evidence_path() {
+    local ip="$1" port="$2"
+    if [ "${ENUM_TASK_CONSTRAINED:-0}" = "1" ]; then
+        printf '%s/%s/ftp.txt' "$OUT" "$ip"
+    else
+        printf '%s/%s/ftp_%s.txt' "$OUT" "$ip" "$port"
+    fi
+}
+
 ftp_discovery_phase() {
-    local target ip port
+    local target ip port url_host evidence
     while read -r target; do
         [ -z "$target" ] && continue
         read -r ip port <<< "$(split_ipport "$target")"
         mkdir -p "$OUT/$ip"
-        {
-            echo "--- banner ---"
-            timeout 5 bash -c "exec 3<>/dev/tcp/$ip/$port; head -1 <&3" 2>/dev/null
-        } > "$OUT/$ip/ftp.txt" 2>&1 || true
+        evidence=$(ftp_evidence_path "$ip" "$port")
+        url_host="$ip"; [[ "$ip" == *:* ]] && url_host="[$ip]"
+        if [ "$port" = "990" ]; then
+            {
+                echo "--- implicit FTPS banner ---"
+                if have openssl; then
+                    printf 'QUIT\r\n' | timeout 8 openssl s_client -quiet \
+                        -connect "$url_host:$port" -servername "$ip"
+                else
+                    echo "openssl unavailable — implicit FTPS banner skipped"
+                fi
+            } > "$evidence" 2>&1 || true
+        else
+            {
+                echo "--- banner ---"
+                timeout 5 bash -c "exec 3<>/dev/tcp/$ip/$port; head -1 <&3" 2>/dev/null
+            } > "$evidence" 2>&1 || true
+        fi
     done < "$TARGETS"
 }
 
 ftp_enumeration_phase() {
-    local target ip port nxc_bin nxc_port
+    local target ip port url_host evidence nxc_bin nxc_port
     while read -r target; do
         [ -z "$target" ] && continue
         read -r ip port <<< "$(split_ipport "$target")"
         mkdir -p "$OUT/$ip"
-        {
-            echo "--- anonymous listing ---"
-            timeout 15 curl -s --max-time 10 "ftp://$ip:$port/" \
-                --user "anonymous:anonymous@example.com" 2>&1 | head -30
-        } >> "$OUT/$ip/ftp.txt" 2>&1 || true
+        evidence=$(ftp_evidence_path "$ip" "$port")
+        url_host="$ip"; [[ "$ip" == *:* ]] && url_host="[$ip]"
+        if [ "$port" = "990" ]; then
+            {
+                echo "--- anonymous implicit FTPS listing ---"
+                if have curl; then
+                    timeout 15 curl -ksS --ssl-reqd --max-time 10 \
+                        "ftps://$url_host:$port/" --user "anonymous:anonymous@example.com" 2>&1 | head -30
+                else
+                    echo "curl unavailable — implicit FTPS listing skipped"
+                fi
+            } >> "$evidence" 2>&1 || true
+        else
+            {
+                echo "--- anonymous listing ---"
+                if have curl; then
+                    timeout 15 curl -s --max-time 10 "ftp://$url_host:$port/" \
+                        --user "anonymous:anonymous@example.com" 2>&1 | head -30
+                else
+                    echo "curl unavailable — anonymous listing skipped"
+                fi
+            } >> "$evidence" 2>&1 || true
+        fi
     done < "$TARGETS"
 
     # nxc ftp cred check
@@ -52,14 +93,18 @@ ftp_enumeration_phase() {
         done < <(ip_port_pairs "$TARGETS" | awk '{ print $2 }' | sort -nu)
     fi
 
-    # nmap ftp scripts
+    # Nmap accepts one endpoint per invocation here. This avoids turning a
+    # mixed host/port inventory into a Cartesian product of unintended probes.
     if have nmap; then
-        local ips ports
         log "nmap ftp-anon + ftp-syst"
-        ips=$(ips_only "$TARGETS")
-        ports=$(ip_port_pairs "$TARGETS" | awk '{print $2}' | sort -nu | paste -sd, -)
-        nmap -Pn $(nmap_bound_args) -p"$ports" --script 'ftp-anon,ftp-syst,ftp-bounce,ftp-vsftpd-backdoor' \
-            -iL <(echo "$ips") -oA "$OUT/nmap-ftp" >/dev/null 2>&1 || true
+        while read -r target; do
+            [ -z "$target" ] && continue
+            read -r ip port <<< "$(split_ipport "$target")"
+            mkdir -p "$OUT/$ip"
+            nmap -Pn $(nmap_bound_args) -p "$port" \
+                --script 'ftp-anon,ftp-syst,ftp-bounce,ftp-vsftpd-backdoor' \
+                "$ip" -oA "$OUT/$ip/nmap-ftp-${port}" >/dev/null 2>&1 || true
+        done < "$TARGETS"
     fi
 }
 

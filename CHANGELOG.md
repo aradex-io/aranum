@@ -41,11 +41,50 @@ See `CLAUDE.md` §6 for the entry style guide.
 - Dependency and output-directory failures are fatal; the local and CI test
   inventories now run the same unit, pytest, smoke, lint, and data-audit gates.
 
-### Added
+- Preserved discovered endpoint ports throughout Windows SSH, SSH evidence,
+  LDAP, IMAP, POP3, SMTP, and FTP enumeration, including implicit TLS on
+  IMAPS/POP3S/SMTPS/FTPS and exact POP3 authentication-response parsing.
+- Restricted X11 routing to compatible service identity and added a conservative
+  Low-severity Bambu Lab multi-signal correlation. It requires explicit vendor
+  identity plus compatible protocol or identity evidence on another distinct
+  endpoint; multiple matches from one record and unidentified ports cannot
+  self-confirm. The Bambu dispatcher records parser evidence only and performs
+  no live device probe.
+- Corrected writable APT hit accounting, Windows unquoted-service executable and
+  loader-candidate parsing, regex credential matching, SYSVOL path construction,
+  and ADCS ESC1/ESC2 low-privilege effective-enrollment predicates.
+- Enforced the OT concurrency ceiling and one global 500 ms start-rate gate
+  across all seven read-side protocol dispatchers. The gate state persists
+  between serial protocol groups instead of resetting in each dispatcher. When
+  `flock` is unavailable, scheduling degrades explicitly to one worker so
+  parallel fallback workers cannot sleep together and start as a burst.
+- OpenSSH command builders now pass bare IPv6 hosts; brackets remain limited to
+  URL and target-file syntaxes that require them.
 
-- R1 regression coverage for scheduler resume/failure semantics, parser and
-  planner endpoint identity, report coverage/deduplication, merge integrity,
+### Changed
+
+- `ssh-key-triage` now excludes invalid and encrypted/unlocked inventory-only keys
+  before applying `--max-per-user`, spaces starts globally under `--throttle`,
+  and emits versioned `authorized-pairs.jsonl`. `bulk-enum-linux.sh` consumes that
+  manifest directly, including per-row key, user, host, and port. Authorized-pair
+  artifacts, resume markers, and summary rows use a collision-resistant identity
+  over that complete tuple. Metadata is atomically JSON-encoded, and `report.py`
+  resolves opaque pair artifact directories back to the canonical endpoint and
+  authentication identity while surfacing malformed metadata as a partial error.
+- SSH authenticated evidence filenames encode the exact username bytes, avoiding
+  normalization collisions such as `CORP\alice` versus `CORP_alice`.
+- Windows guidance now claims local ADSI coverage only for implemented ADCS ESC1,
+  ESC2, and ESC4 checks; Certipy remains the documented broader follow-up.
+
+### Tests
+
+- Added R1 regression coverage for scheduler resume/failure semantics, parser
+  and planner endpoint identity, report coverage/deduplication, merge integrity,
   Recce completion state, bulk endpoint collisions, and quality-gate parity.
+- Added offline R2 regression coverage for endpoint ports, implicit TLS stdin
+  paths, POP3 false positives, APT predicates, PowerShell service/SYSVOL/ADCS
+  logic, Bambu/X11 routing, JSONL auth handoff, global SSH rate limiting, bare
+  IPv6 OpenSSH destinations, and bounded OT scheduling.
 
 ## [v0.33.0] — 2026-07-28
 

@@ -553,8 +553,21 @@ never writes to targets.
 ```bash
 aranum ssh-key-triage --keys ~/loot/keys/ --targets hosts.txt --users root,deploy \
     --passwords pass.txt --max-per-user 3 --throttle 0.5 -o ./triage
-# -> key-triage.json / key-triage.md / authorized-pairs.txt (feed bulk-enum-linux.sh)
+# -> key-triage.json / key-triage.md / authorized-pairs.jsonl
+aranumtoolkit/network/bulk-enum-linux.sh \
+    --authorized-pairs ./triage/authorized-pairs.jsonl -o ./estate
 ```
+
+Only locally valid, unencrypted private keys are placed in the probe plan.
+Encrypted keys that were unlocked for inventory remain inventory-only because
+OpenSSH is intentionally never given or prompted for a passphrase. The versioned
+JSONL handoff preserves each accepted key, user, host, and port without reparsing
+display strings. Authorized-pair artifacts, resume markers, and summary rows use a
+collision-resistant identity over the exact key/user/host/port tuple, so shared
+hosts, nondefault ports, multiple users, and multiple keys do not overwrite.
+`report.py` resolves those opaque artifact IDs through the canonical metadata;
+invalid metadata produces an explicit partial report and nonzero status.
+`--throttle` spaces starts globally even when probes run in parallel.
 
 **Thick-client / workstation enumeration.** `standalones/windows/Get-ThickClientEnum.ps1`
 and `standalones/linux/thickclient-hunt.sh` (also inlined into `Invoke-PrivEscEnum.ps1` /

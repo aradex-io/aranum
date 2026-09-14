@@ -139,6 +139,7 @@ class Target:
     host: str
     port: int
     raw_spec: str   # original line, for logging
+    port_explicit: bool = False
 
 
 def parse_spec(spec: str, default_user: str, default_port: int) -> Optional[Target]:
@@ -155,13 +156,16 @@ def parse_spec(spec: str, default_user: str, default_port: int) -> Optional[Targ
     if m:
         host = m.group(1)
         port = int(m.group(2)) if m.group(2) else default_port
-        return Target(user=user, host=host, port=port, raw_spec=spec)
+        return Target(user=user, host=host, port=port, raw_spec=spec,
+                      port_explicit=m.group(2) is not None)
     # host:port (but not bare IPv6 — IPv6 must be bracketed in target files)
     if rest.count(":") == 1:
         host, port_s = rest.split(":", 1)
         if port_s.isdigit():
-            return Target(user=user, host=host, port=int(port_s), raw_spec=spec)
-    return Target(user=user, host=rest, port=default_port, raw_spec=spec)
+            return Target(user=user, host=host, port=int(port_s), raw_spec=spec,
+                          port_explicit=True)
+    return Target(user=user, host=rest, port=default_port, raw_spec=spec,
+                  port_explicit=False)
 
 
 def _safe_component(value: str, fallback: str) -> str:
@@ -468,6 +472,7 @@ class TransportResult:
     stderr: str
     status: str          # OK | AUTH_FAIL | UNREACHABLE | REMOTE_ERR
     fail_reason: str = ""
+    endpoint_port: Optional[int] = None
 
 
 class Transport:
@@ -528,9 +533,12 @@ class SSHTransport(Transport):
         password = args.password or None
         key = args.key or None
         known_hosts = Path(args.output).resolve() / "known_hosts"
+        # An explicit port came from discovery/triage and must survive.  The
+        # global --ssh-port is only a default for a genuinely bare host.
+        endpoint_port = target.port if target.port_explicit else args.ssh_port
         argv, mode = build_ssh_argv(
             target, user=target.user, key=key, password=password,
-            ssh_port=args.ssh_port, connect_timeout=args.connect_timeout,
+            ssh_port=endpoint_port, connect_timeout=args.connect_timeout,
             known_hosts=known_hosts,
         )
         needs_password = mode in ("PASS", "KEY_THEN_PASS")
@@ -542,7 +550,8 @@ class SSHTransport(Transport):
                        "(apt/dnf install sshpass, or use --key with a running ssh-agent for "
                        "non-interactive key auth instead).")
                 warn(f"{target.host}: {msg}")
-                return TransportResult(127, "", msg, "AUTH_FAIL", "sshpass_missing")
+                return TransportResult(127, "", msg, "AUTH_FAIL", "sshpass_missing",
+                                       endpoint_port)
             env["SSHPASS"] = password or ""
             cmd = ["sshpass", "-e"] + argv
         timeout_s = max(args.connect_timeout * 4, 30)
@@ -552,13 +561,15 @@ class SSHTransport(Transport):
             rc, stdout, stderr = p.returncode, p.stdout, p.stderr
         except subprocess.TimeoutExpired:
             return TransportResult(255, "", f"ssh timed out after {timeout_s}s",
-                                   "UNREACHABLE", "connection timed out")
+                                   "UNREACHABLE", "connection timed out", endpoint_port)
         except FileNotFoundError as e:
-            return TransportResult(127, "", str(e), "UNREACHABLE", "ssh_or_sshpass_missing")
+            return TransportResult(127, "", str(e), "UNREACHABLE", "ssh_or_sshpass_missing",
+                                   endpoint_port)
         except Exception as e:                # noqa: BLE001
-            return TransportResult(255, "", f"{type(e).__name__}: {e}", "UNREACHABLE", "exception")
+            return TransportResult(255, "", f"{type(e).__name__}: {e}", "UNREACHABLE",
+                                   "exception", endpoint_port)
         status, reason = _classify_ssh_result(rc, stderr, password_used=needs_password)
-        return TransportResult(rc, stdout, stderr, status, reason)
+        return TransportResult(rc, stdout, stderr, status, reason, endpoint_port)
 
 
 class SMBTransport(Transport):
@@ -658,7 +669,8 @@ def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
 
     elapsed = int(time.time()) - t0
     meta = {
-        "host": target.host, "user": target.user, "port": target.port,
+        "host": target.host, "user": target.user,
+        "port": result.endpoint_port or target.port,
         "rc": result.rc, "status": result.status, "fail_reason": fail_reason,
         "started": started, "elapsed_s": elapsed,
         "size_bytes": len(result.stdout.encode("utf-8")),
@@ -842,7 +854,9 @@ def main() -> int:
     # the WinRM-port field; the ssh transport uses --ssh-port independently.
     # Per-target ports in the targets file override the WinRM port field.
     targets: list[Target] = []
-    default_port = args.port
+    # A targets file routed solely to SSH uses --ssh-port as the bare-host
+    # default. Explicit host:port records always win in every transport.
+    default_port = args.ssh_port if transport_order == ["ssh"] else args.port
     for line in targets_path.read_text().splitlines():
         t = parse_spec(line, args.user or os.environ.get("USER", ""), default_port)
         if t is None:

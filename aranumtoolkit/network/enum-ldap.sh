@@ -6,7 +6,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 parse_common_args "$@" || exit 1
 log "ldap: $(wc -l < "$TARGETS") targets -> $OUT"
 
-IPS=$(ips_only "$TARGETS")
+mapfile -t LDAP_ENDPOINTS < <(ip_port_pairs "$TARGETS")
+
+ldap_endpoint_url() {
+    local ip="$1" port="$2" scheme="ldap"
+    case "$port" in 636|3269) scheme="ldaps" ;; esac
+    ldap_url "$ip" "$port" "$scheme"
+}
 
 # ---------- 1. nxc ldap ----------
 if have nxc || have netexec; then
@@ -15,18 +21,22 @@ if have nxc || have netexec; then
     nxc_creds_array NXC_ARGS
 
     log "nxc ldap (users, groups, asreproast, kerberoastable, machine-account quota)"
-    echo "$IPS" | "$NXC" ldap - "${NXC_ARGS[@]}" \
-        --users --groups --kerberoasting "$OUT/kerberoast.txt" \
-        --asreproast "$OUT/asreproast.txt" \
-        > "$OUT/nxc_ldap.txt" 2>&1 || true
+    for endpoint in "${LDAP_ENDPOINTS[@]}"; do
+        read -r ip port <<< "$endpoint"
+        mkdir -p "$OUT/$ip"
+        printf '%s\n' "$ip" | "$NXC" ldap - --port "$port" "${NXC_ARGS[@]}" \
+            --users --groups --kerberoasting "$OUT/$ip/kerberoast_${port}.txt" \
+            --asreproast "$OUT/$ip/asreproast_${port}.txt" \
+            > "$OUT/$ip/nxc_ldap_${port}.txt" 2>&1 || true
 
-    # bloodhound-ce collection
-    if [ -n "${ENUM_USER:-}" ]; then
-        log "nxc ldap --bloodhound (LDAP-only collection)"
-        echo "$IPS" | "$NXC" ldap - "${NXC_ARGS[@]}" --bloodhound \
-            --collection All --dns-server "${ENUM_DC_IP:-}" \
-            > "$OUT/bloodhound.txt" 2>&1 || true
-    fi
+        # bloodhound-ce collection stays bound to the same discovered endpoint.
+        if [ -n "${ENUM_USER:-}" ]; then
+            log "nxc ldap $ip:$port --bloodhound (LDAP-only collection)"
+            printf '%s\n' "$ip" | "$NXC" ldap - --port "$port" "${NXC_ARGS[@]}" --bloodhound \
+                --collection All --dns-server "${ENUM_DC_IP:-}" \
+                > "$OUT/$ip/bloodhound_${port}.txt" 2>&1 || true
+        fi
+    done
 else
     miss "nxc/netexec not installed"
 fi
@@ -35,29 +45,30 @@ fi
 # IPv6 addresses must be bracketed in the ldap:// URL — see ldap_url() in _lib.sh.
 if have ldapsearch; then
     log "ldapsearch (anon naming context + base info)"
-    for ip in $IPS; do
+    for endpoint in "${LDAP_ENDPOINTS[@]}"; do
+        read -r ip port <<< "$endpoint"
         mkdir -p "$OUT/$ip"
-        url=$(ldap_url "$ip")
+        url=$(ldap_endpoint_url "$ip" "$port")
         ldapsearch -x -H "$url" -s base -b '' '(objectclass=*)' \
-            > "$OUT/$ip/ldap_rootDSE_anon.txt" 2>&1 || true
+            > "$OUT/$ip/ldap_rootDSE_anon_${port}.txt" 2>&1 || true
 
         if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
             BASE_DN=$(echo "$ENUM_DOMAIN" | awk -F. '{for(i=1;i<=NF;i++) printf "DC=%s%s", $i, (i<NF?",":"")}')
-            log "  $ip: enumerating users / computers / GPOs"
+            log "  $ip:$port: enumerating users / computers / GPOs"
             ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(objectClass=user)' sAMAccountName description memberOf \
-                > "$OUT/$ip/users.txt" 2>&1 || true
+                > "$OUT/$ip/users_${port}.txt" 2>&1 || true
             ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(objectClass=computer)' dNSHostName operatingSystem \
-                > "$OUT/$ip/computers.txt" 2>&1 || true
+                > "$OUT/$ip/computers_${port}.txt" 2>&1 || true
             ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(servicePrincipalName=*)' sAMAccountName servicePrincipalName \
-                > "$OUT/$ip/spns.txt" 2>&1 || true
+                > "$OUT/$ip/spns_${port}.txt" 2>&1 || true
             # AS-REP roastables
             ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(&(samAccountType=805306368)(userAccountControl:1.2.840.113556.1.4.803:=4194304))' \
                 sAMAccountName \
-                > "$OUT/$ip/asrep_candidates.txt" 2>&1 || true
+                > "$OUT/$ip/asrep_candidates_${port}.txt" 2>&1 || true
         fi
     done
 fi
@@ -143,10 +154,11 @@ fi
 # Pre-D1, the operator had to run these queries by hand.
 if have ldapsearch && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
     BASE_DN=$(echo "$ENUM_DOMAIN" | awk -F. '{for(i=1;i<=NF;i++) printf "DC=%s%s", $i, (i<NF?",":"")}')
-    for ip in $IPS; do
+    for endpoint in "${LDAP_ENDPOINTS[@]}"; do
+        read -r ip port <<< "$endpoint"
         mkdir -p "$OUT/$ip"
-        url=$(ldap_url "$ip")
-        log "  $ip: Kerberos delegation enum (unconstrained / constrained / RBCD)"
+        url=$(ldap_endpoint_url "$ip" "$port")
+        log "  $ip:$port: Kerberos delegation enum (unconstrained / constrained / RBCD)"
         {
             echo "=== UNCONSTRAINED DELEGATION (UAC bit 524288) — owners can impersonate any user authing TO them ==="
             ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
@@ -162,11 +174,11 @@ if have ldapsearch && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
             ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(msDS-AllowedToActOnBehalfOfOtherIdentity=*)' \
                 sAMAccountName msDS-AllowedToActOnBehalfOfOtherIdentity 2>/dev/null
-        } > "$OUT/$ip/delegation.txt" 2>&1 || true
+        } > "$OUT/$ip/delegation_${port}.txt" 2>&1 || true
         # Surface counts
-        unc=$(grep -c '^sAMAccountName: ' <(awk '/UNCONSTRAINED/,/CONSTRAINED DELEGATION/' "$OUT/$ip/delegation.txt") 2>/dev/null || echo 0)
+        unc=$(grep -c '^sAMAccountName: ' <(awk '/UNCONSTRAINED/,/CONSTRAINED DELEGATION/' "$OUT/$ip/delegation_${port}.txt") 2>/dev/null || echo 0)
         if [ "$unc" -gt 0 ]; then
-            err "HIGH: $ip has $unc account(s) with UNCONSTRAINED DELEGATION — see $ip/delegation.txt"
+            err "HIGH: $ip:$port has $unc account(s) with UNCONSTRAINED DELEGATION — see $ip/delegation_${port}.txt"
         fi
     done
 fi
@@ -180,20 +192,21 @@ fi
 # (4096) set — those are the candidates.
 if have ldapsearch && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
     BASE_DN=$(echo "$ENUM_DOMAIN" | awk -F. '{for(i=1;i<=NF;i++) printf "DC=%s%s", $i, (i<NF?",":"")}')
-    for ip in $IPS; do
-        url=$(ldap_url "$ip")
-        log "  $ip: pre-2000 computer-account candidate listing"
+    for endpoint in "${LDAP_ENDPOINTS[@]}"; do
+        read -r ip port <<< "$endpoint"
+        url=$(ldap_endpoint_url "$ip" "$port")
+        log "  $ip:$port: pre-2000 computer-account candidate listing"
         ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
             -b "$BASE_DN" '(&(objectClass=computer)(userAccountControl:1.2.840.113556.1.4.803:=4096))' \
             sAMAccountName whenCreated pwdLastSet \
-            > "$OUT/$ip/pre2000_candidates.txt" 2>&1 || true
+            > "$OUT/$ip/pre2000_candidates_${port}.txt" 2>&1 || true
         # Hint at how to test (operator-gated; refuses to spray)
         {
             echo "# Pre-2000 weak-pw probe (operator-opt-in only — DO NOT spray without authz)"
             echo "# For each <HOSTNAME>\$ in pre2000_candidates.txt try:"
             echo "#   nxc smb $ip -u '<HOSTNAME>\$' -p '<hostname-lowercase>'"
             echo "# Success means the computer account password was never changed from setup."
-        } > "$OUT/$ip/_pre2000_hint.txt"
+        } > "$OUT/$ip/_pre2000_hint_${port}.txt"
     done
 fi
 

@@ -10,14 +10,16 @@ C_RST=$'\033[0m'; C_HIT=$'\033[1;32m'; C_HDR=$'\033[1;36m'
 
 printf "%s== APT writable-config + hooks check ==%s\n" "$C_HDR" "$C_RST"
 
-if ! command -v apt-get >/dev/null 2>&1; then
+if ! command -v apt-get >/dev/null 2>&1 && [ -z "${ARANUM_APT_ROOT:-}" ]; then
     printf "  apt-get not present — not a Debian/Ubuntu-family system.\n"
     exit 0
 fi
 
 # Apt hook directories (each runs scripts as root during install/update)
-hook_dirs=(/etc/apt/apt.conf.d /etc/apt/apt.conf /etc/apt/preferences.d
-           /etc/apt/sources.list.d /var/lib/apt /var/cache/apt /var/lib/dpkg)
+apt_root="${ARANUM_APT_ROOT:-}"
+apt_root="${apt_root%/}"
+hook_dirs=("$apt_root/etc/apt/apt.conf.d" "$apt_root/etc/apt/apt.conf" "$apt_root/etc/apt/preferences.d"
+           "$apt_root/etc/apt/sources.list.d" "$apt_root/var/lib/apt" "$apt_root/var/cache/apt" "$apt_root/var/lib/dpkg")
 hits=0
 for d in "${hook_dirs[@]}"; do
     if [ -e "$d" ]; then
@@ -28,17 +30,18 @@ for d in "${hook_dirs[@]}"; do
         fi
         # Writable files inside
         if find "$d" -maxdepth 2 -type f \( -perm -o=w -o -perm -g=w \) 2>/dev/null | head -5 | grep -q .; then
-            find "$d" -maxdepth 2 -type f \( -perm -o=w -o -perm -g=w \) 2>/dev/null | head -5 | while read -r f; do
+            while read -r f; do
                 printf "%s[+]%s WRITABLE file: %s\n" "$C_HIT" "$C_RST" "$f"
                 hits=$((hits + 1))
-            done
+            done < <(find "$d" -maxdepth 2 -type f \( -perm -o=w -o -perm -g=w \) 2>/dev/null | head -5)
         fi
     fi
 done
 
 # sources.list itself
-if [ -w /etc/apt/sources.list ]; then
-    printf "%s[+]%s /etc/apt/sources.list WRITABLE — could redirect to attacker repo\n" "$C_HIT" "$C_RST"
+sources_list="$apt_root/etc/apt/sources.list"
+if [ -w "$sources_list" ]; then
+    printf "%s[+]%s %s WRITABLE — could redirect to attacker repo\n" "$C_HIT" "$C_RST" "$sources_list"
     hits=$((hits + 1))
 fi
 
@@ -46,7 +49,12 @@ fi
 # but if it points to a writable file, that's a privesc surface.
 if [ -n "${APT_CONFIG:-}" ]; then
     printf "  APT_CONFIG=$APT_CONFIG\n"
-    [ -w "$APT_CONFIG" ] && printf "%s[+]%s APT_CONFIG file WRITABLE\n" "$C_HIT" "$C_RST"
+    if [ -w "$APT_CONFIG" ]; then
+        printf "%s[+]%s APT_CONFIG file WRITABLE\n" "$C_HIT" "$C_RST"
+        hits=$((hits + 1))
+    fi
 fi
 
-[ "$hits" -eq 0 ] && printf "  No writable apt config / hook surface to current user.\n"
+if [ "$hits" -eq 0 ]; then
+    printf "  No writable apt config / hook surface to current user.\n"
+fi

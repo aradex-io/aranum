@@ -19,12 +19,13 @@ an operator-authorized host list. Two phases:
 
     This is pure publickey auth validation. It NEVER attempts password auth,
     NEVER writes to a target, and honours lockout hygiene: --max-per-user cap
-    (key attempts per user@host) + --throttle inter-attempt delay, plus a
+    (key attempts per user@host) + --throttle global probe-start spacing, plus a
     per-engagement known_hosts silo (accept-new) exactly like bulk-enum.
 
 Outputs (to --output): key-triage.json (full matrix + inventory),
-key-triage.md (human matrix), authorized-pairs.txt (key,user,host triples
-ready to feed bulk-enum-linux.sh).
+key-triage.md (human matrix), and authorized-pairs.jsonl (the versioned,
+machine-readable per-key endpoint manifest consumed directly by
+bulk-enum-linux.sh --authorized-pairs).
 
 CLAUDE.md §9: read-only on targets; no password spraying; no persistence.
 """
@@ -39,6 +40,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +55,7 @@ except Exception:  # pragma: no cover - exercised only where paramiko absent
     HAVE_PARAMIKO = False
 
 PARALLEL_CAP = 16
+AUTHORIZED_PAIR_SCHEMA = "aranum.authorized-ssh-pair/v1"
 
 
 def _log(msg: str) -> None:
@@ -251,6 +254,75 @@ def inventory_key(path: Path, passphrases: list[str]) -> dict:
     return inventory_key_keygen(path, passphrases)
 
 
+def annotate_probeability(inventory: list[dict]) -> list[dict]:
+    """Mark keys that can actually succeed in a non-interactive ssh probe.
+
+    Passphrase-unlocked keys remain useful inventory evidence, but the original
+    encrypted file still cannot be offered under BatchMode without an agent or
+    a decrypted temporary identity.  We deliberately keep those inventory-only
+    instead of consuming an authentication-attempt cap with a guaranteed miss.
+    """
+    for rec in inventory:
+        reason = None
+        if rec.get("error"):
+            reason = f"inventory error: {rec['error']}"
+        elif rec.get("encrypted"):
+            if rec.get("unlocked"):
+                reason = "encrypted key unlocked for inventory only; load it into ssh-agent before probing"
+            else:
+                reason = "encrypted key is not available non-interactively"
+        elif not rec.get("public_key"):
+            reason = "no public key could be derived"
+        rec["probeable"] = reason is None
+        rec["probe_skip_reason"] = reason
+    return inventory
+
+
+def build_probe_plan(
+    inventory: list[dict],
+    users: list[str],
+    targets: list[tuple[str, int]],
+    max_per_user: int,
+) -> list[tuple[str, str, str, int]]:
+    """Build a deterministic plan, applying caps after unusable keys are removed."""
+    probeable = [rec["path"] for rec in inventory if rec.get("probeable")]
+    plan: list[tuple[str, str, str, int]] = []
+    for host, port in targets:
+        for user in users:
+            keys_for = probeable
+            if max_per_user > 0:
+                keys_for = keys_for[:max_per_user]
+            plan.extend((key, user, host, port) for key in keys_for)
+    return plan
+
+
+class StartRateLimiter:
+    """Thread-safe global minimum interval between probe *starts*.
+
+    The clock and sleeper are injectable so regression tests need no wall-clock
+    delay.  Sleeping while holding the lock is intentional: it reserves the
+    next global start slot rather than allowing every worker to wake together.
+    """
+
+    def __init__(self, interval: float, *, clock=time.monotonic, sleeper=time.sleep):
+        self.interval = max(0.0, float(interval))
+        self._clock = clock
+        self._sleep = sleeper
+        self._lock = threading.Lock()
+        self._last_start: Optional[float] = None
+
+    def wait(self) -> float:
+        with self._lock:
+            now = self._clock()
+            if self._last_start is not None and self.interval > 0:
+                delay = self._last_start + self.interval - now
+                if delay > 0:
+                    self._sleep(delay)
+                    now = self._clock()
+            self._last_start = now
+            return now
+
+
 # ================================================================== probe argv
 def build_probe_argv(
     key_path: str,
@@ -298,9 +370,9 @@ def build_probe_argv(
     if extra_opts:
         for opt in extra_opts:
             argv += ["-o", opt]
-    # IPv6 destinations must be bracketed.
-    dest_host = f"[{host}]" if ":" in host else host
-    argv += [f"{user}@{dest_host}", remote_cmd]
+    # OpenSSH's ssh destination takes a bare IPv6 hostname. URI-style brackets
+    # become literal hostname characters and fail resolution.
+    argv += [f"{user}@{host}", remote_cmd]
     return argv
 
 
@@ -329,10 +401,10 @@ def probe_one(
     connect_timeout: int,
     extra_opts: Optional[list[str]],
     ssh_bin: str,
-    throttle: float,
+    rate_limiter: Optional[StartRateLimiter] = None,
 ) -> dict:
-    if throttle > 0:
-        time.sleep(throttle)
+    if rate_limiter is not None:
+        rate_limiter.wait()
     argv = build_probe_argv(
         key_path, user, host, port, known_hosts, connect_timeout, extra_opts, ssh_bin
     )
@@ -392,9 +464,12 @@ def load_targets(args, script_dir: Path) -> list[tuple[str, int]]:
                 )
                 for line in r.stdout.splitlines():
                     line = line.strip()
-                    if not line or line.startswith("["):
+                    if not line:
                         continue
                     if line.startswith("[") and "]:" in line:
+                        host = line[1 : line.index("]")]
+                        port = int(line[line.index("]:") + 2 :])
+                        add(host, port)
                         continue
                     host, _, p = line.rpartition(":")
                     if host and p.isdigit():
@@ -458,13 +533,20 @@ def write_outputs(outdir: Path, doc: dict) -> None:
         doc["inventory"], doc["matrix"], doc["users"], doc["targets"]
     )
     (outdir / "key-triage.md").write_text(md)
-    # authorized-pairs.txt — key,user,host triples for bulk-enum-linux.sh
-    lines = ["# key,user,host  — accepted publickey pairs (feed to bulk-enum-linux.sh)"]
+    # Versioned JSON Lines handoff.  JSON preserves IPv6, whitespace in paths,
+    # and per-endpoint ports without display-string reparsing.
+    records: list[str] = []
     for m in doc["matrix"]:
         if m["accepted"]:
-            host = m["host"] if m["port"] == 22 else f"{m['host']}:{m['port']}"
-            lines.append(f"{m['key']},{m['user']},{host}")
-    (outdir / "authorized-pairs.txt").write_text("\n".join(lines) + "\n")
+            records.append(json.dumps({
+                "schema": AUTHORIZED_PAIR_SCHEMA,
+                "key": m["key"],
+                "user": m["user"],
+                "host": m["host"],
+                "port": m["port"],
+            }, sort_keys=True))
+    content = "\n".join(records)
+    (outdir / "authorized-pairs.jsonl").write_text(content + ("\n" if content else ""))
 
 
 # ================================================================== cli
@@ -495,7 +577,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="max key attempts per user@host (lockout hygiene; 0 = unlimited)",
     )
     ap.add_argument(
-        "--throttle", type=float, default=0.0, help="seconds delay before each probe"
+        "--throttle", type=float, default=0.0,
+        help="minimum seconds between global probe starts (independent of --parallel)"
     )
     ap.add_argument("--ssh-opt", action="append", default=[], help="extra -o K=V (repeatable)")
     ap.add_argument("--ssh-bin", default="ssh", help="ssh binary (default: ssh on PATH)")
@@ -549,7 +632,7 @@ def run(args: argparse.Namespace) -> int:
     if not HAVE_PARAMIKO:
         _log("[?] paramiko not installed — inventory via ssh-keygen fallback (degraded).")
 
-    inventory = [inventory_key(p, passphrases) for p in key_paths]
+    inventory = annotate_probeability([inventory_key(p, passphrases) for p in key_paths])
 
     users = [u for u in args.users.split(",") if u.strip()]
     if not users:
@@ -560,15 +643,8 @@ def run(args: argparse.Namespace) -> int:
     parallel = max(1, min(args.parallel, PARALLEL_CAP))
     known_hosts = str(outdir / "known_hosts")
 
-    # Build the probe plan: for each user@host, at most --max-per-user keys.
-    plan: list[tuple[str, str, str, int]] = []
-    for host, port in targets:
-        for user in users:
-            keys_for = [i["path"] for i in inventory]
-            if args.max_per_user and args.max_per_user > 0:
-                keys_for = keys_for[: args.max_per_user]
-            for kp in keys_for:
-                plan.append((kp, user, host, port))
+    # Apply lockout caps only after invalid/locked/encrypted keys are filtered.
+    plan = build_probe_plan(inventory, users, targets, args.max_per_user)
 
     if args.dry_run or not targets:
         if not targets:
@@ -607,6 +683,7 @@ def run(args: argparse.Namespace) -> int:
     Path(known_hosts).touch(exist_ok=True)
 
     matrix: list[dict] = []
+    limiter = StartRateLimiter(args.throttle)
     with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as ex:
         futs = [
             ex.submit(
@@ -619,7 +696,7 @@ def run(args: argparse.Namespace) -> int:
                 args.connect_timeout,
                 args.ssh_opt,
                 args.ssh_bin,
-                args.throttle,
+                limiter,
             )
             for (kp, user, host, port) in plan
         ]
@@ -648,7 +725,7 @@ def run(args: argparse.Namespace) -> int:
     write_outputs(outdir, doc)
     accepted = [m for m in matrix if m["accepted"]]
     print(f"[+] {len(inventory)} key(s), {len(targets)} host(s), {len(matrix)} probe(s)")
-    print(f"[+] {len(accepted)} accepted pair(s) -> {outdir}/authorized-pairs.txt")
+    print(f"[+] {len(accepted)} accepted pair(s) -> {outdir}/authorized-pairs.jsonl")
     for m in accepted:
         print(f"    ACCEPTED: {os.path.basename(m['key'])} -> {m['user']}@{m['host']}:{m['port']}")
     return 0

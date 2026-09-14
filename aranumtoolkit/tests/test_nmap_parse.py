@@ -117,6 +117,68 @@ class TestCategorize(unittest.TestCase):
         self.assertEqual([], M.categorize(48312, "unknown"))
         self.assertEqual([], M.categorize(48312, ""))
 
+    def test_x11_requires_compatible_service_evidence(self):
+        self.assertNotIn("x11", M.categorize(6000, "ssl"))
+        self.assertNotIn("x11", M.categorize(6000, "unknown"))
+        self.assertIn("x11", M.categorize(6000, "x11"))
+
+
+class TestBoundedBambuCorrelation(unittest.TestCase):
+    @staticmethod
+    def _entry(port, service="unknown", product="", proto="tcp"):
+        return {"ip": "10.0.0.50", "port": port, "service": service,
+                "product": product, "version": "", "extrainfo": "",
+                "proto": proto, "categories": M.categorize(port, service)}
+
+    def test_identity_plus_distinct_compatible_services_yields_low_likely(self):
+        entries = [
+            self._entry(990, "ftps", "BBL-P003 FTP Server"),
+            self._entry(3000), self._entry(3002), self._entry(6000, "ssl"),
+            self._entry(8883, "mqtt"),
+        ]
+        found = M.correlate_devices(entries)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["severity"], "low")
+        self.assertEqual(found[0]["confidence"], "likely")
+        self.assertEqual(found[0]["evidence_endpoints"],
+                         ["990/tcp", "6000/tcp", "8883/tcp"])
+        self.assertIn("bambu", entries[0]["categories"])
+        self.assertNotIn("x11", entries[3]["categories"])
+
+    def test_two_distinct_vendor_records_are_independent_positive_signals(self):
+        entries = [
+            self._entry(990, "ftps", "BBL-P003 FTP Server"),
+            self._entry(6000, "ssl", "Bambu Lab TLS endpoint"),
+        ]
+        found = M.correlate_devices(entries)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["evidence_endpoints"], ["990/tcp", "6000/tcp"])
+
+    def test_port_tuple_without_identity_does_not_correlate(self):
+        entries = [self._entry(p) for p in (990, 3000, 3002, 6000, 8883)]
+        self.assertEqual(M.correlate_devices(entries), [])
+        self.assertTrue(all("bambu" not in e["categories"] for e in entries))
+
+    def test_lone_combined_vendor_and_banner_record_does_not_correlate(self):
+        entries = [self._entry(990, "ftps", "Bambu Lab BBL-P003 FTP Server")]
+        self.assertEqual(M.correlate_devices(entries), [])
+        self.assertNotIn("bambu", entries[0]["categories"])
+
+    def test_identity_plus_unidentified_port_tuple_does_not_correlate(self):
+        entries = [
+            self._entry(990, "ftps", "Bambu Lab BBL-P003 FTP Server"),
+            self._entry(3000), self._entry(3002), self._entry(6000),
+        ]
+        self.assertEqual(M.correlate_devices(entries), [])
+        self.assertTrue(all("bambu" not in e["categories"] for e in entries))
+
+    def test_duplicate_records_for_one_endpoint_are_not_independent(self):
+        entries = [
+            self._entry(990, "ftps", "BBL-P003 FTP Server"),
+            self._entry(990, "ftps", "Bambu Lab"),
+        ]
+        self.assertEqual(M.correlate_devices(entries), [])
+
 
 # --------------------------------------------------------------------- XML routing end-to-end
 class TestRoutingFromFixture(unittest.TestCase):

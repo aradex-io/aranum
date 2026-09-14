@@ -25,6 +25,15 @@ classify_ssh_os_from_banner() {
     esac
 }
 
+# Reversible byte identity for user-qualified evidence names. Replacing unsafe
+# characters with '_' is not injective (CORP\alice and CORP_alice collide), so
+# encode the exact username bytes as lowercase hex instead.
+ssh_user_tag() {
+    local hex
+    hex=$(printf '%s' "$1" | od -An -tx1 | tr -d '[:space:]')
+    printf 'uhex_%s' "$hex"
+}
+
 # The rest of this file is the enum-ssh.sh dispatcher's main body. It is
 # wrapped in a function and guarded so ssh-triage.sh can `. enum-ssh.sh` to
 # pick up only classify_ssh_os_from_banner above without running a banner
@@ -41,19 +50,21 @@ while read -r target; do
     [ -z "$target" ] && continue
     read -r ip port <<< "$(split_ipport "$target")"
     mkdir -p "$OUT/$ip"
+    auth_user="${ENUM_USER:-root}"
+    auth_user_tag=$(ssh_user_tag "$auth_user")
     # 1. Banner
-    nc -nv -w 5 "$ip" "$port" </dev/null > "$OUT/$ip/banner.txt" 2>&1 || true
+    nc -nv -w 5 "$ip" "$port" </dev/null > "$OUT/$ip/banner_${port}.txt" 2>&1 || true
 
     # 2. ssh-audit
     if have ssh-audit; then
-        ssh-audit -p "$port" "$ip" > "$OUT/$ip/ssh-audit.txt" 2>&1 || true
+        ssh-audit -p "$port" "$ip" > "$OUT/$ip/ssh-audit_${port}.txt" 2>&1 || true
     fi
 
     # 3. Supported auth methods via verbose connect
     ssh -p "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         -o ConnectTimeout=5 -o PasswordAuthentication=no -o BatchMode=yes \
-        -o PreferredAuthentications=none "${ENUM_USER:-root}@$ip" 2>&1 |
-        grep -i 'authentication methods' > "$OUT/$ip/auth_methods.txt" || true
+        -o PreferredAuthentications=none "$auth_user@$ip" 2>&1 |
+        grep -i 'authentication methods' > "$OUT/$ip/auth_methods_${auth_user_tag}_${port}.txt" || true
 done < "$TARGETS"
 
 # Everything below consumes discovery evidence for the phase-2 auth-posture
@@ -64,9 +75,15 @@ if task_phase_is 2; then
 if (have nxc || have netexec) && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_PASS:-}" ]; then
     NXC=$(command -v nxc || command -v netexec)
     log "nxc ssh (cred check)"
-    ips_only "$TARGETS" | \
-        "$NXC" ssh - -u "$ENUM_USER" -p "$ENUM_PASS" \
-        > "$OUT/nxc_ssh.txt" 2>&1 || true
+    while read -r target; do
+        [ -z "$target" ] && continue
+        read -r ip port <<< "$(split_ipport "$target")"
+        mkdir -p "$OUT/$ip"
+        auth_user_tag=$(ssh_user_tag "$ENUM_USER")
+        printf '%s\n' "$ip" | \
+            "$NXC" ssh - --port "$port" -u "$ENUM_USER" -p "$ENUM_PASS" \
+            > "$OUT/$ip/nxc_ssh_${auth_user_tag}_${port}.txt" 2>&1 || true
+    done < "$TARGETS"
 fi
 
 # ---------- iteration C.14: key-only refusal + CVE-2018-15473 hints ----------
@@ -75,11 +92,13 @@ fi
 while read -r target; do
     [ -z "$target" ] && continue
     read -r ip port <<< "$(split_ipport "$target")"
-    am_file="$OUT/$ip/auth_methods.txt"
+    auth_user="${ENUM_USER:-root}"
+    auth_user_tag=$(ssh_user_tag "$auth_user")
+    am_file="$OUT/$ip/auth_methods_${auth_user_tag}_${port}.txt"
     [ ! -s "$am_file" ] && continue
     if grep -qiE 'publickey' "$am_file" && ! grep -qiE 'password|keyboard-interactive' "$am_file"; then
         echo "KEY_ONLY: $ip:$port advertises publickey only — refuse password spray" \
-            > "$OUT/$ip/_key_only_${port}.txt"
+            > "$OUT/$ip/_key_only_${auth_user_tag}_${port}.txt"
         log "  $ip:$port key-only — password spray would be wasted RTT + log noise"
     fi
 done < "$TARGETS"
@@ -92,7 +111,7 @@ done < "$TARGETS"
 while read -r target; do
     [ -z "$target" ] && continue
     read -r ip port <<< "$(split_ipport "$target")"
-    banner_file="$OUT/$ip/banner.txt"
+    banner_file="$OUT/$ip/banner_${port}.txt"
     [ ! -s "$banner_file" ] && continue
     ver=$(grep -oE 'OpenSSH_[0-9]+\.[0-9]+' "$banner_file" | head -1 | sed 's/OpenSSH_//')
     [ -z "$ver" ] && continue
@@ -114,7 +133,7 @@ done < "$TARGETS"
 while read -r target; do
     [ -z "$target" ] && continue
     read -r ip port <<< "$(split_ipport "$target")"
-    banner_file="$OUT/$ip/banner.txt"
+    banner_file="$OUT/$ip/banner_${port}.txt"
     [ ! -s "$banner_file" ] && continue
     full=$(grep -oE 'OpenSSH_[0-9]+\.[0-9]+(p[0-9]+)?' "$banner_file" | head -1 | sed 's/OpenSSH_//')
     [ -z "$full" ] && continue
@@ -129,7 +148,7 @@ while read -r target; do
         hit "CVE-2024-6387 regreSSHion candidate: $ip:$port OpenSSH $full"
     fi
     # Terrapin: prefer ssh-audit's verdict; else flag pre-9.6 (no strict-kex) as a candidate.
-    audit_file="$OUT/$ip/ssh-audit.txt"
+    audit_file="$OUT/$ip/ssh-audit_${port}.txt"
     if [ -s "$audit_file" ] && grep -qi 'CVE-2023-48795' "$audit_file"; then
         echo "OpenSSH $full — CVE-2023-48795 (Terrapin) signal flagged by ssh-audit" \
             > "$OUT/$ip/_cve-2023-48795_signal_${port}.txt"

@@ -20,8 +20,9 @@ if ! have nmap; then
     exit 0
 fi
 
-while read -r target; do
-    [ -z "$target" ] && continue
+probe_modbus_target() {
+    local target="$1"
+    [ -z "$target" ] && return 0
     read -r ip port <<< "$(split_ipport "$target")"
     mkdir -p "$OUT/$ip"
     out_file="$OUT/$ip/modbus_${port}.txt"
@@ -57,8 +58,8 @@ while read -r target; do
         hit "OT-ID Modbus $ip:$port (no FC17 disclosure — device may have responded with unsupported function)"
     fi
 
-    ot_throttle_sleep
-done < "$TARGETS"
+}
+ot_run_targets "$TARGETS" probe_modbus_target || exit $?
 
 cat > "$OUT/_hints.txt" <<'EOF'
 Modbus OT follow-ups (READ-SIDE ONLY — write side is hard-prohibited):

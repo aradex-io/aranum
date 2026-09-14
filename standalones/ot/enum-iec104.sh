@@ -48,8 +48,9 @@ except (socket.timeout, ConnectionRefusedError, OSError) as e:
 PY
 }
 
-while read -r target; do
-    [ -z "$target" ] && continue
+probe_iec104_target() {
+    local target="$1"
+    [ -z "$target" ] && return 0
     read -r ip port <<< "$(split_ipport "$target")"
     mkdir -p "$OUT/$ip"
     out_file="$OUT/$ip/iec104_${port}.txt"
@@ -78,8 +79,8 @@ while read -r target; do
         hit "OT-ID IEC-104 $ip:$port — verdict='${verdict}' bytes=${evidence}"
     fi
 
-    ot_throttle_sleep
-done < "$TARGETS"
+}
+ot_run_targets "$TARGETS" probe_iec104_target || exit $?
 
 cat > "$OUT/_hints.txt" <<'EOF'
 IEC 60870-5-104 OT follow-ups (READ-SIDE ONLY):

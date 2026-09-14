@@ -12,10 +12,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 parse_common_args "$@" || exit 1
 log "imap: $(wc -l < "$TARGETS") targets -> $OUT"
 
-if ! have nc; then
-    miss "nc not installed — imap dispatcher cannot probe"
-    exit 0
-fi
+imap_exchange() {
+    local ip="$1" port="$2" connect="$1:$2"
+    [[ "$ip" == *:* ]] && connect="[$ip]:$port"
+    if [ "$port" = "993" ]; then
+        have openssl || return 127
+        timeout 8 openssl s_client -quiet -connect "$connect" -servername "$ip"
+    else
+        have nc || return 127
+        timeout 8 nc -nv -w 5 "$ip" "$port"
+    fi
+}
 
 while read -r target; do
     [ -z "$target" ] && continue
@@ -27,16 +34,15 @@ while read -r target; do
         # IMAPS — TLS probe
         if have openssl; then
             printf 'a1 CAPABILITY\r\na2 LOGOUT\r\n' | \
-                timeout 8 openssl s_client -quiet -connect "$ip:$port" \
-                    -servername "$ip" < /dev/null \
-                    > "$OUT/$ip/banner_${port}.txt" 2>&1 || true
+                imap_exchange "$ip" "$port" \
+                > "$OUT/$ip/banner_${port}.txt" 2>&1 || true
         else
             miss "openssl not installed — skipping TLS banner for $ip:$port"
         fi
     else
         # Plain IMAP
         printf 'a1 CAPABILITY\r\na2 LOGOUT\r\n' | \
-            timeout 5 nc -nv -w 3 "$ip" "$port" \
+            imap_exchange "$ip" "$port" \
             > "$OUT/$ip/banner_${port}.txt" 2>&1 || true
     fi
 
@@ -64,10 +70,10 @@ while read -r target; do
     fi
 
     # ---------- optional cred check ----------
-    if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_PASS:-}" ] && [ "$port" != "993" ]; then
+    if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_PASS:-}" ]; then
         printf 'a1 LOGIN %s %s\r\na2 LOGOUT\r\n' \
             "$ENUM_USER" "$ENUM_PASS" | \
-            timeout 8 nc -nv -w 5 "$ip" "$port" \
+            imap_exchange "$ip" "$port" \
             > "$OUT/$ip/authtry_${port}.txt" 2>&1 || true
         if grep -q 'a1 OK' "$OUT/$ip/authtry_${port}.txt" 2>/dev/null; then
             hit "IMAP AUTH SUCCESS: $ip:$port"

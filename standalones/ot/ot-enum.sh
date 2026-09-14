@@ -91,6 +91,7 @@ declare -A DISPATCHER_FOR_PROTO=(
 declare -A PROTO_TARGET_FILES=()
 TMP_DIR="$(mktemp -d /tmp/ot-enum.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+OT_RATE_STATE_FILE="$TMP_DIR/global-rate.state"
 
 while IFS= read -r line; do
     [ -z "$line" ] && continue
@@ -123,7 +124,7 @@ for proto in "${!PROTO_TARGET_FILES[@]}"; do
         overall_rc=1
         continue
     fi
-    OT_CONFIRMED=1 OT_MAX_PARALLEL="$MAX_PARALLEL" \
+    OT_CONFIRMED=1 OT_MAX_PARALLEL="$MAX_PARALLEL" OT_RATE_STATE_FILE="$OT_RATE_STATE_FILE" \
         bash "$SCRIPT_DIR/$dispatcher" \
         --targets "$pfile" --output "$OUT" || {
             rc=$?

@@ -21,12 +21,51 @@
     modification, no certificate issuance attempted.
 #>
 [CmdletBinding()]
-param()
+param([switch]$LibraryOnly)
 
 function Hit($t) { Write-Host "[+] $t" -ForegroundColor Green }
+function Miss($t) { Write-Host "[-] $t" -ForegroundColor DarkGray }
 function Hdr($t) { Write-Host ""; Write-Host ("="*70) -ForegroundColor Cyan
                    Write-Host "  $t" -ForegroundColor Cyan
                    Write-Host ("="*70) -ForegroundColor Cyan }
+
+$script:EnrollExtendedRight = [Guid]'0e10c968-78fb-11d2-90d4-00c04f79dc55'
+
+function Test-LowPrivilegePrincipal($IdentityReference) {
+    $text = $IdentityReference.ToString()
+    try {
+        $sid = $IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+    } catch {
+        $sid = $text
+    }
+    return ($sid -eq 'S-1-1-0' -or $sid -eq 'S-1-5-11' -or
+            $sid -eq 'S-1-5-32-545' -or $sid -match '-513$' -or
+            $text -match '(^|\\)(Everyone|Authenticated Users|Domain Users|Users)$')
+}
+
+function Test-LowPrivilegeEnrollment($SecurityDescriptor) {
+    $allowed = $false
+    $denied = $false
+    foreach ($ace in @($SecurityDescriptor.Access)) {
+        if (-not (Test-LowPrivilegePrincipal $ace.IdentityReference)) { continue }
+        $rights = $ace.ActiveDirectoryRights.ToString()
+        $genericAll = $rights -match 'GenericAll'
+        $extended = $rights -match 'ExtendedRight'
+        if (-not $genericAll -and -not $extended) { continue }
+        if ($extended -and -not $genericAll) {
+            $objectType = [Guid]$ace.ObjectType
+            if ($objectType -ne [Guid]::Empty -and $objectType -ne $script:EnrollExtendedRight) { continue }
+        }
+        if ($ace.AccessControlType.ToString() -eq 'Deny') { $denied = $true }
+        elseif ($ace.AccessControlType.ToString() -eq 'Allow') { $allowed = $true }
+    }
+    # Conservative effective-right approximation: any applicable broad deny
+    # suppresses the allow, preventing admin-only/restricted templates from
+    # becoming low-privilege ESC1/2 positives.
+    return ($allowed -and -not $denied)
+}
+
+if ($LibraryOnly) { return }
 
 Hdr "AD CS TEMPLATE MISCONFIGURATION (ESC1 / ESC2 / ESC4)"
 
@@ -88,16 +127,17 @@ foreach ($tmpl in $templates.Children) {
     foreach ($a in $sd.Access) {
         $acl += "$($a.IdentityReference) $($a.ActiveDirectoryRights)"
     }
+    $broadEnroll = Test-LowPrivilegeEnrollment $sd
 
     # ESC1 — ENROLLEE_SUPPLIES_SUBJECT + Client Auth EKU + RA signature == 0 AND
     # not gated by manager approval (an approval-required template isn't ESC1).
-    if (($nameFlag -band $ESC1_BIT) -and $hasClientAuth -and $enrollSig -eq 0 -and (-not $needsApproval)) {
+    if (($nameFlag -band $ESC1_BIT) -and $hasClientAuth -and $enrollSig -eq 0 -and
+        (-not $needsApproval) -and $broadEnroll) {
         Hit "ESC1 (Vulnerable): $name (ENROLLEE_SUPPLIES_SUBJECT + Client Auth, no enrollment-agent signature required, no manager approval)"
         $esc1_hits++
     }
     # ESC2 — Any Purpose / No EKU on a template that anyone-Authenticated can enroll
     if ($hasAnyPurpose) {
-        $broadEnroll = $acl | Where-Object { $_ -match "Authenticated Users|Domain Users|Everyone" -and $_ -match "ExtendedRight|GenericAll" }
         if ($broadEnroll) {
             Hit "ESC2 (Vulnerable): $name (Any Purpose / No EKU + broad enroll right)"
             $esc2_hits++
