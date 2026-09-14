@@ -9,6 +9,8 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
+## [v0.34.0] — 2026-09-14
+
 ### Fixed
 
 - R1 orchestration and queue state now validate the complete task schema,

@@ -860,29 +860,21 @@ elif [ "${CI:-0}" = "true" ] || [ "${SMOKE_REQUIRE_CLEAN:-0}" = "1" ]; then
 else
     s "git: working tree dirty (local dev; set SMOKE_REQUIRE_CLEAN=1 to fail): $(printf '%s\n' "$dirty" | head -3)"
 fi
-# Release tag present — derived from the CHANGELOG top released block so this gate
-# is self-maintaining (the old hardcoded list stopped at v0.21.0 and silently quit
-# protecting the last 11 releases, missing the v0.31.0 "never tagged" slip it existed
-# to catch). Assert the latest released version in CHANGELOG.md has a matching tag.
-latest_ver=$(grep -oE '^## \[v[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
-if [ -n "$latest_ver" ]; then
-    if git tag | grep -qx "$latest_ver"; then
-        p "git: latest released tag $latest_ver present (from CHANGELOG)"
-    else
-        f "git: latest released tag $latest_ver MISSING — CHANGELOG top released block has no matching git tag"
-    fi
-else
-    s "git: could not derive latest released version from CHANGELOG.md"
-fi
+# The reusable gate keeps VERSION/CHANGELOG agreement strict everywhere. An absent
+# tag is tolerated only while GitHub Actions is evaluating the pull request that
+# creates the release commit; local runs and push/main CI remain strict.
+tag_gate_output=$(bash "$REPO/aranumtoolkit/tests/release-tag-gate.sh" "$REPO" 2>&1)
+tag_gate_rc=$?
+case "$tag_gate_rc" in
+    0) p "$tag_gate_output" ;;
+    2) s "$tag_gate_output" ;;
+    *) f "$tag_gate_output" ;;
+esac
 
-# VERSION file is the canonical version — must match the CHANGELOG top released block.
-if [ -f VERSION ] && [ -n "$latest_ver" ]; then
-    vfile=$(tr -d '[:space:]' < VERSION)
-    if [ "v$vfile" = "$latest_ver" ]; then
-        p "version: VERSION ($vfile) matches CHANGELOG latest release"
-    else
-        f "version: VERSION ($vfile) != CHANGELOG latest release ($latest_ver)"
-    fi
+if bash "$REPO/aranumtoolkit/tests/test_release_tag_gate.sh" >/dev/null 2>&1; then
+    p "release tag gate: PR allowance and strict push/local behavior verified"
+else
+    f "release tag gate: focused policy fixtures failed"
 fi
 
 # -----------------------------------------------------------------
