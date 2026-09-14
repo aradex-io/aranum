@@ -41,6 +41,20 @@ if GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request bash "$GATE" "$FIXTURE" >/
 fi
 printf '0.34.0\n' > "$FIXTURE/VERSION"
 
+mv "$FIXTURE/CHANGELOG.md" "$FIXTURE/CHANGELOG.valid"
+if GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request bash "$GATE" "$FIXTURE" >/dev/null; then
+    printf 'FAIL: missing CHANGELOG was accepted in pull_request CI\n' >&2
+    fail=1
+fi
+
+printf '# Changelog\n\n## [Unreleased]\n\n## malformed release heading\n' \
+    > "$FIXTURE/CHANGELOG.md"
+if GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request bash "$GATE" "$FIXTURE" >/dev/null; then
+    printf 'FAIL: malformed CHANGELOG was accepted in pull_request CI\n' >&2
+    fail=1
+fi
+mv "$FIXTURE/CHANGELOG.valid" "$FIXTURE/CHANGELOG.md"
+
 git -C "$FIXTURE" tag v0.34.0
 if env -u GITHUB_ACTIONS -u GITHUB_EVENT_NAME bash "$GATE" "$FIXTURE" >/dev/null; then
     :

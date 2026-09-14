@@ -867,7 +867,6 @@ tag_gate_output=$(bash "$REPO/aranumtoolkit/tests/release-tag-gate.sh" "$REPO" 2
 tag_gate_rc=$?
 case "$tag_gate_rc" in
     0) p "$tag_gate_output" ;;
-    2) s "$tag_gate_output" ;;
     *) f "$tag_gate_output" ;;
 esac
 
