@@ -61,8 +61,28 @@ class TestPlanWriter(unittest.TestCase):
             self.assertEqual(guidance["counts"]["queue_tasks"], len(plan["tasks"]))
             first = plan["tasks"][0]
             for key in ("schema_version", "priority", "risk", "cost", "requires_opt_in",
-                        "requires_auth", "target_label", "output_hint", "status", "reason"):
+                        "requires_auth", "target_label", "output_hint", "status", "reason",
+                        "task_execution"):
                 self.assertIn(key, first)
+
+            smb_tasks = [task for task in plan["tasks"] if task["service"] == "smb"]
+            self.assertGreater(len(smb_tasks), 0)
+            self.assertTrue(all(task["phase"] == "all" and
+                                task["task_execution"] == "monolithic"
+                                for task in smb_tasks))
+            self.assertTrue(all(task["risk"] == "read-safe" and
+                                task["priority"] == 840 and
+                                task["task_id"].endswith(":all")
+                                for task in smb_tasks),
+                            "canonical SMB task must preserve risk, priority, and identity")
+            smb_endpoints = {(task["host"], task["port"], task["proto"])
+                             for task in smb_tasks}
+            self.assertEqual(len(smb_tasks), len(smb_endpoints),
+                             "monolithic SMB must plan exactly one task per endpoint")
+
+            ftp_phases = {task["phase"] for task in plan["tasks"]
+                          if task["service"] == "ftp"}
+            self.assertEqual(ftp_phases, {"1", "2"})
 
     def test_phase_filter_cli_restricts_tasks(self):
         with tempfile.TemporaryDirectory() as td:
@@ -73,6 +93,8 @@ class TestPlanWriter(unittest.TestCase):
 
             self.assertGreater(len(plan["tasks"]), 0)
             self.assertTrue(all(task["phase"] == "2" for task in plan["tasks"]))
+            self.assertTrue(all(task["service"] in {"ftp", "ssh"}
+                                for task in plan["tasks"]))
 
 
 class TestMetadataCoverage(unittest.TestCase):
@@ -92,6 +114,14 @@ class TestMetadataCoverage(unittest.TestCase):
         }
         missing = dispatchers - services
         self.assertFalse(missing, f"service-metadata.json missing dispatcher entries: {sorted(missing)}")
+
+    def test_phase_aware_services_are_explicit_and_centralized(self):
+        metadata = json.loads(METADATA.read_text(encoding="utf-8"))
+        default_execution = metadata["defaults"]["task_execution"]
+        self.assertEqual(default_execution, "monolithic")
+        phased = {name for name, cfg in metadata["services"].items()
+                  if cfg.get("task_execution", default_execution) == "phased"}
+        self.assertEqual(phased, {"ftp", "ssh"})
 
 
 if __name__ == "__main__":

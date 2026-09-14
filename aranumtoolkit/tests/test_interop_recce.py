@@ -103,10 +103,11 @@ class TestHelpers(unittest.TestCase):
                 {"ip": "10.0.0.6", "port": "x"},    # dropped: non-int port
             ]})
             got = M._ports_from_inventory(p)
-        self.assertEqual(len(got), 2)
+        self.assertEqual(len(got), 1)
         smb = next(e for e in got if e["port"] == 445)
         self.assertEqual((smb["service"], smb["product"], smb["version"]),
                          ("smb", "Samba", "4.15"))
+        self.assertFalse(any(e["port"] == 80 for e in got))
 
     def test_ports_from_raw_tree_both_layouts(self):
         sp = M._load_service_ports()

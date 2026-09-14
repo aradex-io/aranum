@@ -9,7 +9,43 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- R1 orchestration and queue state now validate the complete task schema,
+  invoke the real dispatcher once per selected task with an exact endpoint and
+  parsed phase/risk/priority/protocol/task contract, record task-scoped
+  completion, isolate each run's result state, and fail the process when any
+  selected dispatcher fails. Explicitly empty queues fail; intentionally
+  priority-filtered zero-task runs remain successful and auditable. The shared
+  dispatcher phase gate now keeps FTP discovery separate from anonymous/auth
+  enumeration, and successful non-queue runs archive stale authoritative queue
+  snapshots from the same output directory. Reporting treats output-local queue
+  state as exclusive, uses parent state only as a legacy fallback, and accepts
+  current records only when their run ID matches the published run state.
+  Service metadata now centrally distinguishes phase-aware FTP/SSH from the
+  monolithic dispatcher fleet: monolithic services plan one canonical `all`
+  task and staged records fail before dispatch. FTP Nmap and credentialed NXC
+  checks honor each selected endpoint port instead of forcing port 21; mixed
+  port target sets are partitioned into correctly scoped NXC calls.
+- Planner/parser/reporting identity is endpoint-aware across TCP and UDP;
+  duplicate tasks and findings are stable across shard/source relocation, IPv6
+  dispatcher evidence is attributed consistently, and clean/failed/unassessed
+  coverage is represented separately from affected hosts.
+- Bulk Linux/Windows output uses collision-safe endpoint directories and
+  manifests, with bounded concurrency and conservative legacy resume migration.
+- Merged results require schema v2 sources, report partial evidence-copy failure
+  via exit 3 and `complete=false`, and disclose mixed redaction state.
+- Recce export auto-discovers all supported scan formats, refuses protocol-less
+  endpoint guesses, and marks only exact, queue-authorized successfully assessed
+  endpoints complete; unselected endpoints cannot inherit service-wide evidence.
+- Dependency and output-directory failures are fatal; the local and CI test
+  inventories now run the same unit, pytest, smoke, lint, and data-audit gates.
+
+### Added
+
+- R1 regression coverage for scheduler resume/failure semantics, parser and
+  planner endpoint identity, report coverage/deduplication, merge integrity,
+  Recce completion state, bulk endpoint collisions, and quality-gate parity.
 
 ## [v0.33.0] — 2026-07-28
 

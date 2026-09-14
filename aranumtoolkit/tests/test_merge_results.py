@@ -24,6 +24,7 @@ def _write_run(out_dir: Path, findings: list[dict], evidence: dict[str, str]) ->
         fp.write_text(contents, encoding="utf-8")
 
     payload = {
+        "schema_version": "2",
         "label": out_dir.name,
         "generated_utc": "2026-01-01T00:00:00Z",
         "mode": "auto-enum",

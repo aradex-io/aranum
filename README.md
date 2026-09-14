@@ -309,6 +309,12 @@ Planner outputs:
 | `guidance.json` | Manual handoffs, gated surfaces, and next-step recommendations for dashboard rendering |
 
 Profiles live in `aranumtoolkit/network/engagement-profiles.json`; service priorities and safety metadata live in `aranumtoolkit/network/service-metadata.json`.
+That metadata is also the execution-capability contract: `task_execution:
+"phased"` exposes independently runnable phase tasks, while the default
+`"monolithic"` mode emits one canonical `phase: "all"` task because one
+dispatcher invocation already performs its complete assessment. A phase filter
+selects a monolithic service only when it includes every phase declared for that
+service; unsupported staged queue records fail before the dispatcher starts.
 
 ## Unified report (iteration E)
 

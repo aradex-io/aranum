@@ -127,7 +127,7 @@ class TestMergeHardening(unittest.TestCase):
     def _src(self, d, evidence_path):
         s = Path(d) / "a" / "b" / "c" / "src"
         s.mkdir(parents=True)
-        (s / "findings.json").write_text(json.dumps({"findings": [
+        (s / "findings.json").write_text(json.dumps({"schema_version": "2", "findings": [
             {"host": "h", "port": "1", "service": "s", "severity": "high",
              "line": "L", "evidence_path": evidence_path}]}))
         return s
@@ -142,7 +142,8 @@ class TestMergeHardening(unittest.TestCase):
             secret.write_text("SENTINEL-MERGE-LEAK\n")
             src = self._src(d, "../../../../leak/secret.txt")
             out = Path(d) / "out"
-            self.assertEqual(self._merge(src, out).returncode, 0)
+            self.assertEqual(self._merge(src, out).returncode, 3)
+            self.assertFalse(json.loads((out / "findings.json").read_text())["complete"])
             for f in out.rglob("*"):
                 if f.is_file():
                     self.assertNotIn("SENTINEL-MERGE-LEAK", f.read_text(errors="replace"))
@@ -151,7 +152,8 @@ class TestMergeHardening(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             src = self._src(d, "/etc/hostname")
             out = Path(d) / "out"
-            self.assertEqual(self._merge(src, out).returncode, 0)
+            self.assertEqual(self._merge(src, out).returncode, 3)
+            self.assertFalse(json.loads((out / "findings.json").read_text())["complete"])
             self.assertFalse((out / "evidence").exists() and
                              any("hostname" in p.name for p in out.rglob("*")))
 

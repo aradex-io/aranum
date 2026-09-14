@@ -89,6 +89,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -161,6 +162,24 @@ def parse_spec(spec: str, default_user: str, default_port: int) -> Optional[Targ
         if port_s.isdigit():
             return Target(user=user, host=host, port=int(port_s), raw_spec=spec)
     return Target(user=user, host=rest, port=default_port, raw_spec=spec)
+
+
+def _safe_component(value: str, fallback: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._-]", "_", value).strip(".")
+    return value or fallback
+
+
+def _legacy_host_component(host: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._:-]", "_", host)
+    return value if value not in ("", ".", "..") else "host"
+
+
+def endpoint_key(target: Target) -> str:
+    """Collision-safe, readable artifact key for user/host/port identity."""
+    identity = f"{target.user}\0{target.host}\0{target.port}\0windows"
+    digest = hashlib.sha256(identity.encode()).hexdigest()[:12]
+    return (f"{_safe_component(target.user, 'user')}--"
+            f"{_safe_component(target.host, 'host')}--p{target.port}--{digest}")
 
 
 # --------------------------------------------------------------------- transport selection
@@ -590,10 +609,7 @@ def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
     # Sanitise host into a single safe path component for the OUTPUT dir only —
     # a hostile/malformed targets line (e.g. ../../x) must never make mkdir
     # escape out_dir (OPSEC §9). The transport connection still uses target.host.
-    safe_host = re.sub(r"[^A-Za-z0-9._:-]", "_", target.host) or "host"
-    if safe_host in (".", ".."):
-        safe_host = "host"
-    hdir = out_dir / safe_host
+    hdir = out_dir / endpoint_key(target)
     hdir.mkdir(parents=True, exist_ok=True)
     t0 = int(time.time())
     started = datetime.now(timezone.utc).isoformat()
@@ -608,6 +624,10 @@ def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
         print(f"[DRY] {target.user}@{host_disp}:{target.port}  ->  {hdir}/winenum.txt"
               f"  (transport-order={order_disp}, auth={args.auth})")
         return HostResult(target, 0, started, 0, 0, 0, "dry-run", "OK", "")
+
+    if not args.resume:
+        # A current failure must invalidate success from an earlier run.
+        (hdir / ".done").unlink(missing_ok=True)
 
     attempts: list[str] = []
     result: Optional[TransportResult] = None
@@ -648,9 +668,13 @@ def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
         "tls": args.tls,
         "script": str(args.script),
     }
-    (hdir / "_meta.json").write_text(json.dumps(meta, indent=2))
+    meta_tmp = hdir / f"._meta.json.{os.getpid()}.{time.time_ns()}"
+    meta_tmp.write_text(json.dumps(meta, indent=2) + "\n")
+    os.replace(meta_tmp, hdir / "_meta.json")
     if result.status == "OK":
-        (hdir / ".done").touch()
+        done_tmp = hdir / f".done.{os.getpid()}.{time.time_ns()}"
+        done_tmp.touch()
+        os.replace(done_tmp, hdir / ".done")
 
     if os.environ.get("ENUM_THROTTLE") == "1":
         time.sleep(int(os.environ.get("ENUM_THROTTLE_DELAY", "1")))
@@ -742,8 +766,8 @@ def main() -> int:
     script_path = Path(args.script)
     if not script_path.is_file():
         err(f"script not found: {script_path}"); return 2
-    if args.parallel > PARALLEL_CAP:
-        err(f"parallel capped at {PARALLEL_CAP} (you asked for {args.parallel})")
+    if not 1 <= args.parallel <= PARALLEL_CAP:
+        err(f"parallel must be in 1..{PARALLEL_CAP} (you asked for {args.parallel})")
         return 2
     if args.auth == "basic" and not args.tls:
         err("auth=basic over HTTP is refused (clear-text password); pass --tls")
@@ -790,7 +814,14 @@ def main() -> int:
 
     # --- output dir + audit copies ---
     out_dir = Path(args.output).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        err(f"cannot create output directory {out_dir}: {exc}")
+        return 2
+    if not out_dir.is_dir():
+        err(f"output path is not a directory: {out_dir}")
+        return 2
     (out_dir / "hosts.txt").write_text(targets_path.read_text())
     _run_log(out_dir, "=== bulk-enum-windows run started ===")
     _run_log(out_dir, f"targets={targets_path} outdir={out_dir} "
@@ -820,6 +851,60 @@ def main() -> int:
     if not targets:
         err("no host entries in targets file (after stripping comments / blanks)")
         return 1
+    # Duplicate endpoint rows are one task, not concurrent writers.  Keep the
+    # original stable order for operator readability.
+    unique_targets: list[Target] = []
+    seen_targets: set[tuple[str, str, int]] = set()
+    for target in targets:
+        identity = (target.user, target.host, target.port)
+        if identity not in seen_targets:
+            seen_targets.add(identity)
+            unique_targets.append(target)
+    targets = unique_targets
+
+    # Explicit legacy policy: migrate a host-keyed directory only when the
+    # current input names exactly one endpoint for that host. Refuse ambiguous
+    # legacy resume rather than allowing one old marker to satisfy two accounts.
+    host_counts: dict[str, int] = {}
+    for target in targets:
+        host_counts[target.host] = host_counts.get(target.host, 0) + 1
+    if args.resume:
+        for target in targets:
+            legacy = out_dir / _legacy_host_component(target.host)
+            current = out_dir / endpoint_key(target)
+            if current.exists() or not legacy.exists():
+                continue
+            if host_counts[target.host] != 1:
+                err(f"ambiguous legacy resume state for {target.host}: multiple user/port "
+                    "endpoints now share one host-keyed directory; rerun without --resume "
+                    "or move evidence manually")
+                return 2
+            legacy.rename(current)
+            warn(f"migrated unambiguous legacy state {legacy.name} -> {current.name}")
+
+    manifest = {
+        "schema_version": 1,
+        "artifact_key_fields": ["user", "host", "port", "platform"],
+        "endpoints": [{"endpoint_id": endpoint_key(t), "user": t.user,
+                       "host": t.host, "port": t.port, "platform": "windows",
+                       "raw_spec": t.raw_spec} for t in targets],
+    }
+    manifest_tmp = out_dir / f".endpoints.json.{os.getpid()}"
+    manifest_tmp.write_text(json.dumps(manifest, indent=2) + "\n")
+    os.replace(manifest_tmp, out_dir / "endpoints.json")
+    # Read-only compatibility aliases for a uniquely named host. Workers and
+    # resume state always use endpoint_id; aliases are never created when they
+    # could collide and report walkers ignore symlinks.
+    for target in targets:
+        if host_counts[target.host] != 1:
+            continue
+        alias = out_dir / _legacy_host_component(target.host)
+        if alias.exists() or alias.is_symlink():
+            continue
+        try:
+            alias.symlink_to(endpoint_key(target), target_is_directory=True)
+        except OSError:
+            pass
     log(f"{len(targets)} host(s) to enumerate -> {out_dir} (parallel={args.parallel})")
     _run_log(out_dir, f"dispatch: {len(targets)} hosts, parallel={args.parallel}")
 

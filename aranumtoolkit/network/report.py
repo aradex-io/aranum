@@ -86,17 +86,19 @@ _SEVERITY_TO_NEXT_ACTIONS = {
 
 
 def _load_service_metadata(out_dir: Path | None = None) -> dict[str, dict]:
-    """Load service metadata hints if present.
+    """Load repository metadata, then overlay run-local metadata.
 
-    Primary source is `aranumtoolkit/network/service-metadata.json`; fallback is
-    `<out_dir>/service-metadata.json` so a local run can override without
-    touching the repo copy.
+    Precedence is repository defaults < ``<out>/network`` < ``<out>``.  Both
+    defaults and individual service records are merged field-by-field so a
+    run-local file can override one title/priority without copying the catalog.
     """
     files: list[Path] = [Path(__file__).resolve().parent / "service-metadata.json"]
     if out_dir is not None:
-        files.append(out_dir / "service-metadata.json")
         files.append(out_dir / "network" / "service-metadata.json")
+        files.append(out_dir / "service-metadata.json")
 
+    merged_defaults: dict[str, object] = {}
+    merged_services: dict[str, dict] = {}
     for fp in files:
         if not fp.is_file():
             continue
@@ -117,12 +119,10 @@ def _load_service_metadata(out_dir: Path | None = None) -> dict[str, dict]:
                 and isinstance(v, dict)
             }
 
-        defaults = _coerce_service_metadata_fields(raw.get("defaults"))
-        return {
-            "defaults": defaults,
-            "services": _coerce_service_metadata_services(services),
-        }
-    return _DEFAULT_SERVICE_METADATA
+        merged_defaults.update(_coerce_service_metadata_fields(raw.get("defaults")))
+        for service, cfg in _coerce_service_metadata_services(services).items():
+            merged_services[service] = {**merged_services.get(service, {}), **cfg}
+    return {"defaults": merged_defaults, "services": merged_services}
 
 
 def _coerce_service_metadata_fields(raw: object) -> dict[str, object]:
@@ -207,20 +207,26 @@ def _structured_finding(
     line: str,
     evidence_path: str,
     service_metadata: dict[str, dict],
+    protocol: str = "",
 ) -> dict:
     cfg_defaults = _coerce_service_metadata_fields(service_metadata.get("defaults", {}))
     cfg_service = _coerce_service_metadata_fields(service_metadata.get("services", {}).get(service, {}))
     cfg = {**cfg_defaults, **cfg_service}
-    normalized_line = _clean_line(line).strip()[:300]
-    _id_seed = f"{service}|{host}|{port}|{severity}|{evidence_path}|{normalized_line}"
+    complete_line = _clean_line(line).strip()
+    normalized_line = complete_line[:300]
+    evidence_identity = hashlib.sha256(complete_line.encode()).hexdigest()
+    _id_seed = f"{service}|{host}|{port}|{protocol}|{severity}|{evidence_identity}"
     finding_id = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(_id_seed.encode()).hexdigest()[:14]}"
     return {
         "host": host,
         "port": port,
+        "protocol": protocol,
         "service": service,
         "severity": severity,
         "line": normalized_line,
         "evidence_path": evidence_path,
+        "evidence_paths": [evidence_path] if evidence_path else [],
+        "evidence_identity": evidence_identity,
         "finding_id": finding_id,
         "title": _finding_title(service, severity, normalized_line, cfg),
         "confidence": _coerce_str(cfg.get("confidence"), fallback=_SEVERITY_TO_CONFIDENCE.get(severity, "medium")),
@@ -455,11 +461,12 @@ def _clean_line(line: str) -> str:
 # none of the combined regexes matches, no individual rule can match either. This
 # turns the per-line hot path from ~90 Python-level .search() calls into a couple of
 # C-level alternation scans for the overwhelmingly-common no-match line.
-_PREFILTER_CACHE: dict[int, tuple] = {}
+_PREFILTER_CACHE: dict[tuple[tuple[str, int, str], ...], tuple] = {}
 
 
 def _prefilter_for(rules: list[tuple[re.Pattern, str]]):
-    key = id(rules)
+    # Content keys cannot alias when CPython recycles a short-lived list id.
+    key = tuple((pat.pattern, pat.flags, sev) for pat, sev in rules)
     pf = _PREFILTER_CACHE.get(key)
     if pf is None:
         groups: dict[int, list[str]] = defaultdict(list)
@@ -497,7 +504,7 @@ def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
 
 
 def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
-    rules: list[tuple[re.Pattern, str]] = list(_DEFAULT_RULES)
+    custom: list[tuple[re.Pattern, str]] = []
     if path:
         for lineno, ln in enumerate(path.read_text().splitlines(), 1):
             ln = ln.strip()
@@ -509,12 +516,13 @@ def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
                 if sev not in _SEV_ORDER:
                     raise ValueError(
                         f"severity must be one of {sorted(_SEV_ORDER)}, got {sev!r}")
-                rules.append((re.compile(obj["pattern"], re.I), sev))
+                custom.append((re.compile(obj["pattern"], re.I), sev))
             except (json.JSONDecodeError, KeyError, re.error, TypeError, ValueError) as exc:
                 print(f"error: {path}:{lineno}: invalid severity rule ({exc})",
                       file=sys.stderr)
                 sys.exit(2)
-    return rules
+    # Explicit operator policy overrides defaults under first-match semantics.
+    return custom + list(_DEFAULT_RULES)
 
 
 # ---------------------------------------------------- redaction
@@ -783,7 +791,7 @@ def _is_bulk_enum_dir(out_dir: Path) -> bool:
     auto-enum.sh subdirs are service names containing host subdirs — they
     never contain a top-level linenum.txt/winenum.txt."""
     for sub in out_dir.iterdir():
-        if not sub.is_dir():
+        if not sub.is_dir() or sub.is_symlink():
             continue
         if (sub / "_meta.json").is_file():
             if (sub / "linenum.txt").is_file() or (sub / "winenum.txt").is_file():
@@ -802,6 +810,313 @@ def _is_generated_dashboard_dir(path: Path) -> bool:
     )
 
 
+def _inventory_endpoints(out_dir: Path) -> list[dict]:
+    """Return canonical endpoint records available beside a run."""
+    candidates = [out_dir / "inventory.json", out_dir / "raw" / "inventory.json"]
+    records: list[dict] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            doc = json.loads(path.read_text(errors="replace"))
+        except Exception:
+            continue
+        for entry in doc.get("entries", []) if isinstance(doc, dict) else []:
+            if not isinstance(entry, dict):
+                continue
+            host = str(entry.get("ip", "")).strip()
+            port = str(entry.get("port", "")).strip()
+            protocol = str(entry.get("proto", "")).strip().lower()
+            services = entry.get("categories") or [entry.get("service", "")]
+            for service in services:
+                service = str(service).strip().lower()
+                if not host or not port or not service:
+                    continue
+                key = (host, port, protocol, service)
+                if key not in seen:
+                    seen.add(key)
+                    records.append({"host": host, "port": port, "protocol": protocol,
+                                    "service": service})
+        break
+    # Older/evidence-only runs may lack inventory.json. Preserve their assessed
+    # coverage from explicit target lists and endpoint directories.
+    target_re = re.compile(r"^\[([^]]+)\]:(\d+)$|^(.+):(\d+)$")
+    for target_file in out_dir.glob("_targets_*.txt"):
+        service = target_file.stem.removeprefix("_targets_")
+        try:
+            lines = target_file.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            match = target_re.match(line.strip())
+            if not match:
+                continue
+            host, port = ((match.group(1), match.group(2)) if match.group(1)
+                          else (match.group(3), match.group(4)))
+            if any(r["host"] == host and r["port"] == port and r["service"] == service
+                   for r in records):
+                continue
+            key = (host, port, "", service)
+            if key not in seen:
+                seen.add(key)
+                records.append({"host": host, "port": port, "protocol": "",
+                                "service": service})
+    for svc_dir in out_dir.iterdir():
+        if (not svc_dir.is_dir() or svc_dir.name.startswith((".", "_"))
+                or _is_generated_dashboard_dir(svc_dir)):
+            continue
+        for host_dir in svc_dir.iterdir():
+            if not host_dir.is_dir():
+                continue
+            context_path = host_dir / "_task-context.json"
+            if context_path.is_file():
+                try:
+                    context = json.loads(context_path.read_text(errors="replace"))
+                    target = context.get("target") or {}
+                    host = str(target.get("ip", "")).strip()
+                    port = str(target.get("port", "")).strip()
+                    protocol = str(target.get("proto", "")).strip().lower()
+                except Exception:
+                    host = port = protocol = ""
+                if host and port and protocol in {"tcp", "udp"}:
+                    key = (host, port, protocol, svc_dir.name)
+                    if key not in seen:
+                        seen.add(key)
+                        records.append({"host": host, "port": port,
+                                        "protocol": protocol, "service": svc_dir.name})
+                # A task directory without a valid dispatcher-authored context
+                # is not an endpoint and must not become synthetic coverage.
+                continue
+            name = host_dir.name
+            if "_" in name and name.rsplit("_", 1)[1].isdigit():
+                host, port = name.rsplit("_", 1)
+            else:
+                host, port = name, ""
+            if any(r["host"] == host and r["port"] == port and r["service"] == svc_dir.name
+                   for r in records):
+                continue
+            key = (host, port, "", svc_dir.name)
+            if key not in seen:
+                seen.add(key)
+                records.append({"host": host, "port": port, "protocol": "",
+                                "service": svc_dir.name})
+    return records
+
+
+def _line_mentions_endpoint(line: str, host: str, port: str) -> bool:
+    """Return true only for a structurally delimited endpoint mention.
+
+    Matching known strings with ``in`` is unsafe here: ``10.0.0.1`` is a
+    substring of ``10.0.0.10``.  Build address-family-aware token patterns and
+    require an exact port when the line includes one.  Bare IPv6 host:port is
+    supported because the inventory supplies the split unambiguously.
+    """
+    escaped_host = re.escape(host)
+    escaped_port = re.escape(port)
+    try:
+        address = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        address = None
+
+    if isinstance(address, ipaddress.IPv6Address):
+        address_chars = r"0-9A-Za-z_.:%"
+        patterns = [
+            rf"(?<![{address_chars}])\[{escaped_host}\]:{escaped_port}(?![{address_chars}])",
+            rf"(?<![{address_chars}]){escaped_host}:{escaped_port}(?![{address_chars}])",
+            rf"(?<![{address_chars}])\[{escaped_host}\](?!:\d)",
+            rf"(?<![{address_chars}]){escaped_host}(?![{address_chars}]|:\d)",
+        ]
+        flags = re.IGNORECASE
+    elif isinstance(address, ipaddress.IPv4Address):
+        address_chars = r"0-9A-Za-z_.-"
+        patterns = [
+            rf"(?<![{address_chars}]){escaped_host}:{escaped_port}(?![{address_chars}])",
+            rf"(?<![{address_chars}]){escaped_host}(?![{address_chars}]|:\d)",
+        ]
+        flags = 0
+    else:
+        # Hostnames are DNS-like tokens.  The same delimiter rule prevents a
+        # known ``db1`` endpoint from matching ``db10`` or ``db1.example``.
+        patterns = [
+            rf"(?<![A-Za-z0-9_.-]){escaped_host}:{escaped_port}(?![A-Za-z0-9_.-])",
+            rf"(?<![A-Za-z0-9_.-]){escaped_host}(?![A-Za-z0-9_.-]|:\d)",
+        ]
+        flags = re.IGNORECASE
+    return any(re.search(pattern, line, flags) for pattern in patterns)
+
+
+def _endpoint_in_text(line: str, endpoints: list[dict], service: str) -> dict | None:
+    """Resolve one exact known endpoint from structured address tokens."""
+    matches: list[dict] = []
+    for endpoint in endpoints:
+        if endpoint["service"] != service:
+            continue
+        host, port = endpoint["host"], endpoint["port"]
+        if _line_mentions_endpoint(line, host, port):
+            matches.append(endpoint)
+    unique = {(m["host"], m["port"], m["protocol"]): m for m in matches}
+    return next(iter(unique.values())) if len(unique) == 1 else None
+
+
+def _refresh_finding_identity(finding: dict) -> None:
+    seed = "|".join(str(finding.get(k, "")) for k in
+                    ("service", "host", "port", "protocol", "severity", "evidence_identity"))
+    finding["finding_id"] = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(seed.encode()).hexdigest()[:14]}"
+
+
+def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
+    """Attribute dispatcher evidence, preserve protocol, and deduplicate it."""
+    endpoints = _inventory_endpoints(out_dir)
+    deduped: dict[tuple[str, ...], dict] = {}
+    for original in findings:
+        finding = dict(original)
+        service = str(finding.get("service", "")).lower()
+        endpoint: dict | None = None
+        host = str(finding.get("host", ""))
+        port = str(finding.get("port", ""))
+        if host == "(dispatcher)":
+            endpoint = _endpoint_in_text(str(finding.get("line", "")), endpoints, service)
+        else:
+            possible = [e for e in endpoints if e["service"] == service and e["host"] == host
+                        and (not port or e["port"] == port)]
+            unique = {(e["host"], e["port"], e["protocol"]): e for e in possible}
+            if len(unique) == 1:
+                endpoint = next(iter(unique.values()))
+            elif not endpoint:
+                endpoint = _endpoint_in_text(str(finding.get("line", "")), endpoints, service)
+        if endpoint:
+            finding.update(endpoint)
+        finding.setdefault("protocol", "")
+        identity = str(finding.get("evidence_identity", ""))
+        if not identity:
+            identity = hashlib.sha256(str(finding.get("line", "")).encode()).hexdigest()
+            finding["evidence_identity"] = identity
+        _refresh_finding_identity(finding)
+        key = tuple(str(finding.get(k, "")) for k in
+                    ("host", "port", "protocol", "service", "severity", "evidence_identity"))
+        path = str(finding.get("evidence_path", ""))
+        finding["evidence_paths"] = [p for p in finding.get("evidence_paths", [path]) if p]
+        prior = deduped.get(key)
+        if prior is None:
+            deduped[key] = finding
+            continue
+        for evidence_path in finding["evidence_paths"]:
+            if evidence_path not in prior["evidence_paths"]:
+                prior["evidence_paths"].append(evidence_path)
+        # Prefer endpoint-specific evidence as the primary link, while retaining
+        # dispatcher stdout as secondary provenance.
+        if "_dispatcher.log" in str(prior.get("evidence_path", "")) and path:
+            prior["evidence_path"] = path
+    return list(deduped.values())
+
+
+def _coverage(out_dir: Path, findings: list[dict]) -> list[dict]:
+    endpoints = _inventory_endpoints(out_dir)
+    states: dict[tuple[str, str, str, str], tuple[str, str]] = {}
+    queue_authoritative = False
+    current_run_id = ""
+    declared_queue_authority: bool | None = None
+    try:
+        run_state = json.loads((out_dir / "run-state.json").read_text(errors="replace"))
+        current_run_id = str(run_state.get("run_id", ""))
+        if isinstance(run_state.get("queue_authoritative"), bool):
+            declared_queue_authority = run_state["queue_authoritative"]
+    except (OSError, ValueError, TypeError):
+        pass
+
+    # Output-local state is the sole primary authority. The parent location is
+    # retained only for pre-R1/external-queue compatibility and is considered
+    # only when the local snapshot is absent. Never merge the two campaigns.
+    local_state = out_dir / "queue.state.jsonl"
+    parent_state = out_dir.parent / "queue.state.jsonl"
+    state_path = local_state if local_state.is_file() else (
+        parent_state if parent_state.is_file() else None)
+    if state_path is not None and declared_queue_authority is not False:
+        raw_lines: list[str] = []
+        try:
+            raw_lines = [line for line in state_path.read_text(errors="replace").splitlines()
+                         if line.strip()]
+            matched_current_run = False
+            for line in raw_lines:
+                try:
+                    state = json.loads(line)
+                except (ValueError, TypeError):
+                    continue
+                # New queue records are inseparable from the run-state snapshot
+                # that published them. Legacy records remain usable only when
+                # no current run ID exists to disambiguate campaigns.
+                if current_run_id and str(state.get("run_id", "")) != current_run_id:
+                    continue
+                matched_current_run = True
+                target = state.get("target") or {}
+                key = (str(target.get("ip", "")), str(target.get("port", "")),
+                       str(target.get("proto", "")), str(state.get("service", "")))
+                if all(key):
+                    status = str(state.get("status", "unassessed")).lower()
+                    if status == "done":
+                        status = "assessed_clean"
+                    if status == "skip":
+                        status = "skipped"
+                    # Any incomplete task for an endpoint is authoritative:
+                    # a stale success marker or evidence from another phase
+                    # cannot turn an incomplete endpoint into clean coverage.
+                    prior = states.get(key)
+                    rank = {"failed": 4, "skipped": 3, "unassessed": 2,
+                            "assessed_clean": 1, "confirmed": 1, "ok": 1}
+                    if prior is None or rank.get(status, 0) > rank.get(prior[0], 0):
+                        states[key] = (status, str(state.get("reason", "")))
+            if declared_queue_authority is True:
+                queue_authoritative = True
+            elif not current_run_id:
+                queue_authoritative = True
+            elif not raw_lines:
+                # Legacy priority-filtered queue runs published an intentionally
+                # empty file before run-state carried an explicit mode marker.
+                queue_authoritative = True
+            elif matched_current_run:
+                queue_authoritative = True
+        except OSError:
+            pass
+    finding_keys = {(str(f.get("host", "")), str(f.get("port", "")),
+                     str(f.get("protocol", "")), str(f.get("service", ""))) for f in findings}
+    coverage: list[dict] = []
+    for endpoint in endpoints:
+        key = (endpoint["host"], endpoint["port"], endpoint["protocol"], endpoint["service"])
+        queue_state = states.get(key)
+        status, reason = queue_state or ("unassessed", "no execution record")
+        svc_dir = out_dir / endpoint["service"]
+        authoritative_incomplete = queue_state is not None and status in {"failed", "skipped", "unassessed"}
+        if authoritative_incomplete:
+            pass
+        elif queue_authoritative and queue_state is None:
+            # No selected task means no assessment.  Service-wide artifacts,
+            # stale markers, and findings from a different endpoint cannot
+            # grant completion outside the authoritative queue scope.
+            status, reason = "unassessed", "endpoint not selected by authoritative queue"
+        elif key in finding_keys:
+            status, reason = "confirmed", "finding evidence recorded"
+        elif queue_state is not None and status != "unassessed":
+            pass
+        elif (svc_dir / ".done").is_file():
+            status, reason = "assessed_clean", "dispatcher completed without a matched finding"
+        elif (svc_dir / ".rc").is_file():
+            try:
+                rc = int((svc_dir / ".rc").read_text().strip())
+            except (OSError, ValueError):
+                rc = -1
+            status, reason = (("assessed_clean", "dispatcher rc=0") if rc == 0
+                              else ("failed", f"dispatcher rc={rc}"))
+        elif svc_dir.is_dir() and any(p.is_file() and p.stat().st_size for p in svc_dir.rglob("*")
+                                      if p.name not in {".rc"}):
+            status, reason = "assessed_clean", "evidence recorded without matched finding"
+        record = {**endpoint, "status": status, "reason": reason}
+        if queue_authoritative:
+            record["execution_authority"] = "queue"
+        coverage.append(record)
+    return coverage
+
+
 # ---------------------------------------------------- walker
 def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) -> Iterable[dict]:
     """Yield finding dicts. Each finding has:
@@ -817,11 +1132,25 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
         #   $OUT/$service/<ip>/<file>          (most dispatchers)
         #   $OUT/$service/<ip>_<port>/<file>   (enum-jabber, enum-docker, ...)
         for host_dir in sorted(p for p in svc_dir.iterdir() if p.is_dir()):
-            name = host_dir.name
-            if "_" in name and name.rsplit("_", 1)[-1].isdigit():
-                host, port = name.rsplit("_", 1)
+            context_path = host_dir / "_task-context.json"
+            protocol = ""
+            if context_path.is_file():
+                try:
+                    context = json.loads(context_path.read_text(errors="replace"))
+                    target = context.get("target") or {}
+                    host = str(target.get("ip", "")).strip()
+                    port = str(target.get("port", "")).strip()
+                    protocol = str(target.get("proto", "")).strip().lower()
+                except Exception:
+                    continue
+                if not host or not port or protocol not in {"tcp", "udp"}:
+                    continue
             else:
-                host, port = name, ""
+                name = host_dir.name
+                if "_" in name and name.rsplit("_", 1)[-1].isdigit():
+                    host, port = name.rsplit("_", 1)
+                else:
+                    host, port = name, ""
             for fp in sorted(host_dir.rglob("*")):
                 # Containment (OPSEC §9): never read/report a file that resolves
                 # outside the scan tree — a symlink or .. inside an untrusted
@@ -858,6 +1187,7 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
                         line,
                         str(fp.relative_to(out_dir)),
                         service_metadata,
+                        protocol,
                     )
         # Also scan top-level _dispatcher.log / _hints.txt / _findings.txt
         for top_fp in sorted(svc_dir.glob("_*")):
@@ -899,7 +1229,7 @@ def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None
     # bulk-windows sweep produced ungraded (LOW-looking) AD-depth signals.
     linux_rules = list(_BULK_RULES) + list(_AD_DEPTH_RULES) + extras
     win_rules   = list(_BULK_RULES_WIN) + list(_AD_DEPTH_RULES) + extras
-    for host_dir in sorted(p for p in out_dir.iterdir() if p.is_dir()):
+    for host_dir in sorted(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink()):
         meta = host_dir / "_meta.json"
         if not meta.is_file():
             continue
@@ -912,6 +1242,9 @@ def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None
             _meta_obj = json.loads(meta.read_text())
         except Exception:
             _meta_obj = {}
+        _host = str(_meta_obj.get("host") or host_dir.name)
+        _port = str(_meta_obj.get("port") or _meta_obj.get("ssh_port") or "")
+        _protocol = str(_meta_obj.get("protocol") or "tcp")
         _status = str(_meta_obj.get("status", "")).upper()
         if _status and _status != "OK":
             _reason = str(_meta_obj.get("fail_reason", "") or _status)
@@ -919,9 +1252,9 @@ def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None
             _sev = "medium" if _status in (
                 "AUTH_FAIL", "UNREACHABLE", "TIMEOUT", "HOST_TIMEOUT") else "low"
             yield _structured_finding(
-                host_dir.name, "", _svc, _sev,
+                _host, _port, _svc, _sev,
                 f"[bulk-enum] host NOT fully enumerated — status={_status} ({_reason})",
-                str(meta.relative_to(out_dir)), service_metadata)
+                str(meta.relative_to(out_dir)), service_metadata, _protocol)
         for fname, rules, svc in (
             ("linenum.txt", linux_rules, "linenum"),
             ("winenum.txt", win_rules,   "winenum"),
@@ -933,19 +1266,20 @@ def walk_findings_bulk(out_dir: Path, extra_rules, service_metadata: dict | None
                 text = evidence.read_text(errors="replace")
             except Exception:
                 continue
-            host = host_dir.name
+            host = _host
             for line in text.splitlines():
                 sev = _classify(line, rules)
                 if sev is None:
                     continue
                 yield _structured_finding(
                     host,
-                    "",
+                    _port,
                     svc,
                     sev,
                     line,
                     str(evidence.relative_to(out_dir)),
                     service_metadata,
+                    _protocol,
                 )
 
 
@@ -978,7 +1312,7 @@ def _per_host_verdicts(findings: list[dict]) -> dict[str, dict]:
     return per
 
 
-def _summary(findings: list[dict]) -> dict:
+def _summary(findings: list[dict], out_dir: Path | None = None) -> dict:
     counts = defaultdict(int)
     by_service = defaultdict(lambda: defaultdict(int))
     hosts = set()
@@ -989,9 +1323,25 @@ def _summary(findings: list[dict]) -> dict:
         if f["host"] != "(dispatcher)":
             hosts.add(f["host"])
         services.add(f["service"])
+    hosts_with_findings = set(hosts)
+    services_with_findings = set(services)
+    coverage = _coverage(out_dir, findings) if out_dir is not None else []
+    hosts.update(c["host"] for c in coverage if c.get("host"))
+    services.update(c["service"] for c in coverage if c.get("service"))
+    coverage_counts: dict[str, int] = defaultdict(int)
+    for record in coverage:
+        coverage_counts[str(record.get("status", "unassessed"))] += 1
     return {
         "hosts": sorted(hosts),
         "services": sorted(services),
+        "hosts_assessed": sorted({c["host"] for c in coverage
+                                  if c.get("status") in {"confirmed", "assessed_clean"}}),
+        "hosts_with_findings": sorted(hosts_with_findings),
+        "services_attempted": sorted({c["service"] for c in coverage
+                                      if c.get("status") != "unassessed"}),
+        "services_with_findings": sorted(services_with_findings),
+        "coverage_counts": dict(coverage_counts),
+        "coverage": coverage,
         "counts": dict(counts),
         "by_service": {s: dict(v) for s, v in by_service.items()},
     }
@@ -1224,13 +1574,13 @@ def main() -> int:
     bulk_mode = _is_bulk_enum_dir(out_dir)
     if bulk_mode:
         print(_c(f"[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
-        findings = list(walk_findings_bulk(out_dir, rules, service_metadata))
+        findings = finalize_findings(out_dir, walk_findings_bulk(out_dir, rules, service_metadata))
         per_host = _per_host_verdicts(findings)
     else:
-        findings = list(walk_findings(out_dir, rules, service_metadata))
+        findings = finalize_findings(out_dir, walk_findings(out_dir, rules, service_metadata))
         per_host = None
 
-    summary = _summary(findings)
+    summary = _summary(findings, out_dir)
 
     # Always emit findings.json (machine-readable)
     findings_json = {
@@ -1255,8 +1605,12 @@ def main() -> int:
             f["host"] = redactor(f["host"])
             f["line"] = redactor(f["line"])
             f["evidence_path"] = redactor(f["evidence_path"])
+            f["evidence_paths"] = [redactor(p) for p in f.get("evidence_paths", [])]
             f["title"] = redactor(f["title"])
-        findings_json["summary"]["hosts"] = [redactor(h) for h in summary["hosts"]]
+        for field in ("hosts", "hosts_assessed", "hosts_with_findings"):
+            findings_json["summary"][field] = [redactor(h) for h in summary.get(field, [])]
+        for record in findings_json["summary"].get("coverage", []):
+            record["host"] = redactor(str(record.get("host", "")))
         if per_host:
             findings_json["per_host"] = {redactor(h): v for h, v in findings_json["per_host"].items()}
     (out_dir / "findings.json").write_text(json.dumps(findings_json, indent=2))

@@ -174,8 +174,8 @@ done
 [ ! -r "$LINENUM" ] && { err "linenum-fast.sh missing or unreadable: $LINENUM"; exit 2; }
 
 # Resource-cap parallelism — protects local fd limits / process table at scale.
-if [ "$PARALLEL" -gt 16 ]; then
-    err "parallel capped at 16 (you asked for $PARALLEL); use multiple runs for higher fanout"
+if ! [[ "$PARALLEL" =~ ^[0-9]+$ ]] || [ "$PARALLEL" -lt 1 ] || [ "$PARALLEL" -gt 16 ]; then
+    err "parallel must be an integer in 1..16 (you asked for $PARALLEL)"
     exit 2
 fi
 
@@ -205,7 +205,8 @@ if [ -n "$SSH_KEY" ] && [ ! -r "$SSH_KEY" ]; then
     err "--key not readable: $SSH_KEY"; exit 2
 fi
 
-mkdir -p "$OUTDIR"
+mkdir -p "$OUTDIR" || { err "cannot create output directory: $OUTDIR"; exit 2; }
+[ -d "$OUTDIR" ] || { err "output path is not a directory: $OUTDIR"; exit 2; }
 
 # ---------- G.7 --throttle (parity with auto-enum.sh) ----------
 if [ "$THROTTLE" = 1 ]; then
@@ -370,6 +371,64 @@ parse_spec() {
     printf '%s\t%s\t%s\n' "$user" "$host" "$port"
 }
 
+safe_component() {
+    local value="${1//[^A-Za-z0-9._-]/_}"
+    value="${value#.}"; value="${value%.}"
+    printf '%s' "${value:-$2}"
+}
+
+endpoint_key() {
+    local user="$1" host="$2" port="$3" digest
+    digest=$(printf '%s\0%s\0%s\0linux' "$user" "$host" "$port" | sha256sum | awk '{print substr($1,1,12)}')
+    printf '%s--%s--p%s--%s' "$(safe_component "$user" user)" \
+        "$(safe_component "$host" host)" "$port" "$digest"
+}
+
+# Materialize one canonical endpoint manifest before parallel workers start.
+# This also deduplicates repeated input rows so two processes never write the
+# same endpoint directory concurrently.
+ENDPOINTS_TSV="$OUTDIR/endpoints.tsv"
+DISPATCH_TARGETS="$OUTDIR/.targets.normalized"
+manifest_tmp="$ENDPOINTS_TSV.tmp.$$"
+targets_tmp="$DISPATCH_TARGETS.tmp.$$"
+printf '#endpoint_id\tuser\thost\tport\tplatform\n' > "$manifest_tmp"
+: > "$targets_tmp"
+declare -A seen_endpoint_ids=()
+while IFS= read -r raw_spec || [ -n "$raw_spec" ]; do
+    parsed=$(parse_spec "$raw_spec") || continue
+    IFS=$'\t' read -r parsed_user parsed_host parsed_port <<< "$parsed"
+    eid=$(endpoint_key "$parsed_user" "$parsed_host" "$parsed_port")
+    [ -n "${seen_endpoint_ids[$eid]:-}" ] && continue
+    seen_endpoint_ids[$eid]=1
+    printf '%s\t%s\t%s\t%s\tlinux\n' "$eid" "$parsed_user" "$parsed_host" "$parsed_port" >> "$manifest_tmp"
+    if [[ "$parsed_host" == *:* ]]; then
+        printf '%s@[%s]:%s\n' "$parsed_user" "$parsed_host" "$parsed_port" >> "$targets_tmp"
+    else
+        printf '%s@%s:%s\n' "$parsed_user" "$parsed_host" "$parsed_port" >> "$targets_tmp"
+    fi
+done < "$TARGETS"
+mv -f "$manifest_tmp" "$ENDPOINTS_TSV"
+mv -f "$targets_tmp" "$DISPATCH_TARGETS"
+
+if [ "$RESUME" = 1 ]; then
+    while IFS=$'\t' read -r eid parsed_user parsed_host parsed_port _platform; do
+        [ "$eid" = "#endpoint_id" ] && continue
+        legacy_safe="${parsed_host//[^A-Za-z0-9._:-]/_}"
+        legacy_dir="$OUTDIR/${legacy_safe:-host}"
+        endpoint_dir="$OUTDIR/$eid"
+        [ -e "$endpoint_dir" ] && continue
+        [ -e "$legacy_dir" ] || continue
+        host_count=$(awk -F '\t' -v h="$parsed_host" 'NR>1 && $3==h {n++} END {print n+0}' "$ENDPOINTS_TSV")
+        if [ "$host_count" -ne 1 ]; then
+            err "ambiguous legacy resume state for $parsed_host: multiple user/port endpoints share one host-keyed directory"
+            err "rerun without --resume or move the legacy evidence manually"
+            exit 2
+        fi
+        mv "$legacy_dir" "$endpoint_dir" || { err "failed to migrate legacy state for $parsed_host"; exit 2; }
+        miss "migrated unambiguous legacy state $(basename "$legacy_dir") -> $eid"
+    done < "$ENDPOINTS_TSV"
+fi
+
 # ---------- per-host execution ----------
 run_one_host() {
     local spec="$1"
@@ -380,9 +439,8 @@ run_one_host() {
     # Sanitise host into a single safe path component for the OUTPUT dir only —
     # a hostile/malformed targets line (e.g. ../../x) must never make mkdir
     # escape $OUTDIR (OPSEC §9). The ssh connection below still uses $host.
-    local safe_host="${host//[^A-Za-z0-9._:-]/_}"
-    case "$safe_host" in ""|"."|"..") safe_host="host" ;; esac
-    local hdir="$OUTDIR/$safe_host"
+    local endpoint_id; endpoint_id=$(endpoint_key "$user" "$host" "$port")
+    local hdir="$OUTDIR/$endpoint_id"
     mkdir -p "$hdir"
 
     if [ "$RESUME" = 1 ] && [ -e "$hdir/.done" ]; then
@@ -390,10 +448,8 @@ run_one_host() {
         return 0
     fi
 
-    # IPv6 addresses must be bracketed in the ssh destination spec —
-    # `ssh user@2001:db8::1` is ambiguous (older OpenSSH treats the trailing
-    # `:1` as a port); `ssh user@[2001:db8::1]` is unambiguous. IPv4 +
-    # hostnames pass through untouched.
+    # Existing transport formatting is unchanged in R1; endpoint-transport
+    # remediation is scheduled separately.
     local dest_host="$host"
     [[ "$host" == *:* ]] && dest_host="[$host]"
 
@@ -404,6 +460,8 @@ run_one_host() {
         run_log "dry-run: $user@$dest_host:$port mode=$mode"
         return 0
     fi
+
+    [ "$RESUME" = 1 ] || rm -f "$hdir/.done" 2>/dev/null || true
 
     local ssh_args=()
     while IFS= read -r a; do ssh_args+=("$a"); done < <(ssh_base_args "$mode")
@@ -447,7 +505,8 @@ run_one_host() {
     run_log "end: $user@$host:$port rc=$rc status=$status elapsed=${elapsed}s attempts=$attempt"
 
     # Write _meta.json (small enough to hand-build; no python dep on the operator's box)
-    cat > "$hdir/_meta.json" <<META
+    local meta_tmp="$hdir/._meta.json.$$"
+    cat > "$meta_tmp" <<META
 {
   "host":        "$host",
   "user":        "$user",
@@ -466,8 +525,12 @@ run_one_host() {
   "pass_used":   $([ -n "$SSH_PASS" ] && echo true || echo false)
 }
 META
+    mv -f "$meta_tmp" "$hdir/_meta.json"
 
-    [ "$rc" -eq 0 ] && touch "$hdir/.done"
+    if [ "$rc" -eq 0 ]; then
+        local done_tmp="$hdir/.done.$$"
+        : > "$done_tmp" && mv -f "$done_tmp" "$hdir/.done"
+    fi
 
     # Optional inter-host delay under --throttle
     [ "${ENUM_THROTTLE:-0}" = 1 ] && sleep "$ENUM_THROTTLE_DELAY"
@@ -477,7 +540,7 @@ META
 # Subshell exports — xargs spawns one bash per host, so functions + state must
 # travel through env. The EXTRA_SSH_OPTS array is persisted to $SSH_EXTRA_FILE
 # above and read on demand inside ssh_base_args.
-export -f run_one_host parse_spec ssh_base_args auth_mode classify_status run_log
+export -f run_one_host parse_spec safe_component endpoint_key ssh_base_args auth_mode classify_status run_log
 export -f have log hit miss err
 export RUN_LOG OUTDIR LINENUM RESUME DRY_RUN SSH_USER SSH_KEY SSH_PASS SSH_PORT
 export CONNECT_TIMEOUT KNOWN_HOSTS SSH_EXTRA_FILE ENUM_THROTTLE ENUM_THROTTLE_DELAY
@@ -521,7 +584,7 @@ preflight_probe() {
 }
 
 # ---------- dispatch loop ----------
-total_hosts=$(grep -cvE '^\s*(#|$)' "$TARGETS" || true)
+total_hosts=$(grep -cvE '^\s*(#|$)' "$DISPATCH_TARGETS" || true)
 echo "[*] $total_hosts host(s) to enumerate -> $OUTDIR (parallel=$PARALLEL)"
 run_log "dispatch: $total_hosts hosts, parallel=$PARALLEL"
 
@@ -536,7 +599,7 @@ fi
 
 # Stream non-comment / non-blank target lines into xargs -P. `-I{}` implies
 # one-arg-per-invocation so no -n1 needed.
-grep -vE '^\s*(#|$)' "$TARGETS" | xargs -I{} -P"$PARALLEL" \
+grep -vE '^\s*(#|$)' "$DISPATCH_TARGETS" | xargs -I{} -P"$PARALLEL" \
     bash -c 'run_one_host "$@"' _ {}
 
 # ---------- post-run summary ----------
@@ -547,7 +610,7 @@ declare -a failed_hosts=()
     printf '#host\tstatus\trc\telapsed_s\tsize_kb\tfail_reason\n'
     for hdir in "$OUTDIR"/*/; do
         [ -d "$hdir" ] || continue
-        host=$(basename "$hdir")
+        host=$(grep -oE '"host":[[:space:]]*"[^"]+"' "$hdir/_meta.json" 2>/dev/null | head -1 | sed -E 's/.*"host":[[:space:]]*"([^"]+)".*/\1/' || basename "$hdir")
         [ -f "$hdir/_meta.json" ] || { skip=$((skip+1)); continue; }
         rc=$(grep -oE '"rc":[[:space:]]*-?[0-9]+' "$hdir/_meta.json" | head -1 | grep -oE '\-?[0-9]+$' || echo "?")
         st=$(grep -oE '"status":[[:space:]]*"[A-Z_]+"' "$hdir/_meta.json" | head -1 | grep -oE '[A-Z_]+' | tail -1 || echo "?")

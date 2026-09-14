@@ -377,6 +377,49 @@ def dispatch(path: Path) -> Iterable[dict]:
     return parse_nmap(path)
 
 
+def parse_hosts(path: Path) -> list[dict]:
+    """Preserve discovered host state independently from open services."""
+    suffix = path.suffix.lower()
+    text = path.read_text(errors="replace")
+    hosts: dict[str, dict] = {}
+    if suffix == ".xml" or text.lstrip().startswith("<?xml") or "<nmaprun" in text[:1024]:
+        tree = _parse_xml_hardened(path)
+        for host in tree.iterfind("host"):
+            status = host.find("status")
+            state = status.get("state", "unknown") if status is not None else "unknown"
+            addr = host.find("address[@addrtype='ipv4']")
+            if addr is None:
+                addr = host.find("address[@addrtype='ipv6']")
+            if addr is None or not addr.get("addr"):
+                continue
+            hostname_el = host.find("hostnames/hostname")
+            ip = str(addr.get("addr"))
+            hosts[ip] = {"ip": ip, "hostname": (hostname_el.get("name", "")
+                         if hostname_el is not None else ""), "state": state}
+    elif suffix == ".gnmap" or ("Host: " in text and ("Ports:" in text or "Status:" in text)):
+        for line in text.splitlines():
+            m = re.match(r"Host:\s+(\S+)\s+\(([^)]*)\)(?:\s+Status:\s+(\S+)|\s+Ports:)", line)
+            if not m:
+                continue
+            ip, hostname, state = m.groups()
+            current = hosts.get(ip, {"ip": ip, "hostname": hostname, "state": "up"})
+            if state:
+                current["state"] = state.lower()
+            hosts[ip] = current
+    else:
+        current: dict | None = None
+        for line in text.splitlines():
+            match = NMAP_HOST_RE.match(line)
+            if match:
+                name, parenthesized_ip = match.groups()
+                ip = parenthesized_ip or name
+                current = {"ip": ip, "hostname": name if parenthesized_ip else "", "state": "up"}
+                hosts[ip] = current
+            elif current is not None and (line.startswith("Host seems down") or "host down" in line.lower()):
+                current["state"] = "down"
+    return sorted(hosts.values(), key=lambda item: item["ip"])
+
+
 def main():
     ap = argparse.ArgumentParser(description="Parse nmap output into a service inventory.")
     ap.add_argument("input", help="Path to .xml / .gnmap / .nmap file")
@@ -403,6 +446,7 @@ def main():
 
     try:
         entries = list(dispatch(path))
+        hosts = parse_hosts(path)
     except Exception as e:                              # noqa: BLE001
         # Surface DOCTYPE / entity-expansion rejections cleanly. Cover both
         # backends: defusedxml raises defusedxml.common.EntitiesForbidden /
@@ -469,11 +513,15 @@ def main():
                 unknown.append(ip_port)
         out = {
             "summary": {
-                "hosts":      len({e["ip"] for e in entries}),
+                # ``hosts`` remains the compatibility alias for all up hosts.
+                "hosts":      len({h["ip"] for h in hosts if h["state"] in ("up", "unknown")}),
+                "hosts_up":   len({h["ip"] for h in hosts if h["state"] in ("up", "unknown")}),
+                "hosts_with_open_ports": len({e["ip"] for e in entries}),
                 "open_ports": len(entries),
                 "unknown":    sorted(set(unknown)),
                 "categories": {c: sorted(set(v)) for c, v in bucket.items()},
             },
+            "hosts": hosts,
             "entries": entries,
         }
         print(json.dumps(out, indent=2))

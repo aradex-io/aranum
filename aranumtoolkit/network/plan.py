@@ -14,11 +14,13 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
 import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+import tempfile
 from typing import Any
 
 
@@ -124,10 +126,20 @@ def _normalize_service_records(metadata: dict[str, Any]) -> tuple[dict[str, Any]
     defaults = _coerce_phase_list(metadata.get("defaults", {}).get("phases", []))
     if not defaults:
         defaults = [{"id": "1", "name": "discovery", "description": "default discovery phase"}]
+    default_task_execution = str(
+        metadata.get("defaults", {}).get("task_execution", "monolithic")
+    ).lower()
+    if default_task_execution not in {"monolithic", "phased"}:
+        raise ValueError(f"invalid default task_execution: {default_task_execution}")
     default_entry = {
         "dispatcher": metadata.get("defaults", {}).get("dispatcher"),
         "manual": bool(metadata.get("defaults", {}).get("manual", False)),
         "phases": {p["id"]: p for p in defaults},
+        "task_execution": default_task_execution,
+        "task_phases": ({p["id"]: p for p in defaults}
+                        if default_task_execution == "phased" else
+                        {"all": {"id": "all", "name": "complete",
+                                 "description": "Complete monolithic dispatcher assessment."}}),
         "notes": list(metadata.get("defaults", {}).get("notes", [])),
     }
     for field in METADATA_FIELDS:
@@ -138,10 +150,19 @@ def _normalize_service_records(metadata: dict[str, Any]) -> tuple[dict[str, Any]
         raw_phases = _coerce_phase_list(raw_cfg.get("phases", []))
         if not raw_phases:
             raw_phases = defaults
+        task_execution = str(raw_cfg.get("task_execution", default_task_execution)).lower()
+        if task_execution not in {"monolithic", "phased"}:
+            raise ValueError(f"invalid task_execution for {name}: {task_execution}")
+        task_phases = ({p["id"]: p for p in raw_phases}
+                       if task_execution == "phased" else
+                       {"all": {"id": "all", "name": "complete",
+                                "description": "Complete monolithic dispatcher assessment."}})
         svc_entry = {
             "dispatcher": raw_cfg.get("dispatcher"),
             "manual": bool(raw_cfg.get("manual", False)),
             "phases": {p["id"]: p for p in raw_phases},
+            "task_execution": task_execution,
+            "task_phases": task_phases,
             "notes": list(raw_cfg.get("notes", [])),
         }
         for field in METADATA_FIELDS:
@@ -292,13 +313,14 @@ def _select_task_phases(
 
 def _task_id(task: dict[str, Any]) -> str:
     t = task["target"]
-    return f"{task['service']}::{t['ip']}:{t['port']}:{task['phase']}"
+    host = f"[{t['ip']}]" if ":" in str(t["ip"]) else t["ip"]
+    return f"{task['service']}::{host}:{t['port']}/{t['proto']}:{task['phase']}"
 
 
 def _target_label(entry: dict[str, Any]) -> str:
     ip = str(entry["ip"])
     host = f"[{ip}]" if ":" in ip else ip
-    return f"{host}:{entry['port']}"
+    return f"{host}:{entry['port']}/{entry['proto']}"
 
 
 def _priority(service: str, cfg: dict[str, Any], phase_id: str) -> int:
@@ -322,6 +344,18 @@ def _list_field(cfg: dict[str, Any], key: str) -> list[str]:
     return [str(x) for x in raw if str(x).strip()]
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
 def _build_tasks(
     parser_mod,
     input_path: Path,
@@ -339,9 +373,14 @@ def _build_tasks(
         entry["categories"] = parser_mod.categorize(int(entry["port"]), entry["service"])
         for svc in _select_services(entry, services, defaults, service_filter):
             cfg = services.get(svc, defaults)
+            available_task_phases = cfg.get("task_phases", cfg["phases"])
+            requested_for_service = phase_filter
+            if cfg.get("task_execution") == "monolithic" and phase_filter is not None:
+                declared = set(cfg["phases"])
+                requested_for_service = None if declared.issubset(set(phase_filter)) else []
             selected_phase_pairs = _select_task_phases(
-                phase_filter,
-                cfg["phases"],
+                requested_for_service,
+                available_task_phases,
             )
             if not selected_phase_pairs:
                 skipped_services.append(
@@ -365,6 +404,7 @@ def _build_tasks(
                     "phase_description": phase["description"],
                     "manual": bool(cfg.get("manual", False)),
                     "dispatcher": cfg.get("dispatcher"),
+                    "task_execution": cfg.get("task_execution", "phased"),
                     "target_label": target_label,
                     "host": entry["ip"],
                     "port": entry["port"],
@@ -380,7 +420,7 @@ def _build_tasks(
                         f"{svc} mapped to {phase['name']}",
                         f"priority base {cfg.get('priority_base', defaults.get('priority_base', 300))}",
                     ],
-                    "output_hint": f"{svc}/{str(entry['ip']).replace(':', '_')}_{entry['port']}",
+                    "output_hint": f"{svc}/{str(entry['ip']).replace(':', '_')}_{entry['port']}_{entry['proto']}",
                     "tags": _list_field(cfg, "tags"),
                     "followups": _list_field(cfg, "followups"),
                     "docs": _list_field(cfg, "docs"),
@@ -400,16 +440,8 @@ def _build_tasks(
                 task["task_id"] = _task_id(task)
                 tasks.append(task)
     # Stable ordering for deterministic sharding and test expectations.
-    tasks.sort(key=lambda t: (
-        t["service"], t["target"]["ip"], t["target"]["port"], t["phase"], t["task_id"]
-    ))
-
-    unsharded_count = len(tasks)
-    if shard is not None:
-        index, total = shard
-        tasks = [t for n, t in enumerate(tasks, start=1) if ((n - 1) % total) + 1 == index]
-
-    # Deduplicate in case metadata+profile combinations produce overlap.
+    # Deduplicate on the complete protocol-aware identity before sharding so
+    # separately assigned shards are disjoint even with duplicate inventory rows.
     deduped: list[dict[str, Any]] = []
     seen = set()
     for task in tasks:
@@ -418,11 +450,28 @@ def _build_tasks(
         seen.add(task["task_id"])
         deduped.append(task)
     tasks = deduped
+    tasks.sort(key=lambda t: (
+        t["service"], t["target"]["ip"], t["target"]["port"],
+        t["target"]["proto"], t["phase"], t["task_id"]
+    ))
+
+    unsharded_count = len(tasks)
+    if shard is not None:
+        index, total = shard
+        tasks = [t for n, t in enumerate(tasks, start=1) if ((n - 1) % total) + 1 == index]
     tasks.sort(key=lambda t: (-int(t.get("priority", 0)), t["service"], t["target"]["ip"], t["target"]["port"], t["phase"]))
+
+    try:
+        host_records = parser_mod.parse_hosts(input_path)
+        hosts_up = {h["ip"] for h in host_records if h.get("state") in {"up", "unknown"}}
+    except (AttributeError, OSError, ValueError):
+        hosts_up = {e["ip"] for e in entries}
 
     summary = {
         "input": str(input_path),
-        "hosts": len({e["ip"] for e in entries}),
+        "hosts": len(hosts_up),
+        "hosts_up": len(hosts_up),
+        "hosts_with_open_ports": len({e["ip"] for e in entries}),
         "open_ports": len(entries),
         "services_discovered": len(set(
             svc
@@ -635,17 +684,10 @@ def main(argv: list[str] | None = None) -> int:
     queue_path = out_dir / "queue.jsonl"
     guidance_path = out_dir / "guidance.json"
 
-    with plan_path.open("w", encoding="utf-8") as f:
-        json.dump(plan, f, indent=2)
-    with queue_path.open("w", encoding="utf-8") as f:
-        for task in tasks:
-            f.write(json.dumps(task, sort_keys=True))
-            f.write("\n")
-        if not tasks:
-            pass
+    _atomic_write(plan_path, json.dumps(plan, indent=2) + "\n")
+    _atomic_write(queue_path, "".join(json.dumps(task, sort_keys=True) + "\n" for task in tasks))
     guidance = _build_guidance(plan, summary, profile_name, profile_cfg, requested_phases, shard)
-    with guidance_path.open("w", encoding="utf-8") as f:
-        json.dump(guidance, f, indent=2)
+    _atomic_write(guidance_path, json.dumps(guidance, indent=2) + "\n")
 
     print(f"[planner] wrote {len(tasks)} tasks to {plan_path}")
     return 0

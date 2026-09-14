@@ -7,7 +7,7 @@ SHELL := /usr/bin/env bash
 .PHONY: help
 help:
 	@printf "aranum — make targets\n\n"
-	@printf "  make test         — full test pass: lint + unittest + smoke\n"
+	@printf "  make test         — full gate: lint + unittest + pytest + smoke + data-audit\n"
 	@printf "  make lint         — shellcheck -S warning across every .sh\n"
 	@printf "  make unittest     — python3 -m unittest discover aranumtoolkit/tests/\n"
 	@printf "  make smoke        — aranumtoolkit/tests/smoke.sh (syntax + dispatch + gates + tags)\n"
@@ -36,7 +36,7 @@ install:
 	@printf "Ensure ~/.local/bin is on PATH, then: aranum version\n"
 
 .PHONY: test
-test: lint unittest pytest smoke
+test: lint unittest pytest smoke data-audit
 
 .PHONY: lint
 lint:
@@ -51,7 +51,7 @@ lint:
 	@#         (deferred — see CHANGELOG).
 	@# When shellcheck is absent (e.g. an offline box) DEGRADE to a `bash -n`
 	@# syntax sweep instead of hard-failing, so `make test` stays green offline.
-	@if command -v shellcheck >/dev/null 2>&1; then \
+	@if command -v shellcheck >/dev/null 2>&1 && shellcheck --version >/dev/null 2>&1; then \
 	    printf "Running shellcheck -S warning -e SC1091,SC2046 across every tracked .sh ...\n"; \
 	    git ls-files '*.sh' | xargs -r shellcheck -S warning -e SC1091 -e SC2046 -f gcc; \
 	else \
@@ -76,14 +76,13 @@ unittest:
 .PHONY: pytest
 pytest:
 	@# pytest-style tests (tmp_path fixtures, subtests) that unittest-discover
-	@# can't collect: the ADR-006 bulk-enum / ssh-triage / ssh-key-triage /
-	@# thick-client regression suites. Degrades gracefully when pytest is absent
-	@# (offline box) — the unittest target still covers the TestCase suite.
+	@# cannot collect are release-gating. Missing pytest is therefore a visible
+	@# dependency failure rather than a silently smaller "full" suite.
 	@if python3 -c 'import pytest' 2>/dev/null; then \
 	    python3 -m pytest aranumtoolkit/tests/ -q; \
 	else \
-	    printf "pytest not installed — SKIPPING pytest-only tests (pip install pytest).\n"; \
-	    printf "  The unittest target still covers the TestCase suite.\n"; \
+	    printf "pytest not installed — full test gate cannot run (pip install pytest).\n" >&2; \
+	    exit 2; \
 	fi
 
 .PHONY: smoke

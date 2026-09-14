@@ -527,13 +527,15 @@ python3 aranum.py --help >/dev/null 2>&1 && p "aranum.py: root help succeeds" \
                                             || f "aranum.py: root help failed"
 
 # -----------------------------------------------------------------
-section "11. deps-check.sh runs to completion"
+section "11. deps-check.sh reports executable dependency state"
 # -----------------------------------------------------------------
-if timeout 30 bash deps-check.sh >/dev/null 2>&1; then
-    p "deps-check.sh exits 0"
+deps_out=$(timeout 30 bash deps-check.sh 2>&1)
+rc=$?
+if { [ "$rc" -eq 0 ] && echo "$deps_out" | grep -q 'dependency preflight passed'; } || \
+   { [ "$rc" -eq 1 ] && echo "$deps_out" | grep -q 'dependency preflight failed'; }; then
+    p "deps-check.sh exit status matches its required-dependency summary (rc=$rc)"
 else
-    rc=$?
-    f "deps-check.sh exited $rc"
+    f "deps-check.sh status/summary mismatch (rc=$rc)"
 fi
 
 # -----------------------------------------------------------------
@@ -623,7 +625,7 @@ echo "$out" | grep -qE 'parallel:[[:space:]]+4[[:space:]]+\(operator-explicit' \
 
 # Parallel cap (operator-protection guard)
 out=$(bash aranumtoolkit/network/bulk-enum-linux.sh --targets "$BULK_TGT" -u jay -P 64 --dry-run -o "$BULK_OUT" 2>&1)
-echo "$out" | grep -qiE 'parallel capped at 16' \
+echo "$out" | grep -qiE 'parallel must be an integer in 1\.\.16' \
     && p "bulk-enum: -P 64 refused (cap=16 protects local resource limits)" \
     || f "bulk-enum: -P 64 was not refused"
 

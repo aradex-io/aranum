@@ -71,6 +71,7 @@ _AUTO_ENUM_VALUE_FLAGS = {
     "-d", "--domain",
     "--dc-ip",
     "-P", "--parallel",
+    "--service-parallel",
     "--only",
     "--exclude",
     "--proxy",

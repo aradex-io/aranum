@@ -6,6 +6,13 @@
 parse_common_args() {
     TARGETS=""
     OUT=""
+    ENUM_TASK_ID=""
+    ENUM_TASK_SERVICE=""
+    ENUM_TASK_PHASE=""
+    ENUM_TASK_PROTOCOL=""
+    ENUM_TASK_RISK=""
+    ENUM_TASK_PRIORITY=""
+    ENUM_TASK_TARGET=""
     while [ $# -gt 0 ]; do
         case "$1" in
             # Arity guard BEFORE touching $2: under the callers' `set -u`,
@@ -17,6 +24,18 @@ parse_common_args() {
             --output)
                 [ $# -ge 2 ] || { echo "missing value for $1"; return 1; }
                 OUT="$2"; shift 2 ;;
+            --task-id|--task-service|--task-phase|--task-protocol|--task-risk|--task-priority|--task-target)
+                [ $# -ge 2 ] || { echo "missing value for $1"; return 1; }
+                case "$1" in
+                    --task-id)       ENUM_TASK_ID="$2" ;;
+                    --task-service)  ENUM_TASK_SERVICE="$2" ;;
+                    --task-phase)    ENUM_TASK_PHASE="$2" ;;
+                    --task-protocol) ENUM_TASK_PROTOCOL="$2" ;;
+                    --task-risk)     ENUM_TASK_RISK="$2" ;;
+                    --task-priority) ENUM_TASK_PRIORITY="$2" ;;
+                    --task-target)   ENUM_TASK_TARGET="$2" ;;
+                esac
+                shift 2 ;;
             *) echo "unknown arg: $1"; return 1 ;;
         esac
     done
@@ -28,12 +47,141 @@ parse_common_args() {
         echo "targets file missing: $TARGETS"
         return 1
     fi
-    mkdir -p "$OUT"
+    if ! mkdir -p "$OUT" || [ ! -d "$OUT" ]; then
+        echo "cannot create evidence output directory: $OUT"
+        return 1
+    fi
+
+    # Queue mode is a real dispatcher contract, not an out-of-band task-file
+    # hint.  When any task constraint is supplied, require and validate the
+    # complete set before a dispatcher can touch an endpoint.  The targets file
+    # must contain exactly the selected task endpoint, so a service-wide target
+    # list cannot accidentally execute or complete unselected work.
+    local task_fields=0 value
+    for value in "$ENUM_TASK_ID" "$ENUM_TASK_SERVICE" "$ENUM_TASK_PHASE" \
+                 "$ENUM_TASK_PROTOCOL" "$ENUM_TASK_RISK" "$ENUM_TASK_PRIORITY" \
+                 "$ENUM_TASK_TARGET"; do
+        [ -n "$value" ] && task_fields=$((task_fields + 1))
+    done
+    if [ "$task_fields" -ne 0 ]; then
+        if [ "$task_fields" -ne 7 ]; then
+            echo "incomplete task constraints: task id/service/phase/protocol/risk/priority/target are all required"
+            return 1
+        fi
+        case "$ENUM_TASK_PROTOCOL" in tcp|udp) ;; *) echo "invalid task protocol: $ENUM_TASK_PROTOCOL"; return 1 ;; esac
+        case "$ENUM_TASK_PRIORITY" in
+            ''|*[!0-9]*) echo "invalid task priority: $ENUM_TASK_PRIORITY"; return 1 ;;
+        esac
+        if [ "$ENUM_TASK_PRIORITY" -gt 999 ]; then
+            echo "invalid task priority: $ENUM_TASK_PRIORITY"
+            return 1
+        fi
+        local -a constrained_targets=()
+        mapfile -t constrained_targets < <(sed '/^[[:space:]]*$/d' "$TARGETS")
+        if [ "${#constrained_targets[@]}" -ne 1 ] || [ "${constrained_targets[0]}" != "$ENUM_TASK_TARGET" ]; then
+            echo "task target constraint mismatch: expected exactly $ENUM_TASK_TARGET"
+            return 1
+        fi
+        local task_contract
+        if ! task_contract=$(python3 - "${SCRIPT_DIR:?}" "$ENUM_TASK_SERVICE" "$ENUM_TASK_PHASE" <<'PY'
+import json, pathlib, sys
+script_dir, service, phase = sys.argv[1:]
+metadata = json.loads((pathlib.Path(script_dir) / "service-metadata.json").read_text())
+contract = metadata.get("services", {}).get(service)
+if not isinstance(contract, dict):
+    raise SystemExit(f"unknown task service: {service}")
+execution = str(contract.get(
+    "task_execution", metadata.get("defaults", {}).get("task_execution", "monolithic")
+)).lower()
+if execution not in {"monolithic", "phased"}:
+    raise SystemExit(f"invalid task_execution for {service}: {execution}")
+declared = [str(item.get("id")) for item in contract.get("phases", [])
+            if isinstance(item, dict) and item.get("id") is not None]
+allowed = declared if execution == "phased" else ["all"]
+if phase not in allowed:
+    raise SystemExit(
+        f"unsupported task phase for {service}: {phase} "
+        f"(task_execution={execution}; allowed={','.join(allowed)})")
+print(f"{execution}\t{' '.join(allowed)}")
+PY
+        ); then
+            return 1
+        fi
+        IFS=$'\t' read -r ENUM_TASK_EXECUTION ENUM_TASK_ALLOWED_PHASES <<< "$task_contract"
+        export ENUM_TASK_ID ENUM_TASK_SERVICE ENUM_TASK_PHASE ENUM_TASK_PROTOCOL
+        export ENUM_TASK_RISK ENUM_TASK_PRIORITY ENUM_TASK_TARGET
+        export ENUM_TASK_EXECUTION ENUM_TASK_ALLOWED_PHASES
+        export ENUM_TASK_CONSTRAINED=1
+
+        # Durable, dispatcher-authored provenance.  Completion is recorded by
+        # auto-enum only after this constrained dispatcher process exits.
+        if ! python3 - "$OUT/_task-context.json" "$ENUM_TASK_ID" "$ENUM_TASK_SERVICE" \
+            "$ENUM_TASK_PHASE" "$ENUM_TASK_PROTOCOL" "$ENUM_TASK_RISK" \
+            "$ENUM_TASK_PRIORITY" "$ENUM_TASK_TARGET" <<'PY'
+import json, os, sys, tempfile
+path, task_id, service, phase, protocol, risk, priority, target = sys.argv[1:]
+if target.startswith("[") and "]:" in target:
+    ip, port = target[1:].rsplit("]:", 1)
+else:
+    ip, port = target.rsplit(":", 1)
+payload = {"schema_version": 1, "task_id": task_id, "service": service,
+           "phase": phase, "protocol": protocol, "risk": risk,
+           "priority": int(priority), "target_label": target,
+           "target": {"ip": ip, "port": int(port), "proto": protocol}}
+directory = os.path.dirname(path) or "."
+fd, tmp = tempfile.mkstemp(prefix=".task-context.", dir=directory, text=True)
+try:
+    with os.fdopen(fd, "w") as fh:
+        json.dump(payload, fh, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+finally:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+PY
+        then
+            echo "cannot write task execution context: $OUT"
+            return 1
+        fi
+    else
+        unset ENUM_TASK_CONSTRAINED
+    fi
     return 0
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 log()  { printf "[%s] %s\n" "$(date +%H:%M:%S)" "$*"; }
+
+# Dispatcher phase gate.  Normal direct/service-batch runs retain their full
+# historical behavior; a constrained queue task executes only blocks declared
+# for its selected planner phase.
+task_phase_is() {
+    [ "${ENUM_TASK_CONSTRAINED:-0}" != "1" ] || [ "${ENUM_TASK_PHASE:-}" = "$1" ]
+}
+
+# Declare the phases a dispatcher implements as independently executable
+# production paths.  Constrained queue runs fail before probing when a planner
+# task names a phase the dispatcher cannot honor; ordinary direct/service-batch
+# runs remain cumulative and execute every declared phase.
+task_phase_require() {
+    [ "${ENUM_TASK_CONSTRAINED:-0}" = "1" ] || return 0
+    local supported
+    for supported in ${ENUM_TASK_ALLOWED_PHASES:-}; do
+        [ "$ENUM_TASK_PHASE" = "$supported" ] && return 0
+    done
+    echo "unsupported task phase for $ENUM_TASK_SERVICE: $ENUM_TASK_PHASE (supported: ${ENUM_TASK_ALLOWED_PHASES:-none})"
+    return 1
+}
+
+# Run one independently-scoped phase function.  This is the common dispatcher
+# mechanism for phase-aware queue execution: direct runs execute every block,
+# while a constrained task can enter only its selected block.
+task_phase_run() {
+    local phase="$1"
+    shift
+    task_phase_is "$phase" || return 0
+    "$@"
+}
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     _ARANUM_GREEN=$'\033[1;32m'

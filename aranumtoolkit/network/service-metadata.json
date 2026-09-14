@@ -3,6 +3,7 @@
   "defaults": {
     "dispatcher": null,
     "manual": true,
+    "task_execution": "monolithic",
     "priority_base": 300,
     "risk": "read-safe",
     "default_enabled": true,
@@ -12,9 +13,6 @@
     "tags": ["network", "triage"],
     "followups": [],
     "docs": [],
-    "confidence": "medium",
-    "priority": "P3",
-    "next_actions": ["Review evidence and validate impact"],
     "phases": [
       {
         "id": "1",
@@ -123,6 +121,7 @@
     "ssh": {
       "dispatcher": "enum-ssh.sh",
       "manual": false,
+      "task_execution": "phased",
       "phases": [
         {"id": "1", "name": "discovery", "description": "Banner and auth-method discovery"},
         {"id": "2", "name": "enumeration", "description": "Key-only / auth posture checks"}
@@ -131,6 +130,7 @@
     "ftp": {
       "dispatcher": "enum-ftp.sh",
       "manual": false,
+      "task_execution": "phased",
       "phases": [
         {"id": "1", "name": "discovery", "description": "Server and banner discovery"},
         {"id": "2", "name": "enumeration", "description": "Anonymous and auth checks"}

@@ -38,7 +38,7 @@ for d in "$PREV" "$CURR"; do
 done
 
 python3 - "$PREV/findings.json" "$CURR/findings.json" <<'PY'
-import json, sys
+import hashlib, json, sys
 
 prev = json.load(open(sys.argv[1]))
 curr = json.load(open(sys.argv[2]))
@@ -52,7 +52,12 @@ def key_set(d, level):
         elif level == "host_svc":
             s.add((f["host"], f["service"]))
         else:
-            s.add((f["host"], f["service"], f["severity"], f["line"][:120]))
+            evidence_identity = f.get("evidence_identity") or hashlib.sha256(
+                str(f.get("line", "")).encode()).hexdigest()
+            s.add((str(f.get("host", "")), str(f.get("port", "")),
+                   str(f.get("protocol", "")), str(f.get("service", "")),
+                   str(f.get("severity", "")), evidence_identity,
+                   str(f.get("line", ""))))
     return s
 
 print(f"=== diff: {prev['label']} -> {curr['label']} ===\n")
@@ -82,7 +87,7 @@ dropped_findings = prev_findings - curr_findings
 # Group by severity
 sev_buckets = {"critical": [], "high": [], "medium": [], "low": []}
 for f in new_findings:
-    sev = f[2]
+    sev = f[4]
     sev_buckets.setdefault(sev, []).append(f)
 
 print()
@@ -96,13 +101,15 @@ for sev in _canonical + _extra:
     items = sev_buckets.get(sev, [])
     if not items: continue
     print(f"\n--- {sev.upper()} ({len(items)}) ---")
-    for host, svc, _, line in sorted(items):
-        print(f"  [{svc:12s}] {host:20s}  {line[:120]}")
+    for host, port, proto, svc, _, _identity, line in sorted(items):
+        endpoint = f"{host}:{port}/{proto}" if port else host
+        print(f"  [{svc:12s}] {endpoint:28s}  {line[:120]}")
 
 if dropped_findings:
     print(f"\n=== DROPPED ({len(dropped_findings)}) ===")
-    for host, svc, sev, line in sorted(dropped_findings)[:30]:
-        print(f"  [{svc:12s}] {host:20s}  {sev:8s}  {line[:100]}")
+    for host, port, proto, svc, sev, _identity, line in sorted(dropped_findings)[:30]:
+        endpoint = f"{host}:{port}/{proto}" if port else host
+        print(f"  [{svc:12s}] {endpoint:28s}  {sev:8s}  {line[:100]}")
     if len(dropped_findings) > 30:
         print(f"  ... and {len(dropped_findings) - 30} more")
 

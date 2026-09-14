@@ -9,14 +9,28 @@ R="\033[1;31m"; G="\033[1;32m"; Y="\033[1;33m"; N="\033[0m"
 # (e.g. before any dispatcher is sourced), so we cannot rely on _lib.sh.
 have() { command -v "$1" >/dev/null 2>&1; }
 
+declare -A REQUIRED_MISS_NAMES=()
+mark_required_miss() { REQUIRED_MISS_NAMES["$1"]=1; }
+
 check() {
-    name="$1"; level="$2"; binary="${3:-$1}"
+    local name="$1" level="$2" binary="${3:-$1}" probe="${4:---version}"
+    local output rc
     if command -v "$binary" >/dev/null 2>&1; then
-        v=$($binary --version 2>&1 | head -1 || true)
+        output=$("$binary" "$probe" 2>&1)
+        rc=$?
+    else
+        output=""
+        rc=127
+    fi
+    # PATH shims are not dependencies. 126/127 mean that the named command
+    # could not actually be executed even when command -v found a wrapper.
+    if [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ]; then
+        v=$(printf '%s\n' "$output" | head -1)
+        [ -n "$v" ] || v="executable (probe rc=$rc)"
         printf "${G}[+]${N} %-22s %s\n" "$name" "$v"
     else
         case "$level" in
-            req)  printf "${R}[!]${N} %-22s (REQUIRED — install)\n" "$name" ;;
+            req)  printf "${R}[!]${N} %-22s (REQUIRED — missing or unusable)\n" "$name"; mark_required_miss "$name" ;;
             rec)  printf "${Y}[?]${N} %-22s (recommended)\n" "$name" ;;
             opt)  printf "[ ] %-22s (optional)\n" "$name" ;;
         esac
@@ -48,11 +62,11 @@ echo "=== REQUIRED ==="
 check python3   req
 check nmap      req
 check curl      req
-check dig       req bind-utils-or-dig
-check ldapsearch req ldapsearch
+check dig       req dig -v
+check ldapsearch req ldapsearch -VV
 check smbclient req
 check rpcclient req
-check showmount req
+check showmount req showmount --help
 
 echo
 echo "=== HIGHLY RECOMMENDED ==="
@@ -143,6 +157,7 @@ for mod in socket ssl base64 hashlib hmac urllib.request xml.etree.ElementTree; 
         printf "${G}[+]${N} %-22s (stdlib)\n" "python3:$mod"
     else
         printf "${R}[!]${N} %-22s (REQUIRED stdlib module missing — broken Python install?)\n" "python3:$mod"
+        mark_required_miss "python3:$mod"
     fi
 done
 
@@ -267,3 +282,13 @@ cat <<'EOF'
   go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
   pip3 install defusedxml                   # XXE-hardened XML parsing
 EOF
+
+echo
+if [ "${#REQUIRED_MISS_NAMES[@]}" -gt 0 ]; then
+    printf "${R}[!]${N} dependency preflight failed: %d required dependency/dependencies unusable:\n" \
+        "${#REQUIRED_MISS_NAMES[@]}"
+    printf '    %s\n' "${!REQUIRED_MISS_NAMES[@]}" | sort
+    exit 1
+fi
+printf "${G}[+]${N} dependency preflight passed: all required dependencies are runnable\n"
+exit 0

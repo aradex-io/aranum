@@ -385,9 +385,9 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     # Omitting them here silently hid them from the dashboard vs findings.json.
     rules = list(rpt._load_rules(rules_path)) + list(rpt._AD_DEPTH_RULES)
     if bulk:
-        findings = list(rpt.walk_findings_bulk(out_dir, rules))
+        findings = rpt.finalize_findings(out_dir, rpt.walk_findings_bulk(out_dir, rules))
     else:
-        findings = list(rpt.walk_findings(out_dir, rules))
+        findings = rpt.finalize_findings(out_dir, rpt.walk_findings(out_dir, rules))
 
     # ----- re-attribute (dispatcher)-bucketed findings to real hosts -----
     # `report.walk_findings` assigns `host="(dispatcher)"` to lines scraped
@@ -426,16 +426,9 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
             except Exception:
                 pass
 
-    for f in findings:
-        if f["host"] != "(dispatcher)":
-            continue
-        m = _IPV4_IN_TEXT.search(f["line"])
-        if m and m.group(1) in known_hosts:
-            f["host"] = m.group(1)
-        # If text contains a v6 in brackets we could also match, but our
-        # fixtures are v4-only and v6 in finding text is rare in practice.
+    # report.finalize_findings performs shared IPv4/IPv6 endpoint attribution.
 
-    summary = rpt._summary(findings)
+    summary = rpt._summary(findings, out_dir)
 
     # Group findings by host + service for cheap lookup
     by_host: dict[str, list[dict]] = defaultdict(list)
@@ -461,7 +454,9 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
                 hosts_per_service[svc_dir.name].add(ip)
     else:
         # Bulk-enum: every top-level dir is a host
-        for host_dir in sorted(p for p in out_dir.iterdir() if p.is_dir()):
+        for host_dir in sorted(
+            p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink()
+        ):
             for fname, svc in (("linenum.txt", "linenum"), ("winenum.txt", "winenum")):
                 if (host_dir / fname).is_file():
                     services_per_host[host_dir.name].add(svc)

@@ -34,6 +34,7 @@ classify_ssh_os_from_banner() {
 # BASH_SOURCE[0] == $0 in that case, so _enum_ssh_main runs immediately below.
 _enum_ssh_main() {
 parse_common_args "$@" || exit 1
+task_phase_require || exit 1
 log "ssh: $(wc -l < "$TARGETS") targets -> $OUT"
 
 while read -r target; do
@@ -55,6 +56,10 @@ while read -r target; do
         grep -i 'authentication methods' > "$OUT/$ip/auth_methods.txt" || true
 done < "$TARGETS"
 
+# Everything below consumes discovery evidence for the phase-2 auth-posture
+# task.  A queue selecting only phase 1 must stop after banner/auth-method
+# discovery rather than executing the deeper checks represented by phase 2.
+if task_phase_is 2; then
 # nxc ssh cred check
 if (have nxc || have netexec) && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_PASS:-}" ]; then
     NXC=$(command -v nxc || command -v netexec)
@@ -135,6 +140,7 @@ while read -r target; do
         log "  Terrapin candidate $ip:$port (OpenSSH $full < 9.6)"
     fi
 done < "$TARGETS"
+fi
 
 log "ssh dispatcher done."
 }
