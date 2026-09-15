@@ -21,6 +21,14 @@ write_valid_metadata() {
         > "$FIXTURE/CHANGELOG.md"
 }
 
+write_large_valid_metadata() {
+    printf '0.34.0\n' > "$FIXTURE/VERSION"
+    {
+        printf '# Changelog\n\n## [Unreleased]\n\n## [v0.34.0] — 2026-09-14\n\n'
+        awk 'BEGIN { for (i = 0; i < 50000; i++) print "- parser regression padding line" }'
+    } > "$FIXTURE/CHANGELOG.md"
+}
+
 write_valid_metadata
 
 fail=0
@@ -40,6 +48,29 @@ else
     printf 'FAIL: untagged GitHub pull_request release candidate was rejected\n' >&2
     fail=1
 fi
+
+write_large_valid_metadata
+large_output="$FIXTURE/large-changelog-gate.out"
+if GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
+    bash "$GATE" "$FIXTURE" > "$large_output" 2>&1; then
+    large_rc=0
+else
+    large_rc=$?
+fi
+expected_large_output='version: VERSION (0.34.0) matches CHANGELOG; tag v0.34.0 may be created after this release PR merges'
+if [ "$large_rc" -ne 0 ]; then
+    printf 'FAIL: large valid CHANGELOG returned rc=%s, expected rc=0\n' "$large_rc" >&2
+    fail=1
+fi
+if grep -Fqi 'broken pipe' "$large_output"; then
+    printf 'FAIL: large valid CHANGELOG emitted a Broken pipe diagnostic\n' >&2
+    fail=1
+fi
+if [ "$(< "$large_output")" != "$expected_large_output" ]; then
+    printf 'FAIL: large valid CHANGELOG did not return the expected release metadata\n' >&2
+    fail=1
+fi
+write_valid_metadata
 
 if GITHUB_ACTIONS=true GITHUB_EVENT_NAME=push bash "$GATE" "$FIXTURE" >/dev/null; then
     printf 'FAIL: untagged GitHub push was accepted\n' >&2
