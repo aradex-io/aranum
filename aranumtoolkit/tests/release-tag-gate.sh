@@ -27,37 +27,40 @@ PY
 }
 
 parse_changelog_file() {
-    local path="$1" content first_h2 release_line heading_re release_version release_date
+    local path="$1"
     [ -r "$path" ] || return 2
-    content=$(< "$path") || return 2
-    first_h2=$(printf '%s\n' "$content" | grep -m1 '^## ' 2>/dev/null || true)
-    if [ "$first_h2" != "## [Unreleased]" ]; then
-        return 2
-    fi
-    release_line=$(printf '%s\n' "$content" | awk '
-        seen_unreleased && /^## / { print; exit }
-        $0 == "## [Unreleased]" { seen_unreleased=1 }
-    ')
-    heading_re='^## \[v([0-9]+\.[0-9]+\.[0-9]+)\] — ([0-9]{4}-[0-9]{2}-[0-9]{2})$'
-    if [[ ! "$release_line" =~ $heading_re ]]; then
-        return 2
-    fi
-    release_version="${BASH_REMATCH[1]}"
-    release_date="${BASH_REMATCH[2]}"
-    if ! python3 - "$release_date" <<'PY' >/dev/null 2>&1
+    python3 - "$path" <<'PY'
 import datetime
+import pathlib
+import re
 import sys
 
 try:
-    parsed = datetime.date.fromisoformat(sys.argv[1])
+    content = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+except (OSError, UnicodeError):
+    raise SystemExit(2)
+
+headings = [line for line in content.split("\n") if line.startswith("## ")]
+if len(headings) < 2 or headings[0] != "## [Unreleased]":
+    raise SystemExit(2)
+
+match = re.fullmatch(
+    r"## \[v([0-9]+\.[0-9]+\.[0-9]+)\] — ([0-9]{4}-[0-9]{2}-[0-9]{2})",
+    headings[1],
+)
+if match is None:
+    raise SystemExit(2)
+
+release_version, release_date = match.groups()
+try:
+    parsed_date = datetime.date.fromisoformat(release_date)
 except ValueError:
-    raise SystemExit(1)
-raise SystemExit(0 if parsed.isoformat() == sys.argv[1] else 1)
+    raise SystemExit(2)
+if parsed_date.isoformat() != release_date:
+    raise SystemExit(2)
+
+print(f"{release_version}\t{release_date}")
 PY
-    then
-        return 2
-    fi
-    printf '%s\t%s\n' "$release_version" "$release_date"
 }
 
 if [ ! -f "$CHANGELOG_FILE" ]; then
