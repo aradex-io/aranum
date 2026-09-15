@@ -99,6 +99,20 @@ if printf '%s\n' "$matching_tags" | grep -Fqx "$latest_ver"; then
         printf 'git: released tag %s does not peel to a commit\n' "$latest_ver"
         exit 1
     fi
+    git -C "$REPO_ROOT" merge-base --is-ancestor "$tag_commit" HEAD >/dev/null 2>&1
+    ancestry_rc=$?
+    case "$ancestry_rc" in
+        0) ;;
+        1)
+            printf 'git: released tag %s is not an ancestor of the current HEAD\n' "$latest_ver"
+            exit 1
+            ;;
+        *)
+            printf 'git: could not verify released tag %s ancestry; tag state is indeterminate\n' \
+                "$latest_ver"
+            exit 1
+            ;;
+    esac
     if ! git -C "$REPO_ROOT" cat-file -e "$tag_commit:VERSION" 2>/dev/null; then
         printf 'git: released tag %s does not contain VERSION\n' "$latest_ver"
         exit 1

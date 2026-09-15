@@ -102,6 +102,24 @@ fi
 git -C "$FIXTURE" tag -d v0.34.0 >/dev/null
 
 git -C "$FIXTURE" add VERSION CHANGELOG.md
+metadata_tree=$(git -C "$FIXTURE" write-tree)
+disjoint_commit=$(printf 'disjoint release fixture\n' | git -C "$FIXTURE" commit-tree "$metadata_tree")
+git -C "$FIXTURE" tag v0.34.0 "$disjoint_commit"
+git -C "$FIXTURE" merge-base --is-ancestor "$disjoint_commit" HEAD >/dev/null 2>&1
+disjoint_rc=$?
+if [ "$disjoint_rc" -ne 1 ] \
+    || ! git -C "$FIXTURE" cat-file -e "$disjoint_commit:VERSION" \
+    || ! git -C "$FIXTURE" cat-file -e "$disjoint_commit:CHANGELOG.md"; then
+    printf 'FAIL: disjoint-history fixture setup did not prove valid metadata off current history\n' >&2
+    fail=1
+fi
+if env -u GITHUB_ACTIONS -u GITHUB_EVENT_NAME bash "$GATE" "$FIXTURE" >/dev/null; then
+    printf 'FAIL: valid-metadata tag from disjoint history was accepted\n' >&2
+    fail=1
+fi
+git -C "$FIXTURE" tag -d v0.34.0 >/dev/null
+
+git -C "$FIXTURE" add VERSION CHANGELOG.md
 git -C "$FIXTURE" commit -q -m 'release fixture'
 git -C "$FIXTURE" tag v0.34.0
 git -C "$FIXTURE" commit -q --allow-empty -m 'post-release fixture'
