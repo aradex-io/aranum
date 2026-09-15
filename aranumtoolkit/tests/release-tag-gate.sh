@@ -85,7 +85,16 @@ if [ "$vfile" != "$latest_version" ]; then
     exit 1
 fi
 
-if git -C "$REPO_ROOT" tag --list "$latest_ver" | grep -Fqx "$latest_ver"; then
+if ! git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    printf 'git: repository context is unavailable; release tag state is indeterminate\n'
+    exit 1
+fi
+if ! matching_tags=$(git -C "$REPO_ROOT" tag --list "$latest_ver" 2>/dev/null); then
+    printf 'git: could not query release tag %s; tag state is indeterminate\n' "$latest_ver"
+    exit 1
+fi
+
+if printf '%s\n' "$matching_tags" | grep -Fqx "$latest_ver"; then
     if ! tag_commit=$(git -C "$REPO_ROOT" rev-parse -q --verify "$latest_ver^{commit}"); then
         printf 'git: released tag %s does not peel to a commit\n' "$latest_ver"
         exit 1

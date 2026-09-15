@@ -6,7 +6,8 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GATE="$REPO_ROOT/aranumtoolkit/tests/release-tag-gate.sh"
 FIXTURE=$(mktemp -d "${TMPDIR:-/tmp}/aranum-release-gate.XXXXXX")
-trap 'rm -rf "$FIXTURE"' EXIT
+NON_GIT_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/aranum-release-gate-nongit.XXXXXX")
+trap 'rm -rf "$FIXTURE" "$NON_GIT_ROOT"' EXIT
 
 git -C "$FIXTURE" init -q
 git -C "$FIXTURE" config user.name 'aranum test'
@@ -23,6 +24,15 @@ write_valid_metadata() {
 write_valid_metadata
 
 fail=0
+
+printf '0.34.0\n' > "$NON_GIT_ROOT/VERSION"
+printf '# Changelog\n\n## [Unreleased]\n\n## [v0.34.0] — 2026-09-14\n' \
+    > "$NON_GIT_ROOT/CHANGELOG.md"
+if GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
+    bash "$GATE" "$NON_GIT_ROOT" >/dev/null; then
+    printf 'FAIL: indeterminate tag state was accepted in pull_request CI\n' >&2
+    fail=1
+fi
 
 if GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request bash "$GATE" "$FIXTURE" >/dev/null; then
     :
