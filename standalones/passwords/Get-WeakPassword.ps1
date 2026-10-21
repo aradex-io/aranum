@@ -191,24 +191,46 @@ end {
     $files = [System.Collections.Generic.List[string]]::new()
 
     if ($History) {
-        $hist = @()
-        # PSReadLine history for every user profile (Windows layout + pwsh-on-*nix).
-        $userRoots = @()
-        if ($env:SystemDrive) { $userRoots += (Join-Path $env:SystemDrive 'Users') }
-        $userRoots += '/home', '/root'
-        foreach ($root in $userRoots) {
-            if (Test-Path $root) {
-                $hist += Get-ChildItem -Path $root -Recurse -Filter 'ConsoleHost_history.txt' -ErrorAction SilentlyContinue |
-                         Select-Object -ExpandProperty FullName
+        # Curated, fixed-depth locations only — mirrors password-scrape.sh. We never
+        # -Recurse a whole user tree or /var/log: those hold huge/rotated/binary files
+        # that turn a blind walk into a crawl (and can hang on symlink loops). To scan a
+        # full tree, pass that directory explicitly as a -Path argument instead.
+        $hist = [System.Collections.Generic.List[string]]::new()
+
+        # Enumerate user home directories ONE level deep (no -Recurse).
+        $homeDirs = [System.Collections.Generic.List[string]]::new()
+        $containers = @()
+        if ($env:SystemDrive) { $containers += (Join-Path $env:SystemDrive 'Users') }  # Windows
+        $containers += '/home', '/Users'                                               # *nix + macOS
+        foreach ($c in $containers) {
+            if (Test-Path -Path $c -PathType Container -ErrorAction SilentlyContinue) {
+                Get-ChildItem -Path $c -Directory -Force -ErrorAction SilentlyContinue |
+                    ForEach-Object { $homeDirs.Add($_.FullName) }
             }
         }
-        # Current user explicitly.
-        $pc = Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt'
-        if ($env:APPDATA -and (Test-Path $pc)) { $hist += $pc }
-        # Common flat text logs.
-        foreach ($g in @('/var/log/auth.log','/var/log/secure','/var/log/syslog','/var/log/messages')) {
-            if (Test-Path $g) { $hist += $g }
+        foreach ($explicit in @('/root', $env:HOME, $env:USERPROFILE)) {
+            if ($explicit -and (Test-Path -Path $explicit -PathType Container -ErrorAction SilentlyContinue)) { $homeDirs.Add($explicit) }
         }
+
+        foreach ($h in ($homeDirs | Sort-Object -Unique)) {
+            # every *_history dotfile (bash, zsh, sh, ash, python, mysql, psql, ...)
+            Get-ChildItem -Path $h -Filter '.*_history' -File -Force -ErrorAction SilentlyContinue |
+                ForEach-Object { $hist.Add($_.FullName) }
+            # PSReadLine history — fixed sub-paths (Windows layout + pwsh-on-*nix/macOS).
+            foreach ($r in @(
+                    'AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt',
+                    '.local/share/powershell/PSReadLine/ConsoleHost_history.txt')) {
+                $candidate = Join-Path $h $r
+                if (Test-Path -Path $candidate -PathType Leaf -ErrorAction SilentlyContinue) { $hist.Add($candidate) }
+            }
+        }
+
+        # Common flat text logs (fixed paths — never a /var/log tree walk).
+        foreach ($g in @('/var/log/auth.log','/var/log/secure','/var/log/syslog','/var/log/messages',
+                         '/var/log/cloud-init-output.log','/var/log/cloud-init.log')) {
+            if (Test-Path -Path $g -PathType Leaf -ErrorAction SilentlyContinue) { $hist.Add($g) }
+        }
+
         foreach ($f in ($hist | Sort-Object -Unique)) { $files.Add($f) }
     }
 
