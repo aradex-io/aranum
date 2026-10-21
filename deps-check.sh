@@ -126,6 +126,14 @@ else
     printf "[ ] %-22s (optional Python pkg — pip install 'paramiko>=2.7'; ssh-key-triage.py falls back to ssh-keygen)\n" "paramiko"
 fi
 
+# scapy powers standalones/proxy/connect-reply-sim.py (CONNECT reply simulator).
+if python3 -c "import scapy" 2>/dev/null; then
+    v=$(python3 -c "import scapy; print(getattr(scapy, '__version__', '?'))" 2>/dev/null || true)
+    printf "${G}[+]${N} %-22s scapy %s (Python)\n" "scapy" "$v"
+else
+    printf "[ ] %-22s (optional Python pkg — pip install scapy; standalones/proxy/connect-reply-sim.py)\n" "scapy"
+fi
+
 echo
 echo "=== AD DEPTH (iteration D1 — optional) ==="
 check bloodhound-python  opt
