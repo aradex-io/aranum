@@ -99,9 +99,18 @@ per-category summary on stderr. Key flags: `--history`, `--weak-only`, `--secret
 # A directory tree, objects into the pipeline
 .\Get-WeakPassword.ps1 -Path C:\inetpub\logs | Where-Object Category -eq 'auth-header'
 
-# Pipe a log through the secret bank only
+# Pipe a log through the secret bank only (in-session PowerShell pipeline)
 Get-Content .\app.log | .\Get-WeakPassword.ps1 -SecretsOnly
+
+# From any shell (or when launched with -File): pipe to stdin, or pass '-'
+Get-Content .\app.log | pwsh -File .\Get-WeakPassword.ps1 -SecretsOnly
+type app.log | powershell -File .\Get-WeakPassword.ps1 -
 ```
+
+Two ways to feed it input without a file: an **in-session pipeline**
+(`Get-Content x | .\Get-WeakPassword.ps1`) binds to the pipeline parameter, and a
+**shell pipe / `-`** works when the script is launched with `-File` (`... | pwsh -File
+.\Get-WeakPassword.ps1`, or pass `-` as the path). Both are supported.
 
 Findings are emitted as objects (`Category, File, Line, Token, Context`) so you can
 `Format-Table`, `Export-Csv`, `Group-Object Category`, or filter them. `-OutFile` writes a

@@ -309,7 +309,8 @@ end {
         foreach ($f in ($hist | Sort-Object -Unique)) { $files.Add($f) }
     }
 
-    foreach ($p in ($Path | Where-Object { $_ })) {
+    # '-' as a path means "read standard input" (parity with password-scrape.sh).
+    foreach ($p in ($Path | Where-Object { $_ -and $_ -ne '-' })) {
         if (Test-Path -Path $p -PathType Container) {
             $gc = Get-ChildItem -Path $p -File -Recurse:(-not $NoRecurse) -ErrorAction SilentlyContinue
             foreach ($f in $gc) { $files.Add($f.FullName) }
@@ -325,11 +326,31 @@ end {
     # Scan files (robust: shared-mode open, long-path aware, per-file errors
     # accounted rather than fatal).
     foreach ($f in $files) { Invoke-ScanFile -File $f }
-    # Scan pipeline input.
+    # Scan pipeline input bound to the -InputObject parameter (an in-session
+    # PowerShell pipeline: `Get-Content x | .\Get-WeakPassword.ps1`).
     if ($pipeLines.Count -gt 0) { Invoke-Scan -Label '(pipeline)' -Lines $pipeLines }
 
-    if ($files.Count -eq 0 -and $pipeLines.Count -eq 0) {
-        Write-Warning 'Get-WeakPassword: nothing to scan. Pass -Path, pipe input, or use -History.'
+    # Scan standard input when the user asked for it with '-', or when stdin is
+    # redirected (a shell pipe) and no other source was given. `pwsh -File
+    # script.ps1` does NOT bind redirected stdin to a ValueFromPipeline param
+    # the way an in-session pipeline does, so `cat x | pwsh -File ...` would
+    # otherwise read nothing; this makes that work from any shell. Guarded on
+    # IsInputRedirected so an interactive run never blocks waiting on the console.
+    $stdinCount = 0
+    $wantStdin = [bool]($Path | Where-Object { $_ -eq '-' })
+    if (-not $wantStdin -and -not $History -and $files.Count -eq 0 -and $pipeLines.Count -eq 0) {
+        try { $wantStdin = [Console]::IsInputRedirected } catch { $wantStdin = $false }
+    }
+    if ($wantStdin) {
+        $stdinLines = [System.Collections.Generic.List[string]]::new()
+        $line = $null
+        while ($null -ne ($line = [Console]::In.ReadLine())) { $stdinLines.Add($line) }
+        $stdinCount = $stdinLines.Count
+        if ($stdinCount -gt 0) { Invoke-Scan -Label '(stdin)' -Lines $stdinLines }
+    }
+
+    if ($files.Count -eq 0 -and $pipeLines.Count -eq 0 -and $stdinCount -eq 0) {
+        Write-Warning 'Get-WeakPassword: nothing to scan. Pass -Path, pipe input, use ''-'' for stdin, or use -History.'
         exit 2
     }
 
