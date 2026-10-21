@@ -6,17 +6,17 @@
 .DESCRIPTION
     The Windows/PowerShell counterpart to password-scrape.sh. READ-ONLY: never writes
     to a target, never modifies scanned files, never phones home. Reads the paths (or
-    pipeline input) you give it — or the standard PSReadLine history + text logs with
-    -History — and emits one object per token that looks like a credential someone typed.
+    pipeline input) you give it - or the standard PSReadLine history + text logs with
+    -History - and emits one object per token that looks like a credential someone typed.
 
     PRIMARY USE CASE: shell-history hygiene. Admins routinely type passwords straight
     onto a command line, where PSReadLine persists them forever in
     ConsoleHost_history.txt. This flags them so they can be scrubbed and rotated.
 
     TWO BANKS (both scanned by default):
-      1. WEAK-PASSWORD shapes  — "Password1!", keyboard walks (qwerty / 1qaz2wsx /
+      1. WEAK-PASSWORD shapes  - "Password1!", keyboard walks (qwerty / 1qaz2wsx /
          zxcvbn / qazwsx), seasons+year, sequences, repeats, leet "p@ssw0rd", base words.
-      2. SECRET / CREDENTIAL exposure "key terms" — command-line password flags
+      2. SECRET / CREDENTIAL exposure "key terms" - command-line password flags
          (-Password, --password, mysql -p, net user, ConvertTo-SecureString -AsPlainText),
          secret env vars (PGPASSWORD, AWS_SECRET_ACCESS_KEY, ...), provider API keys/
          tokens (AWS AKIA, GitHub ghp_, Slack xox*, Google AIza, Stripe, JWT, OpenAI sk-),
@@ -46,7 +46,7 @@
     Pipe a log through the secret/API-key bank only.
 
 .NOTES
-    Authorized testing / internal compliance only. Style: CLAUDE.md §8.
+    Authorized testing / internal compliance only. Style: CLAUDE.md section 8.
     Objects go to the Output stream (pipe to Format-Table / Export-Csv / Where-Object).
     Exit code: 0 = clean, 1 = findings (scriptable CI gate).
 #>
@@ -164,12 +164,17 @@ begin {
                 foreach ($m in $b.Rx.Matches($line)) {
                     $tok = $m.Value
                     if ($tok.Length -lt $script:MinLen -or $tok.Length -gt $script:MaxLen) { continue }
+                    # NB: compute context first. An inline 'if' used as a hashtable
+                    # VALUE does not parse on Windows PowerShell 5.1 (works only in 7+);
+                    # a plain variable assignment from 'if' is fine on both.
+                    $ctx = $null
+                    if ($script:Context) { $ctx = $line.Trim() }
                     $obj = [pscustomobject]@{
                         Category = $b.Cat
                         File     = $Label
                         Line     = $ln
                         Token    = $tok
-                        Context  = if ($script:Context) { $line.Trim() } else { $null }
+                        Context  = $ctx
                     }
                     $script:results.Add($obj)
                     Write-Output $obj
@@ -191,7 +196,7 @@ end {
     $files = [System.Collections.Generic.List[string]]::new()
 
     if ($History) {
-        # Curated, fixed-depth locations only — mirrors password-scrape.sh. We never
+        # Curated, fixed-depth locations only - mirrors password-scrape.sh. We never
         # -Recurse a whole user tree or /var/log: those hold huge/rotated/binary files
         # that turn a blind walk into a crawl (and can hang on symlink loops). To scan a
         # full tree, pass that directory explicitly as a -Path argument instead.
@@ -216,7 +221,7 @@ end {
             # every *_history dotfile (bash, zsh, sh, ash, python, mysql, psql, ...)
             Get-ChildItem -Path $h -Filter '.*_history' -File -Force -ErrorAction SilentlyContinue |
                 ForEach-Object { $hist.Add($_.FullName) }
-            # PSReadLine history — fixed sub-paths (Windows layout + pwsh-on-*nix/macOS).
+            # PSReadLine history - fixed sub-paths (Windows layout + pwsh-on-*nix/macOS).
             foreach ($r in @(
                     'AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt',
                     '.local/share/powershell/PSReadLine/ConsoleHost_history.txt')) {
@@ -225,7 +230,7 @@ end {
             }
         }
 
-        # Common flat text logs (fixed paths — never a /var/log tree walk).
+        # Common flat text logs (fixed paths - never a /var/log tree walk).
         foreach ($g in @('/var/log/auth.log','/var/log/secure','/var/log/syslog','/var/log/messages',
                          '/var/log/cloud-init-output.log','/var/log/cloud-init.log')) {
             if (Test-Path -Path $g -PathType Leaf -ErrorAction SilentlyContinue) { $hist.Add($g) }
@@ -261,12 +266,12 @@ end {
         exit 2
     }
 
-    # Operator output file (CSV — handy for Excel compliance reports).
+    # Operator output file (CSV - handy for Excel compliance reports).
     if ($OutFile) {
         $results | Export-Csv -Path $OutFile -NoTypeInformation -Encoding UTF8
     }
 
-    # Summary (host stream, not the object stream — so pipelines stay clean).
+    # Summary (host stream, not the object stream - so pipelines stay clean).
     if (-not $NoSummary) {
         Write-Host ''
         Write-Host '=== password/secret compliance summary ===' -ForegroundColor Cyan

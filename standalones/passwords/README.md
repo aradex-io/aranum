@@ -9,8 +9,9 @@ scans, or phones home (CLAUDE.md §9).
 
 ```
 standalones/passwords/
-├── password-scrape.sh     # Bash  — *nix / macOS / WSL
-├── Get-WeakPassword.ps1   # PowerShell — Windows / pwsh-on-*nix
+├── password-scrape.sh     # Bash  - *nix / macOS / WSL
+├── Get-WeakPassword.ps1   # PowerShell - Windows PowerShell 5.1+ / pwsh 7
+├── Get-WeakPassword.cmd   # double-click / console launcher for Windows (see below)
 └── README.md
 ```
 
@@ -106,6 +107,34 @@ Findings are emitted as objects (`Category, File, Line, Token, Context`) so you 
 `Format-Table`, `Export-Csv`, `Group-Object Category`, or filter them. `-OutFile` writes a
 CSV. Switches mirror the bash flags (`-History`, `-WeakOnly`, `-SecretsOnly`, `-Loose`,
 `-NoComposed`, `-CaseSensitive`, `-Context`, `-MinLen/-MaxLen`).
+
+### Running it on Windows 10 / 11
+
+> **Do not double-click the `.ps1`.** Double-clicking a `.ps1` never *runs* it — Windows
+> only *opens* it in an editor or a document viewer (the "can't open this file" / Reader
+> message). Use one of these instead:
+
+- **Double-click `Get-WeakPassword.cmd`** (ships next to the `.ps1`). It launches the
+  scanner correctly — prefers PowerShell 7 (`pwsh`) if installed, else the built-in
+  Windows PowerShell 5.1 — with a *per-process* execution-policy bypass (nothing
+  system-wide is changed), and keeps the window open so you can read the results. With no
+  arguments it scans this machine's history + logs (`-History`); you can also pass the same
+  switches through it: `Get-WeakPassword.cmd -Path C:\inetpub\logs -SecretsOnly`.
+- **From a PowerShell console** (recommended for operators):
+
+  ```powershell
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Get-WeakPassword.ps1 -History
+  ```
+
+  The `-ExecutionPolicy Bypass` here applies only to that one process. Equivalently, set it
+  for your current session first: `Set-ExecutionPolicy -Scope Process Bypass`.
+- **Right-click the `.ps1` → "Run with PowerShell"** also works for a quick `-History` run.
+
+Compatible with the **Windows PowerShell 5.1** that ships in-box on Windows 10/11 and with
+**PowerShell 7+** (`pwsh`). The scripts are plain ASCII so they parse correctly regardless
+of the host's code page. Tip: paste a multi-line script into a console only via `-File` (as
+above) — pasting raw script text line-by-line into an interactive prompt can misfire on
+`if { }` blocks.
 
 ## Exit codes (both)
 

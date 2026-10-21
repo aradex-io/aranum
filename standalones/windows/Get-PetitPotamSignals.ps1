@@ -13,7 +13,7 @@
          \pipe\netdfs for DFSCoerce, \pipe\spoolss for PrinterBug)
 
     This script enumerates THIS host's signaling state across both axes.
-    Read-only — no coerce attempted, no pipe binding.
+    Read-only - no coerce attempted, no pipe binding.
 
 .NOTES
     Authorized testing only. Detection only. The actual coerce + relay
@@ -36,7 +36,7 @@ Hdr "NTLM RELAY / COERCION SIGNALS (THIS HOST)"
 $smbReq = (Get-SmbServerConfiguration -ErrorAction SilentlyContinue).RequireSecuritySignature
 "SMB signing required:    $smbReq"
 if ($smbReq -ne $true) {
-    Warn "SMB signing NOT required — this host is a relay TARGET candidate"
+    Warn "SMB signing NOT required - this host is a relay TARGET candidate"
 }
 
 # --- LDAP signing required (HKLM lsa policy) ---
@@ -44,7 +44,7 @@ $ldap = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameter
 $ldapSigning = $ldap.LDAPServerIntegrity
 "LDAPServerIntegrity:     $ldapSigning  (1=None, 2=Require)"
 if ($ldapSigning -ne 2 -and (Test-Path 'C:\Windows\NTDS')) {
-    Warn "LDAP signing NOT required on DC — relay to LDAP path is open"
+    Warn "LDAP signing NOT required on DC - relay to LDAP path is open"
 }
 
 # --- Channel binding (EPA) on web auth ---
@@ -52,14 +52,14 @@ $cba = Get-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Lsa' -ErrorActio
 $suppressExtendedProt = $cba.SuppressExtendedProtection
 "SuppressExtendedProtection: $suppressExtendedProt"
 
-# --- Coerce vector pipes — are the services running? ---
+# --- Coerce vector pipes - are the services running? ---
 ""
 "--- Coerce-vector services ---"
 foreach ($svc in @('EFS','DfsR','Dfs','Spooler')) {
     $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
     if ($s) {
         if ($s.Status -eq 'Running') {
-            Warn "$svc service running — coerce vector: $(switch($svc){
+            Warn "$svc service running - coerce vector: $(switch($svc){
                 'EFS'    {'PetitPotam (\\pipe\\lsarpc EfsRpcOpenFileRaw)'}
                 'DfsR'   {'DFSCoerce variant'}
                 'Dfs'    {'DFSCoerce (\\pipe\\netdfs)'}
@@ -75,7 +75,7 @@ foreach ($svc in @('EFS','DfsR','Dfs','Spooler')) {
 ""
 $adcs_http = Get-Service -Name CertSvc -ErrorAction SilentlyContinue
 if ($adcs_http) {
-    Warn "CertSvc (AD CS) running — if HTTP enrollment is enabled (port 80/443), relay to /certsrv works (ESC8)"
+    Warn "CertSvc (AD CS) running - if HTTP enrollment is enabled (port 80/443), relay to /certsrv works (ESC8)"
 }
 
 Hdr "NEXT STEPS (operator-driven, attacker box)"

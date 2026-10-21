@@ -36,7 +36,7 @@ function Hdr($t)  { Write-Host ""; Write-Host ("="*70) -ForegroundColor Cyan
                     Write-Host "  $t" -ForegroundColor Cyan
                     Write-Host ("="*70) -ForegroundColor Cyan }
 
-Hdr "GROUP POLICY PREFERENCES — cpassword sweep"
+Hdr "GROUP POLICY PREFERENCES - cpassword sweep"
 
 $hits = 0
 foreach ($p in $Path) {
@@ -56,7 +56,7 @@ foreach ($p in $Path) {
             # Surface the full file path + the cpassword line. Operator decrypts.
             $matches = ([regex]::Matches($text, 'cpassword="([^"]+)"'))
             foreach ($m in $matches) {
-                Hit "GPP cpassword= in $($f.FullName) — value: $($m.Groups[1].Value)"
+                Hit "GPP cpassword= in $($f.FullName) - value: $($m.Groups[1].Value)"
                 $hits++
             }
         }
@@ -66,7 +66,7 @@ foreach ($p in $Path) {
 ""
 "GPP cpassword findings: $hits"
 if ($hits -gt 0) {
-    Hit "CRITICAL: cpassword AES key is public — every match decrypts to cleartext."
+    Hit "CRITICAL: cpassword AES key is public - every match decrypts to cleartext."
     "Decrypt example (openssl):"
     "  echo -n '<cpassword>' | base64 -d -w0 | openssl enc -d -aes-256-cbc \\"
     "    -K 4e9906e8fcb66cc9faf49310620ffee8f496e806cc057990209b09a433b66c1b \\"

@@ -2,7 +2,7 @@
 .SYNOPSIS
     Read ms-Mcs-AdmPwd (LAPS v1) and msLAPS-Password (LAPS v2) via LDAP from
     the current host's domain. Requires that the current user has read access
-    to the attribute on at least one computer object — uncommon but devastating.
+    to the attribute on at least one computer object - uncommon but devastating.
 
 .DESCRIPTION
     LAPS stores the local Administrator password on the computer's AD object.
@@ -15,7 +15,7 @@
 
 .NOTES
     Read-only. No spray, no writes. Authorized testing only.
-    Per ADR-004 D4: this enumerates with the current user's reach — no
+    Per ADR-004 D4: this enumerates with the current user's reach - no
     auto-escalation, no admin runas.
 #>
 [CmdletBinding()]
@@ -81,8 +81,8 @@ try {
             $readable++
         }
         if ($enc.Count -gt 0 -and $enc[0]) {
-            # Encrypted blob present — operator needs the LAPS DPAPI cred to decrypt
-            Warn "ENCRYPTED (LAPSv2) $host — see msLAPS-EncryptedPassword (operator decrypts)"
+            # Encrypted blob present - operator needs the LAPS DPAPI cred to decrypt
+            Warn "ENCRYPTED (LAPSv2) $host - see msLAPS-EncryptedPassword (operator decrypts)"
             $encrypted++
         }
     }
@@ -95,9 +95,9 @@ try {
 "Readable cleartext:   $readable"
 "Readable encrypted:   $encrypted"
 if ($readable -gt 0) {
-    Hit "CRITICAL: at least one LAPS password readable as the current user — lateral movement available"
+    Hit "CRITICAL: at least one LAPS password readable as the current user - lateral movement available"
 } elseif ($encrypted -gt 0) {
-    Warn "HIGH: encrypted LAPS blobs readable — DPAPI extraction required"
+    Warn "HIGH: encrypted LAPS blobs readable - DPAPI extraction required"
 } else {
     Miss "No LAPS-readable computer accounts visible to this user."
 }

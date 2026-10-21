@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Workstation / thick-client enumeration — installed apps, running GUI
+    Workstation / thick-client enumeration - installed apps, running GUI
     processes, and credentials/config AT REST. READ-ONLY.
 
 .DESCRIPTION
@@ -9,7 +9,7 @@
     saved sessions / credential blobs they leave on disk and in the registry.
 
     Enumerates, presence + path + why-it-matters only (NO decryption, NO
-    exfiltration, NO writes — CLAUDE.md §9 invariant 1):
+    exfiltration, NO writes - CLAUDE.md section 9 invariant 1):
       * Installed apps (Uninstall registry keys + Program Files dirs)
       * Running GUI processes with window titles
       * PuTTY / pageant saved sessions, host keys, .ppk private keys
@@ -17,7 +17,7 @@
       * Saved .rdp files + cached RDP creds (cmdkey TERMSRV)
       * OpenVPN / Cisco AnyConnect / WireGuard profiles
       * Browser saved-login DBs (Chrome/Edge/Brave Login Data, Firefox
-        logins.json) — PRESENCE ONLY, no decryption
+        logins.json) - PRESENCE ONLY, no decryption
       * Electron resources\app.asar + per-app config
       * Generic connection-string / credential patterns in %APPDATA% /
         %LOCALAPPDATA% app config trees (*.ini/*.xml/*.json/*.config)
@@ -34,7 +34,7 @@
     .\Get-ThickClientEnum.ps1 -OutFile C:\Windows\Temp\thick.txt
 
 .NOTES
-    Authorized testing only. Read-only enumeration — no exploit payloads.
+    Authorized testing only. Read-only enumeration - no exploit payloads.
 #>
 [CmdletBinding()]
 param(
@@ -46,10 +46,10 @@ function Section($t) { Write-Output ""; Write-Output ("===[ {0} ]===" -f $t) }
 function Hit($t)     { Write-Output ("[+] {0}" -f $t) }
 function Miss($t)    { if ($VerbosePreference -eq 'Continue') { Write-Output ("[-] {0}" -f $t) } }
 
-# Presence finding helper: emits "[+] MARKER: <path> — <why>" iff the path exists.
+# Presence finding helper: emits "[+] MARKER: <path> - <why>" iff the path exists.
 function Present($marker, $path, $why) {
     if ($path -and (Test-Path -LiteralPath $path -ErrorAction SilentlyContinue)) {
-        Hit ("{0}: {1} — {2}" -f $marker, $path, $why)
+        Hit ("{0}: {1} - {2}" -f $marker, $path, $why)
         return $true
     }
     return $false
@@ -97,11 +97,11 @@ Section "PuTTY / pageant SAVED SESSIONS + KEYS"
 Get-ChildItem 'HKCU:\Software\SimonTatham\PuTTY\Sessions' -ErrorAction SilentlyContinue |
     ForEach-Object {
         $s = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
-        Hit ("THICKCLIENT-SAVED-SESSION: PuTTY '{0}' Host={1} User={2} ProxyUser={3} — saved SSH session (proxy creds may be present)" -f `
+        Hit ("THICKCLIENT-SAVED-SESSION: PuTTY '{0}' Host={1} User={2} ProxyUser={3} - saved SSH session (proxy creds may be present)" -f `
             [uri]::UnescapeDataString($_.PSChildName), $s.HostName, $s.UserName, $s.ProxyUsername)
     }
 if (Test-Path 'HKCU:\Software\SimonTatham\PuTTY\SshHostKeys') {
-    Hit "THICKCLIENT-SAVED-SESSION: HKCU\Software\SimonTatham\PuTTY\SshHostKeys — cached host keys reveal hosts this user has reached"
+    Hit "THICKCLIENT-SAVED-SESSION: HKCU\Software\SimonTatham\PuTTY\SshHostKeys - cached host keys reveal hosts this user has reached"
 }
 foreach ($base in @($env:USERPROFILE, "$env:USERPROFILE\Documents", "$env:USERPROFILE\Desktop")) {
     if ($base -and (Test-Path $base)) {
@@ -109,7 +109,7 @@ foreach ($base in @($env:USERPROFILE, "$env:USERPROFILE\Documents", "$env:USERPR
             Select-Object -First 20 | ForEach-Object {
                 $enc = 'unknown'
                 try { $enc = (Select-String -Path $_.FullName -Pattern 'Encryption:' -ErrorAction SilentlyContinue | Select-Object -First 1).Line } catch {}
-                Hit ("THICKCLIENT-SSHKEY-AT-REST: {0} — PuTTY .ppk private key ({1}); convert with puttygen, feed to ssh-key-triage" -f $_.FullName, $enc)
+                Hit ("THICKCLIENT-SSHKEY-AT-REST: {0} - PuTTY .ppk private key ({1}); convert with puttygen, feed to ssh-key-triage" -f $_.FullName, $enc)
             }
     }
 }
@@ -119,11 +119,11 @@ Section "WinSCP SAVED SESSIONS"
 Get-ChildItem 'HKCU:\Software\Martin Prikryl\WinSCP 2\Sessions' -ErrorAction SilentlyContinue |
     ForEach-Object {
         $s = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
-        Hit ("THICKCLIENT-SAVED-SESSION: WinSCP '{0}' Host={1} User={2} — Password field present={3} (weakly-encrypted, decryptable)" -f `
+        Hit ("THICKCLIENT-SAVED-SESSION: WinSCP '{0}' Host={1} User={2} - Password field present={3} (weakly-encrypted, decryptable)" -f `
             [uri]::UnescapeDataString($_.PSChildName), $s.HostName, $s.UserName, [bool]$s.Password)
     }
 foreach ($ini in @("$env:APPDATA\WinSCP.ini", "$env:USERPROFILE\WinSCP.ini")) {
-    Present "THICKCLIENT-CRED-AT-REST" $ini "WinSCP.ini — saved sessions incl. weakly-encrypted passwords" | Out-Null
+    Present "THICKCLIENT-CRED-AT-REST" $ini "WinSCP.ini - saved sessions incl. weakly-encrypted passwords" | Out-Null
 }
 
 # ---------- 5. RDP saved files + cached creds ----------
@@ -136,27 +136,27 @@ foreach ($base in @("$env:USERPROFILE\Documents", "$env:USERPROFILE\Desktop", $e
     if ($base -and (Test-Path $base)) {
         Get-ChildItem -LiteralPath $base -Recurse -Filter '*.rdp' -Force -ErrorAction SilentlyContinue -Depth 2 |
             Select-Object -First 20 | ForEach-Object {
-                Hit ("THICKCLIENT-RDP-CREDS: {0} — saved .rdp (full address / username, prompt-for-credentials flag)" -f $_.FullName)
+                Hit ("THICKCLIENT-RDP-CREDS: {0} - saved .rdp (full address / username, prompt-for-credentials flag)" -f $_.FullName)
             }
     }
 }
-Present "THICKCLIENT-RDP-CREDS" "$env:LOCALAPPDATA\Microsoft\Remote Desktop\1.0\.rdp" "Remote Desktop store — cached connections" | Out-Null
+Present "THICKCLIENT-RDP-CREDS" "$env:LOCALAPPDATA\Microsoft\Remote Desktop\1.0\.rdp" "Remote Desktop store - cached connections" | Out-Null
 
 # ---------- 6. VPN PROFILES ----------
 Section "VPN PROFILES"
 $vpnPaths = @(
-    @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:USERPROFILE\OpenVPN\config";                          W='OpenVPN user config — .ovpn incl. possible inline auth-user-pass' },
+    @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:USERPROFILE\OpenVPN\config";                          W='OpenVPN user config - .ovpn incl. possible inline auth-user-pass' },
     @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:ProgramFiles\OpenVPN\config";                          W='OpenVPN system config directory' },
-    @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:APPDATA\Cisco\Cisco AnyConnect Secure Mobility Client"; W='Cisco AnyConnect profile — server list, cached prefs' },
+    @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:APPDATA\Cisco\Cisco AnyConnect Secure Mobility Client"; W='Cisco AnyConnect profile - server list, cached prefs' },
     @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:ProgramData\Cisco\Cisco AnyConnect Secure Mobility Client\Profile"; W='AnyConnect XML profiles (ServerList)' },
-    @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:ProgramFiles\WireGuard\Data\Configurations";            W='WireGuard tunnel configs — PrivateKey/PresharedKey (DPAPI-wrapped)' },
-    @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:APPDATA\Fortinet\FortiClient";                          W='FortiClient config — saved VPN tunnels' }
+    @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:ProgramFiles\WireGuard\Data\Configurations";            W='WireGuard tunnel configs - PrivateKey/PresharedKey (DPAPI-wrapped)' },
+    @{ M='THICKCLIENT-VPN-PROFILE'; P="$env:APPDATA\Fortinet\FortiClient";                          W='FortiClient config - saved VPN tunnels' }
 )
 foreach ($v in $vpnPaths) { Present $v.M $v.P $v.W | Out-Null }
 foreach ($base in @("$env:USERPROFILE", "$env:USERPROFILE\Documents")) {
     if ($base -and (Test-Path $base)) {
         Get-ChildItem -LiteralPath $base -Recurse -Filter '*.ovpn' -ErrorAction SilentlyContinue -Depth 3 |
-            Select-Object -First 20 | ForEach-Object { Hit ("THICKCLIENT-VPN-PROFILE: {0} — OpenVPN profile" -f $_.FullName) }
+            Select-Object -First 20 | ForEach-Object { Hit ("THICKCLIENT-VPN-PROFILE: {0} - OpenVPN profile" -f $_.FullName) }
     }
 }
 
@@ -172,7 +172,7 @@ $ffProfiles = "$env:APPDATA\Mozilla\Firefox\Profiles"
 if (Test-Path $ffProfiles) {
     Get-ChildItem -LiteralPath $ffProfiles -Recurse -Filter 'logins.json' -ErrorAction SilentlyContinue -Depth 2 |
         Select-Object -First 10 | ForEach-Object {
-            Hit ("THICKCLIENT-BROWSER-LOGINDB: {0} — Firefox saved logins (needs key4.db + NSS)" -f $_.FullName)
+            Hit ("THICKCLIENT-BROWSER-LOGINDB: {0} - Firefox saved logins (needs key4.db + NSS)" -f $_.FullName)
         }
 }
 
@@ -183,7 +183,7 @@ foreach ($r in $electronRoots) {
     if ($r -and (Test-Path $r)) {
         Get-ChildItem -LiteralPath $r -Recurse -Filter 'app.asar' -ErrorAction SilentlyContinue -Depth 3 |
             Select-Object -First 15 | ForEach-Object {
-                Hit ("THICKCLIENT-ELECTRON: {0} — Electron app.asar; 'npx asar extract' for embedded API keys/endpoints" -f $_.FullName)
+                Hit ("THICKCLIENT-ELECTRON: {0} - Electron app.asar; 'npx asar extract' for embedded API keys/endpoints" -f $_.FullName)
             }
     }
 }

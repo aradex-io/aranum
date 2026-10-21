@@ -68,12 +68,12 @@ Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyCon
     }
 }
 
-Write-Host "`n=== Service DACL (sc.exe sdshow) — non-builtin services ===" -ForegroundColor Cyan
+Write-Host "`n=== Service DACL (sc.exe sdshow) - non-builtin services ===" -ForegroundColor Cyan
 Get-Service | Where-Object { $_.Status -ne $null } | ForEach-Object {
     $name = $_.Name
     $sd = & sc.exe sdshow $name 2>$null
     if ($sd -match 'WD' -or $sd -match 'BU' -or $sd -match 'AU') {
-        # Crude flag — WD=World, BU=Built-in Users, AU=Authenticated Users in SDDL
+        # Crude flag - WD=World, BU=Built-in Users, AU=Authenticated Users in SDDL
         Write-Host "[?] $name SDDL contains broad principal: $sd" -ForegroundColor Yellow
     }
 }

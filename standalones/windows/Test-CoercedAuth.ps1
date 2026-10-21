@@ -13,7 +13,7 @@
       - DCOM is reachable locally (RoguePotato)
 
 .NOTES
-    Per the description in REVIEW-001 §2.7: local-only. NEVER fires the
+    Per the description in REVIEW-001 section 2.7: local-only. NEVER fires the
     actual coercion against arbitrary targets.
 #>
 [CmdletBinding()]
@@ -34,33 +34,33 @@ $want = @('SeImpersonatePrivilege','SeAssignPrimaryTokenPrivilege','SeTcbPrivile
 $haveImp = $false
 foreach ($p in $want) {
     if ($priv -match "$p.*Enabled") {
-        Hit "$p (ENABLED) — escalation primitive available"
+        Hit "$p (ENABLED) - escalation primitive available"
         if ($p -eq 'SeImpersonatePrivilege') { $haveImp = $true }
     } elseif ($priv -match $p) {
-        Miss "$p (disabled — can still be enabled via NtAdjustToken)"
+        Miss "$p (disabled - can still be enabled via NtAdjustToken)"
     }
 }
 
-# Spooler — PrintSpoofer chain
+# Spooler - PrintSpoofer chain
 $spooler = (Get-Service Spooler -ErrorAction SilentlyContinue).Status
 "Spooler: $spooler"
 if ($haveImp -and $spooler -eq 'Running') {
-    Hit "CRITICAL: SeImpersonate + Spooler running — PrintSpoofer chain to SYSTEM viable."
+    Hit "CRITICAL: SeImpersonate + Spooler running - PrintSpoofer chain to SYSTEM viable."
     "  -> Run: PrintSpoofer.exe -c 'cmd /c whoami > C:\Windows\Temp\who.txt'"
 }
 
-# DCOM — RoguePotato/RemotePotato0 chain
+# DCOM - RoguePotato/RemotePotato0 chain
 $dcom = (Get-CimInstance Win32_DCOMApplicationSetting -ErrorAction SilentlyContinue).Count
 "DCOM applications enumerable: $dcom"
 if ($haveImp -and $dcom -gt 0) {
-    Hit "HIGH: SeImpersonate + DCOM reachable — RoguePotato / GodPotato chain candidates."
+    Hit "HIGH: SeImpersonate + DCOM reachable - RoguePotato / GodPotato chain candidates."
 }
 
-# WebDAV redirector — JuicyPotatoNG dependency
+# WebDAV redirector - JuicyPotatoNG dependency
 $webdav = (Get-Service WebClient -ErrorAction SilentlyContinue).Status
 "WebClient (WebDAV): $webdav"
 
 Hdr "NOTES"
-"This script ONLY enumerates local preconditions. Per CLAUDE.md §9 invariant 1"
-"and the REVIEW-001 §2.7 design note, it does NOT fire any coercion chain."
+"This script ONLY enumerates local preconditions. Per CLAUDE.md section 9 invariant 1"
+"and the REVIEW-001 section 2.7 design note, it does NOT fire any coercion chain."
 "The operator runs the actual chain via PrintSpoofer.exe / GodPotato.exe / etc."

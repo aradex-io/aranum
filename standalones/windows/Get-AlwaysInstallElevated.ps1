@@ -16,7 +16,7 @@ $hkcu = (Get-ItemProperty 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer' 
 "HKCU\...\Installer\AlwaysInstallElevated = $hkcu"
 
 if ($hklm -eq 1 -and $hkcu -eq 1) {
-    Write-Host "[+] AlwaysInstallElevated ENABLED — any MSI runs SYSTEM" -ForegroundColor Green
+    Write-Host "[+] AlwaysInstallElevated ENABLED - any MSI runs SYSTEM" -ForegroundColor Green
 } elseif ($hklm -eq 1 -xor $hkcu -eq 1) {
     Write-Host "[-] Only one key set; both required" -ForegroundColor Yellow
 } else {

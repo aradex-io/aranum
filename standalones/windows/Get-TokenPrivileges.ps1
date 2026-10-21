@@ -15,10 +15,10 @@ $exploitable = @{
     'SeLoadDriverPrivilege'         = 'Load arbitrary kernel driver -> BYOVD (Capcom, RTCore64, dbutil)'
     'SeTcbPrivilege'                = 'Act as part of OS -> token forging'
     'SeManageVolumePrivilege'       = 'Set ACLs on root of any volume -> write to C:\ then DLL hijack'
-    'SeShutdownPrivilege'           = 'Trigger reboot — useful for racing service-recovery / patch testing'
+    'SeShutdownPrivilege'           = 'Trigger reboot - useful for racing service-recovery / patch testing'
     'SeSecurityPrivilege'           = 'Read/clear Security event log'
     'SeCreateTokenPrivilege'        = 'Create primary tokens -> SYSTEM token forging (rare, very strong)'
-    'SeChangeNotifyPrivilege'       = '(bypass traverse checking — every account has this; not a privesc)'
+    'SeChangeNotifyPrivilege'       = '(bypass traverse checking - every account has this; not a privesc)'
 }
 
 $out = whoami /priv

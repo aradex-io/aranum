@@ -1,18 +1,18 @@
 <#
 .SYNOPSIS
     Enumerate named pipes; flag ones whose ACL permits Everyone / Authenticated
-    Users / current user WRITE — often an escalation surface (impersonation
+    Users / current user WRITE - often an escalation surface (impersonation
     via the pipe server's identity).
 
 .DESCRIPTION
     Many services expose named pipes for IPC. If the pipe's ACL is permissive
     AND the pipe server runs as SYSTEM, an unprivileged user can connect,
     impersonate the calling thread, and inherit SYSTEM token via
-    ImpersonateNamedPipeClient (requires SeImpersonate — which most service
+    ImpersonateNamedPipeClient (requires SeImpersonate - which most service
     accounts have).
 
 .NOTES
-    Authorized testing only. Read-only enumeration of the pipe ACL — no
+    Authorized testing only. Read-only enumeration of the pipe ACL - no
     pipe creation, no impersonation attempted.
 #>
 [CmdletBinding()]
@@ -24,7 +24,7 @@ function Hdr($t)  { Write-Host ""; Write-Host ("="*70) -ForegroundColor Cyan
                     Write-Host "  $t" -ForegroundColor Cyan
                     Write-Host ("="*70) -ForegroundColor Cyan }
 
-Hdr "NAMED PIPES — ACL audit"
+Hdr "NAMED PIPES - ACL audit"
 
 $current = [Security.Principal.WindowsIdentity]::GetCurrent()
 $mySids  = $current.Groups | ForEach-Object {
@@ -51,7 +51,7 @@ foreach ($p in $pipes) {
         $unprivileged = $id -match 'Everyone|Authenticated Users|Users|INTERACTIVE|NETWORK' -or
                         ($mySids -contains $id)
         if ($unprivileged) {
-            Hit "WRITABLE PIPE: $($p.Name) — $($ace.FileSystemRights) granted to $id"
+            Hit "WRITABLE PIPE: $($p.Name) - $($ace.FileSystemRights) granted to $id"
             $writable++
             break
         }
@@ -61,7 +61,7 @@ foreach ($p in $pipes) {
 ""
 "Writable pipes (to current user / Everyone / Auth Users): $writable"
 if ($writable -gt 0) {
-    Hit "HIGH: at least one pipe writable — if the server runs as SYSTEM and has SeImpersonate, this is escalation."
+    Hit "HIGH: at least one pipe writable - if the server runs as SYSTEM and has SeImpersonate, this is escalation."
     "Operator next step:"
     "  - Connect to the pipe and check the server's identity (Get-NamedPipeServerInstance / Sysinternals pipelist.exe -accepteula)."
     "  - If SYSTEM-owned + you have SeImpersonate, RoguePotato/PrintSpoofer-class chains apply."

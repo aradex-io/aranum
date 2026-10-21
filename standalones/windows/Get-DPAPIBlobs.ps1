@@ -2,10 +2,10 @@
 .SYNOPSIS
     Enumerate DPAPI master keys, credential vaults, and Chrome/Edge/Firefox
     encrypted credential stores accessible to the current user. **Location
-    only — no decryption attempted.**
+    only - no decryption attempted.**
 
 .DESCRIPTION
-    DPAPI-protected blobs are the typical "next step after foothold" target —
+    DPAPI-protected blobs are the typical "next step after foothold" target -
     once you have an interactive session as a user, their master keys decrypt
     everything stored under that user's DPAPI context (Chrome cookies, RDP
     saved creds, Outlook stored passwords, etc.).
@@ -14,7 +14,7 @@
     is operator-driven (mimikatz dpapi::masterkey, Lazagne, dpapi.py).
 
 .NOTES
-    Authorized testing only. Read-only. Per CLAUDE.md §9 invariant 1.
+    Authorized testing only. Read-only. Per CLAUDE.md section 9 invariant 1.
 #>
 [CmdletBinding()]
 param()
@@ -63,9 +63,9 @@ foreach ($entry in $paths) {
 }
 
 Hdr "NEXT STEPS (operator-driven)"
-"# DPAPI decryption — requires the user's password OR the user's NTLM hash OR system-level access:"
+"# DPAPI decryption - requires the user's password OR the user's NTLM hash OR system-level access:"
 "#   mimikatz `dpapi::masterkey /in:<master-key> /password:<user-password>`"
 "#   impacket dpapi.py masterkey -file <master-key> -password <user-password>"
 "#"
 "# Chrome / Edge cookies + saved logins use AES-GCM with a DPAPI-wrapped key in 'Local State'."
-"# Lazagne automates the full chain — run as the user. NEVER as SYSTEM (different DPAPI scope)."
+"# Lazagne automates the full chain - run as the user. NEVER as SYSTEM (different DPAPI scope)."
