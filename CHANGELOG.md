@@ -18,6 +18,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 ### Fixed
 - **Windows PowerShell 5.1 compatibility across every `standalones/**/*.ps1`**: the scripts were BOM-less UTF-8 containing non-ASCII characters (em-dash `—`, section `§`). Windows PowerShell 5.1 reads a BOM-less file using the host's ANSI code page, so those bytes were mis-decoded and produced spurious `if` / `{ }` / unterminated-string parse errors in almost every script. All `.ps1` are now plain ASCII (`—`→`-`, `§`→`section`) and parse identically under Windows PowerShell 5.1 and PowerShell 7 regardless of code page.
 - `standalones/passwords/Get-WeakPassword.ps1`: replaced an inline `if`-expression used as a `[pscustomobject]` member value (parses only in PowerShell 7) with a precomputed variable, so the `-Context` path works on Windows PowerShell 5.1.
+- `standalones/passwords/Get-WeakPassword.cmd`: converted to CRLF line endings. `cmd.exe` can mis-parse a parenthesized `if (...) else (...)` block in an LF-only batch file; CRLF is the correct, expected format for a Windows batch launcher.
 - `standalones/passwords/Get-WeakPassword.ps1`: `-History` no longer hangs or crashes. Replaced the unbounded recursive user-tree walk (`Get-ChildItem -Recurse` for `ConsoleHost_history.txt`) with the same fixed-depth, curated history/log locations used by `password-scrape.sh`, and made discovery `Test-Path` calls best-effort (`-ErrorAction SilentlyContinue`) so an unreadable other-user home no longer aborts the scan under `$ErrorActionPreference = 'Stop'`.
 
 ## [v0.34.0] — 2026-09-14
