@@ -136,6 +136,14 @@ of the host's code page. Tip: paste a multi-line script into a console only via 
 above) — pasting raw script text line-by-line into an interactive prompt can misfire on
 `if { }` blocks.
 
+Reading files: a `-Path` scan recurses subdirectories, reads deep/long paths (past the
+legacy `MAX_PATH` limit), and can scan files that another process holds open (active logs,
+a file open in an editor). A file it genuinely cannot read — typically another user's
+protected file without elevation — is reported in the summary as `skipped unread` with the
+reason, not silently dropped; run from an **elevated** PowerShell prompt to read protected
+locations. The summary distinguishes `files found` / `scanned` / `skipped binary` /
+`skipped unread`.
+
 ## Exit codes (both)
 
 | Code | Meaning |

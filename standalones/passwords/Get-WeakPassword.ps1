@@ -76,6 +76,11 @@ begin {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
+    # Are we on Windows? Detect WITHOUT the $IsWindows automatic variable: that
+    # var only exists in PowerShell 6+, and under Set-StrictMode referencing it
+    # on Windows PowerShell 5.1 throws. OSVersion.Platform works on both.
+    $script:IsWindowsOS = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
+
     # ---- pattern banks ----------------------------------------------------
     # .NET regex. [\p{P}\p{S}] is the POSIX [:punct:] analog (punctuation+symbols).
     # Value class [^\s'";,)] = "a credential value: no whitespace/quote/delimiter".
@@ -141,48 +146,113 @@ begin {
     $results = [System.Collections.Generic.List[object]]::new()
     $pipeLines = [System.Collections.Generic.List[string]]::new()
 
-    function Test-IsBinary {
+    # Per-run accounting so we can report WHY files were skipped instead of
+    # flooding the console with one warning per unreadable file.
+    $script:scannedCount = 0
+    $script:skipBinary   = 0
+    $script:skipErr      = 0
+    $script:skipMsgs     = [System.Collections.Generic.List[string]]::new()
+
+    # Make a raw filesystem path safe for the .NET file APIs on Windows.
+    # Windows PowerShell 5.1 runs on .NET Framework, whose File/FileStream APIs
+    # enforce the legacy MAX_PATH (260) limit and throw PathTooLongException on
+    # longer paths - even though Get-ChildItem -Recurse happily HANDS us those
+    # longer paths (so files in deep subdirectories fail to open). The \\?\
+    # prefix tells Win32 to skip MAX_PATH normalization. Only valid for a fully
+    # qualified, backslash-only path (which .FullName / Join-Path give us on
+    # Windows); it is meaningless/ harmful elsewhere, so no-op off Windows.
+    function ConvertTo-IOPath {
+        param([string]$Path)
+        if (-not $script:IsWindowsOS) { return $Path }
+        if ($Path.StartsWith('\\?\')) { return $Path }
+        if ($Path -match '^[A-Za-z]:\\')  { return '\\?\' + $Path }           # C:\...
+        if ($Path.StartsWith('\\'))        { return '\\?\UNC\' + $Path.Substring(2) }  # \\server\share\...
+        return $Path
+    }
+
+    # Open a file for reading with FileShare.ReadWrite so we can still scan a
+    # file another process holds open for writing (active logs, a file open in
+    # an editor, a running app's data) - the default OpenRead uses FileShare.Read
+    # and fails those with "being used by another process". Caller disposes.
+    function Open-ReadStream {
         param([string]$File)
+        $p = ConvertTo-IOPath $File
+        return New-Object System.IO.FileStream(
+            $p,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+    }
+
+    function Test-IsBinary {
+        # Returns $true ONLY for a file that opens but contains a NUL byte in its
+        # first 8 KiB (a real binary). An open FAILURE is re-thrown so the caller
+        # counts it as "unreadable", never silently mislabels it "binary".
+        param([string]$File)
+        $fs = Open-ReadStream -File $File
         try {
-            $fs = [System.IO.File]::OpenRead($File)
-            try {
-                $buf = New-Object byte[] 8192
-                $n = $fs.Read($buf, 0, 8192)
-                for ($i = 0; $i -lt $n; $i++) { if ($buf[$i] -eq 0) { return $true } }
-            } finally { $fs.Dispose() }
-        } catch { return $true }   # unreadable -> skip as if binary
+            $buf = New-Object byte[] 8192
+            $n = $fs.Read($buf, 0, 8192)
+            for ($i = 0; $i -lt $n; $i++) { if ($buf[$i] -eq 0) { return $true } }
+        } finally { $fs.Dispose() }
         return $false
     }
 
+    # Match one line against every bank and emit/record any hits.
+    function Invoke-ScanLine {
+        param([string]$Label, [string]$Line, [int]$LineNo)
+        if ([string]::IsNullOrEmpty($Line)) { return }
+        foreach ($b in $script:bank) {
+            foreach ($m in $b.Rx.Matches($Line)) {
+                $tok = $m.Value
+                if ($tok.Length -lt $script:MinLen -or $tok.Length -gt $script:MaxLen) { continue }
+                # NB: compute context first. An inline 'if' used as a hashtable
+                # VALUE does not parse on Windows PowerShell 5.1 (works only in 7+);
+                # a plain variable assignment from 'if' is fine on both.
+                $ctx = $null
+                if ($script:Context) { $ctx = $Line.Trim() }
+                $obj = [pscustomobject]@{
+                    Category = $b.Cat
+                    File     = $Label
+                    Line     = $LineNo
+                    Token    = $tok
+                    Context  = $ctx
+                }
+                $script:results.Add($obj)
+                Write-Output $obj
+                if (-not $script:counts.ContainsKey($b.Cat)) { $script:counts[$b.Cat] = 0 }
+                $script:counts[$b.Cat]++
+                $script:total++
+            }
+        }
+    }
+
+    # Scan an in-memory sequence of lines (pipeline input).
     function Invoke-Scan {
         param([string]$Label, [System.Collections.IEnumerable]$Lines)
         $ln = 0
-        foreach ($line in $Lines) {
-            $ln++
-            if ([string]::IsNullOrEmpty($line)) { continue }
-            foreach ($b in $script:bank) {
-                foreach ($m in $b.Rx.Matches($line)) {
-                    $tok = $m.Value
-                    if ($tok.Length -lt $script:MinLen -or $tok.Length -gt $script:MaxLen) { continue }
-                    # NB: compute context first. An inline 'if' used as a hashtable
-                    # VALUE does not parse on Windows PowerShell 5.1 (works only in 7+);
-                    # a plain variable assignment from 'if' is fine on both.
-                    $ctx = $null
-                    if ($script:Context) { $ctx = $line.Trim() }
-                    $obj = [pscustomobject]@{
-                        Category = $b.Cat
-                        File     = $Label
-                        Line     = $ln
-                        Token    = $tok
-                        Context  = $ctx
-                    }
-                    $script:results.Add($obj)
-                    Write-Output $obj
-                    if (-not $script:counts.ContainsKey($b.Cat)) { $script:counts[$b.Cat] = 0 }
-                    $script:counts[$b.Cat]++
-                    $script:total++
-                }
-            }
+        foreach ($line in $Lines) { $ln++; Invoke-ScanLine -Label $Label -Line $line -LineNo $ln }
+    }
+
+    # Scan a file on disk: robust open (shared + long-path aware), streamed line
+    # by line so a huge file never has to fit in memory. Open/read failures are
+    # accounted, not fatal and not flooded.
+    function Invoke-ScanFile {
+        param([string]$File)
+        try {
+            if (Test-IsBinary -File $File) { $script:skipBinary++; return }
+            $fs = Open-ReadStream -File $File
+            try {
+                $sr = New-Object System.IO.StreamReader($fs, $true)  # detect BOM, default UTF-8
+                try {
+                    $ln = 0
+                    while ($null -ne ($line = $sr.ReadLine())) { $ln++; Invoke-ScanLine -Label $File -Line $line -LineNo $ln }
+                } finally { $sr.Dispose() }
+            } finally { $fs.Dispose() }
+            $script:scannedCount++
+        } catch {
+            $script:skipErr++
+            if ($script:skipMsgs.Count -lt 10) { $script:skipMsgs.Add(("{0}: {1}" -f $File, $_.Exception.Message)) }
         }
     }
 }
@@ -252,12 +322,9 @@ end {
 
     if ($History -and $files.Count -eq 0) { Write-Warning 'Get-WeakPassword: -History found no readable history/log files (try an elevated prompt).' }
 
-    # Scan files.
-    foreach ($f in $files) {
-        if (Test-IsBinary -File $f) { continue }
-        try { Invoke-Scan -Label $f -Lines ([System.IO.File]::ReadLines($f)) }
-        catch { Write-Warning "skip (${f}): $($_.Exception.Message)" }
-    }
+    # Scan files (robust: shared-mode open, long-path aware, per-file errors
+    # accounted rather than fatal).
+    foreach ($f in $files) { Invoke-ScanFile -File $f }
     # Scan pipeline input.
     if ($pipeLines.Count -gt 0) { Invoke-Scan -Label '(pipeline)' -Lines $pipeLines }
 
@@ -275,7 +342,16 @@ end {
     if (-not $NoSummary) {
         Write-Host ''
         Write-Host '=== password/secret compliance summary ===' -ForegroundColor Cyan
-        Write-Host ("scanned files  : {0}" -f $files.Count)
+        Write-Host ("files found    : {0}" -f $files.Count)
+        Write-Host ("scanned        : {0}" -f $script:scannedCount)
+        if ($script:skipBinary -gt 0) { Write-Host ("skipped binary : {0}" -f $script:skipBinary) }
+        if ($script:skipErr -gt 0) {
+            Write-Host ("skipped unread : {0}" -f $script:skipErr) -ForegroundColor DarkYellow
+            foreach ($m in $script:skipMsgs) { Write-Host ("  - {0}" -f $m) -ForegroundColor DarkYellow }
+            if ($script:skipErr -gt $script:skipMsgs.Count) {
+                Write-Host ("  - ... and {0} more (run from an elevated prompt to read protected files)" -f ($script:skipErr - $script:skipMsgs.Count)) -ForegroundColor DarkYellow
+            }
+        }
         $mode = if ($WeakOnly) { 'weak' } elseif ($SecretsOnly) { 'secrets' } else { 'both' }
         Write-Host ("mode           : {0}" -f $mode)
         Write-Host '---'
