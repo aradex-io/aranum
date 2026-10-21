@@ -9,6 +9,9 @@ See `CLAUDE.md` §6 for the entry style guide.
 
 ## [Unreleased]
 
+### Added
+- `standalones/passwords/password-scrape.sh` + `standalones/passwords/Get-WeakPassword.ps1`: cross-platform read-only password/secret **compliance scanner** for shell history and logs. Two detection banks — weak-password shapes (`Password1!`, keyboard walks incl. shifted, season/month+year, sequences, repeats, leet, base words) and secret/credential "key terms" (command-line password flags, `mysql -p`, `sshpass`, `net user`, `ConvertTo-SecureString -AsPlainText`, 40+ secret env vars, provider API keys/tokens AWS/GitHub/Slack/Google/Stripe/Twilio/SendGrid/OpenAI/npm, JWTs, private-key headers, URL/DB connection strings with creds, Authorization headers, generic `key=secret` assignments). `--history`/`-History` sweeps standard bash/zsh/PSReadLine history + common text logs; `--weak-only`/`--secrets-only` bank selection; TAB/CSV output to an operator path; exit 1 on findings for CI compliance gates.
+
 ## [v0.34.0] — 2026-09-14
 
 ### Fixed
