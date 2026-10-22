@@ -54,8 +54,9 @@ foreach ($p in $Path) {
         } catch { continue }
         if ($text -match 'cpassword="[^"]+"') {
             # Surface the full file path + the cpassword line. Operator decrypts.
-            $matches = ([regex]::Matches($text, 'cpassword="([^"]+)"'))
-            foreach ($m in $matches) {
+            # Not $matches: that is the automatic hashtable populated by -match above.
+            $cpwMatches = [regex]::Matches($text, 'cpassword="([^"]+)"')
+            foreach ($m in $cpwMatches) {
                 Hit "GPP cpassword= in $($f.FullName) - value: $($m.Groups[1].Value)"
                 $hits++
             }

@@ -68,21 +68,25 @@ $encrypted = 0
 try {
     foreach ($r in $searcher.FindAll()) {
         $total++
-        $host = $r.Properties["dnshostname"]
-        $pwd  = $r.Properties["ms-mcs-admpwd"]
+        # NB: do NOT use $host or $pwd here - both are automatic variables.
+        # $host (the PS host object) is READ-ONLY: assigning to it throws
+        # "Cannot overwrite variable Host because it is read-only" and aborts
+        # the whole search. $pwd shadows the automatic $PWD. Use distinct names.
+        $dnsHost = $r.Properties["dnshostname"]
+        $lapsPwd = $r.Properties["ms-mcs-admpwd"]
         $v2   = $r.Properties["mslaps-password"]
         $enc  = $r.Properties["mslaps-encryptedpassword"]
-        if ($pwd.Count -gt 0 -and $pwd[0]) {
-            Hit "READABLE (LAPSv1) $host -> $($pwd[0])"
+        if ($lapsPwd.Count -gt 0 -and $lapsPwd[0]) {
+            Hit "READABLE (LAPSv1) $dnsHost -> $($lapsPwd[0])"
             $readable++
         }
         if ($v2.Count -gt 0 -and $v2[0]) {
-            Hit "READABLE (LAPSv2 JSON) $host -> $($v2[0])"
+            Hit "READABLE (LAPSv2 JSON) $dnsHost -> $($v2[0])"
             $readable++
         }
         if ($enc.Count -gt 0 -and $enc[0]) {
             # Encrypted blob present - operator needs the LAPS DPAPI cred to decrypt
-            Warn "ENCRYPTED (LAPSv2) $host - see msLAPS-EncryptedPassword (operator decrypts)"
+            Warn "ENCRYPTED (LAPSv2) $dnsHost - see msLAPS-EncryptedPassword (operator decrypts)"
             $encrypted++
         }
     }

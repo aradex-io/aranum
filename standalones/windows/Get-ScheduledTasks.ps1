@@ -32,7 +32,7 @@ Get-ScheduledTask | ForEach-Object {
     $highest = $task.Principal.RunLevel
     foreach ($act in $task.Actions) {
         $exe = $act.Execute
-        $args = $act.Arguments
+        $taskArgs = $act.Arguments   # not $args: that is the automatic unbound-args array
         $writable = $false
         if ($exe) {
             # Expand env vars
@@ -45,7 +45,7 @@ Get-ScheduledTask | ForEach-Object {
             Logon    = $logon
             RunLevel = $highest
             Execute  = $exe
-            Args     = $args
+            Args     = $taskArgs
             Writable = $writable
         }
         if ($principal -match 'SYSTEM|Administrators|NETWORK SERVICE' -and $writable) {
