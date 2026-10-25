@@ -105,10 +105,13 @@ class TestClassifyPrefilter(unittest.TestCase):
     """The perf prefilter must never change a classification vs the brute loop."""
 
     def _brute(self, line, rules):
+        # Mirrors _classify's new contract: return the matched Rule (D1.0), or
+        # None. Rules are namedtuples compared by value, so the prefilter path
+        # and this brute path return equal Rules for the same match.
         line = R._clean_line(line)[:4096]
-        for pat, sev in rules:
-            if pat.search(line):
-                return sev
+        for r in rules:
+            if r.pattern.search(line):
+                return r
         return None
 
     def test_prefilter_matches_brute_force(self):
@@ -134,7 +137,7 @@ class TestWindowsBulkGrading(unittest.TestCase):
         # "^WRITABLE PIPE:" rule never matched that prefix.
         rules = list(R._BULK_RULES_WIN) + list(R._AD_DEPTH_RULES)
         line = "[+] WRITABLE PIPE: \\\\.\\pipe\\spoolss — FullControl granted to Everyone"
-        self.assertEqual(R._classify(line, rules), "high")
+        self.assertEqual(R._classify(line, rules).severity, "high")
 
     def test_bulk_winenum_grades_writable_pipe(self):
         with tempfile.TemporaryDirectory() as td:

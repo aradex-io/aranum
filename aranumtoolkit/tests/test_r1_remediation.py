@@ -37,8 +37,8 @@ class TestReportIdentityAndSemantics(unittest.TestCase):
     def test_ephemeral_rule_cache_matches_bruteforce_thousands_of_times(self):
         for i in range(5000):
             token = f"TOKEN_{i}"
-            rules = [(REPORT.re.compile(token), "critical")]
-            self.assertEqual(REPORT._classify(token, rules), "critical")
+            rules = [REPORT.Rule(REPORT.re.compile(token), "critical", f"t{i}")]
+            self.assertEqual(REPORT._classify(token, rules).severity, "critical")
 
     def test_metadata_priority_override_and_custom_rule_precedence(self):
         with tempfile.TemporaryDirectory() as td:
@@ -53,7 +53,7 @@ class TestReportIdentityAndSemantics(unittest.TestCase):
             self.assertEqual(finding["priority"], "P1")
             rules_path = out / "rules.jsonl"
             rules_path.write_text('{"pattern":"OpenSSH","severity":"high"}\n')
-            self.assertEqual(REPORT._classify("OpenSSH 9.8", REPORT._load_rules(rules_path)), "high")
+            self.assertEqual(REPORT._classify("OpenSSH 9.8", REPORT._load_rules(rules_path)).severity, "high")
 
         default_finding = REPORT._structured_finding(
             "192.0.2.1", "6379", "redis", "critical", "CRITICAL Redis", "x.txt",

@@ -43,7 +43,7 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, NamedTuple
 
 # ---------------------------------------------------- color (stdout only)
 def _c(s: str, code: str) -> str:
@@ -208,6 +208,7 @@ def _structured_finding(
     evidence_path: str,
     service_metadata: dict[str, dict],
     protocol: str = "",
+    rule_id: str = "",
 ) -> dict:
     cfg_defaults = _coerce_service_metadata_fields(service_metadata.get("defaults", {}))
     cfg_service = _coerce_service_metadata_fields(service_metadata.get("services", {}).get(service, {}))
@@ -228,6 +229,7 @@ def _structured_finding(
         "evidence_paths": [evidence_path] if evidence_path else [],
         "evidence_identity": evidence_identity,
         "finding_id": finding_id,
+        "rule_id": rule_id,
         "title": _finding_title(service, severity, normalized_line, cfg),
         "confidence": _coerce_str(cfg.get("confidence"), fallback=_SEVERITY_TO_CONFIDENCE.get(severity, "medium")),
         "priority": _coerce_str(cfg.get("priority"), fallback=_SEVERITY_TO_PRIORITY.get(severity, "P3")),
@@ -238,11 +240,50 @@ def _structured_finding(
     }
 
 
+# ---------------------------------------------------- rule identity
+class Rule(NamedTuple):
+    """One severity rule. `rule_id` is a stable, unique key the shadow audit
+    (tests/test_rule_shadowing.py) and the finding knowledge base key on;
+    `miss_ok` marks the few rules legitimately emitted through a dispatcher
+    miss/log marker (see _classify_line)."""
+    pattern: "re.Pattern"
+    severity: str
+    rule_id: str
+    miss_ok: bool = False
+
+
+def _derive_rule_id(pattern: "re.Pattern") -> str:
+    """Stable kebab id for a rule, derived from its pattern. A readable slug of
+    the pattern text plus an 8-hex digest of (flags, pattern) so distinct
+    patterns always get distinct ids; two rules with identical pattern text get
+    the same id and are a real duplicate the uniqueness guard test catches."""
+    slug = re.sub(r"[^a-z0-9]+", "-", pattern.pattern.lower()).strip("-")[:55].strip("-")
+    digest = hashlib.sha1(("%d:%s" % (pattern.flags, pattern.pattern)).encode()).hexdigest()[:8]
+    return (slug + "-" + digest) if slug else ("rule-" + digest)
+
+
+def _build_rules(raw, *, miss_ok_patterns=()) -> "list[Rule]":
+    """Convert a list of (pattern, severity) 2-tuples (or already-built Rules)
+    into Rule objects with derived ids. A rule whose pattern text is in
+    miss_ok_patterns is flagged miss_ok=True."""
+    miss_ok = set(miss_ok_patterns)
+    out: list = []
+    for item in raw:
+        if isinstance(item, Rule):
+            out.append(item)
+            continue
+        pat, sev = item
+        out.append(Rule(pat, sev, _derive_rule_id(pat), pat.pattern in miss_ok))
+    return out
+
+
 # ---------------------------------------------------- severity rules
 # (regex, severity) pairs evaluated in order. First match wins per line.
 # Anchored on the markers the dispatchers emit (err/hit/log color flags +
 # the literal "CRITICAL"/"EXPOSED"/"UNAUTH"/etc. words in their log lines).
-_DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
+# The literal lists below stay 2-tuples; _build_rules() converts each to a
+# Rule (with a derived stable rule_id) at the bottom of this section.
+_DEFAULT_RULES_RAW: list = [
     (re.compile(r"\bCRITICAL\b", re.I),                                 "critical"),
     (re.compile(r"\bUNAUTH (?:Docker|etcd|/v2/keys|kubelet|apiserver)\b", re.I), "critical"),
     # REVIEW-004 service-additions: NATS + ClickHouse (unauth-by-default).
@@ -465,14 +506,14 @@ def _clean_line(line: str) -> str:
 _PREFILTER_CACHE: dict[tuple[tuple[str, int, str], ...], tuple] = {}
 
 
-def _prefilter_for(rules: list[tuple[re.Pattern, str]]):
+def _prefilter_for(rules: "list[Rule]"):
     # Content keys cannot alias when CPython recycles a short-lived list id.
-    key = tuple((pat.pattern, pat.flags, sev) for pat, sev in rules)
+    key = tuple((r.pattern.pattern, r.pattern.flags, r.severity) for r in rules)
     pf = _PREFILTER_CACHE.get(key)
     if pf is None:
         groups: dict[int, list[str]] = defaultdict(list)
-        for pat, _sev in rules:
-            groups[pat.flags].append(pat.pattern)
+        for r in rules:
+            groups[r.pattern.flags].append(r.pattern.pattern)
         combined = []
         for flags, pats in groups.items():
             try:
@@ -488,8 +529,10 @@ def _prefilter_for(rules: list[tuple[re.Pattern, str]]):
     return pf
 
 
-def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
-    """Return the severity for a line, or None if no rule matched."""
+def _classify(line: str, rules: "list[Rule]") -> "Rule | None":
+    """Return the matched Rule for a line, or None if no rule matched. Callers
+    that want only the severity read `.severity`; D1.0 gave rules a stable
+    `rule_id` so the shadow audit and KB can key on identity."""
     # Cap length before regex: an operator-supplied --severity-rules pattern can
     # backtrack catastrophically (e.g. (a+)+$) on a long line; bounding the input
     # is a mitigation (Python re has no match timeout). Findings text we care
@@ -498,14 +541,14 @@ def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
     prefilter = _prefilter_for(rules)
     if prefilter and not any(cre.search(line) for cre in prefilter):
         return None
-    for pat, sev in rules:
-        if pat.search(line):
-            return sev
+    for r in rules:
+        if r.pattern.search(line):
+            return r
     return None
 
 
-def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
-    custom: list[tuple[re.Pattern, str]] = []
+def _load_rules(path: Path | None) -> "list[Rule]":
+    custom: list = []
     if path:
         for lineno, ln in enumerate(path.read_text().splitlines(), 1):
             ln = ln.strip()
@@ -517,7 +560,11 @@ def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
                 if sev not in _SEV_ORDER:
                     raise ValueError(
                         f"severity must be one of {sorted(_SEV_ORDER)}, got {sev!r}")
-                custom.append((re.compile(obj["pattern"], re.I), sev))
+                # Custom operator rules keep the (pattern, severity) FILE contract;
+                # here they become Rules with a stable custom id and miss_ok=True
+                # so the D1.1 guard never suppresses an operator-chosen match.
+                custom.append(Rule(re.compile(obj["pattern"], re.I), sev,
+                                   "custom:%d" % lineno, True))
             except (json.JSONDecodeError, KeyError, re.error, TypeError, ValueError) as exc:
                 print(f"error: {path}:{lineno}: invalid severity rule ({exc})",
                       file=sys.stderr)
@@ -622,7 +669,7 @@ _BULK_GTFOBINS = (
 )
 # Build one alternation so the SUID/SGID line regex stays fast.
 _GTFO_ALT = "|".join(re.escape(b) for b in _BULK_GTFOBINS)
-_BULK_RULES: list[tuple[re.Pattern, str]] = [
+_BULK_RULES_RAW: list = [
     # SUDO — NOPASSWD is the canonical root primitive
     (re.compile(r"NOPASSWD", re.I),                                              "critical"),
     (re.compile(r"\(ALL\s*:\s*ALL\)\s*ALL", re.I),                               "critical"),
@@ -662,7 +709,7 @@ _BULK_RULES: list[tuple[re.Pattern, str]] = [
 # ---------------------------------------------------- Windows bulk-enum severity rules
 # Anchored on what standalones/windows/Invoke-PrivEscEnum.ps1 actually prints (see that
 # script's Section / Sub / Hit functions — formatting is stable across runs).
-_BULK_RULES_WIN: list[tuple[re.Pattern, str]] = [
+_BULK_RULES_WIN_RAW: list = [
     # ---- CRITICAL ---- (direct privesc primitives)
     # AlwaysInstallElevated ENABLED — msfvenom -f msi -> SYSTEM
     (re.compile(r"AlwaysInstallElevated ENABLED", re.I),                        "critical"),
@@ -724,7 +771,7 @@ _BULK_RULES_WIN: list[tuple[re.Pattern, str]] = [
 # These layer on top of the default rules and apply to auto-enum.sh output
 # tree files (enum-ldap.sh / enum-smb.sh / enum-kerberos.sh produce them).
 # Anchored on the literal strings the D1.0-D1.4 commits emit.
-_AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
+_AD_DEPTH_RULES_RAW: list = [
     # --- Certipy AD CS ---
     # Certipy's "ESCN (Vulnerable)" header is the canonical hit — and our
     # ADSI-based Get-ADCSMisconfig.ps1 mirrors that format for parity.
@@ -782,6 +829,22 @@ _AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"WRITABLE.*root runs scripts from here on apt operations", re.I),  "critical"),
     (re.compile(r"/etc/apt/sources\.list WRITABLE", re.I),                          "critical"),
 ]
+
+# Patterns whose rule is legitimately emitted through a dispatcher miss/log
+# marker (so _classify_line must NOT suppress a line that matches one). Seeded
+# with the disabled-privilege hit (Invoke-PrivEscEnum.ps1 prints it via Miss);
+# the D1.1 corpus-classification sweep (tests/test_findings_fidelity.py) is the
+# authority on the full set.
+_MISS_OK_PATTERNS: tuple = (
+    r"\bSe(Impersonate|AssignPrimaryToken|Debug|Backup|Restore|TakeOwnership)Privilege\s*\(disabled",
+)
+
+# Build the Rule lists from the raw 2-tuple literals above, assigning a stable
+# derived rule_id to each and flagging miss_ok where applicable.
+_DEFAULT_RULES: "list[Rule]" = _build_rules(_DEFAULT_RULES_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
+_BULK_RULES: "list[Rule]" = _build_rules(_BULK_RULES_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
+_BULK_RULES_WIN: "list[Rule]" = _build_rules(_BULK_RULES_WIN_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
+_AD_DEPTH_RULES: "list[Rule]" = _build_rules(_AD_DEPTH_RULES_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
 
 
 # ---------------------------------------------------- layout detector
@@ -1179,18 +1242,19 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
                 except Exception:
                     continue
                 for line in text.splitlines():
-                    sev = _classify(line, rules)
-                    if sev is None:
+                    matched = _classify(line, rules)
+                    if matched is None:
                         continue
                     yield _structured_finding(
                         host,
                         port,
                         service,
-                        sev,
+                        matched.severity,
                         line,
                         str(fp.relative_to(out_dir)),
                         service_metadata,
                         protocol,
+                        rule_id=matched.rule_id,
                     )
         # Also scan top-level _dispatcher.log / _hints.txt / _findings.txt
         for top_fp in sorted(svc_dir.glob("_*")):
@@ -1201,17 +1265,18 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
             except Exception:
                 continue
             for line in text.splitlines():
-                sev = _classify(line, rules)
-                if sev is None:
+                matched = _classify(line, rules)
+                if matched is None:
                     continue
                 yield _structured_finding(
                     "(dispatcher)",
                     "",
                     service,
-                    sev,
+                    matched.severity,
                     line,
                     str(top_fp.relative_to(out_dir)),
                     service_metadata,
+                    rule_id=matched.rule_id,
                 )
 
 
@@ -1366,18 +1431,19 @@ def walk_findings_bulk(
             except Exception:
                 continue
             for line in text.splitlines():
-                sev = _classify(line, rules)
-                if sev is None:
+                matched = _classify(line, rules)
+                if matched is None:
                     continue
                 yield _with_bulk_identity(_structured_finding(
                     identity["host"],
                     identity["port"],
                     svc,
-                    sev,
+                    matched.severity,
                     line,
                     str(evidence.relative_to(out_dir)),
                     service_metadata,
                     identity["protocol"],
+                    rule_id=matched.rule_id,
                 ), identity)
 
 
