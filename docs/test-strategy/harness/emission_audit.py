@@ -1,44 +1,45 @@
 #!/usr/bin/env python3
 """Benefit harness: static dispatcher-emission corpus -> classifier FP/FN audit.
 
-Extracts every literal hit/miss/err/crit/log "..." call from
-aranumtoolkit/network/enum-*.sh, renders it the way _lib.sh prints it
-([+] / [-] / [!] / [!!] / [HH:MM:SS]), substitutes shell vars with plausible
-tokens, and runs report.py's classifier (default + AD-depth rules) over each.
+Uses the shared extractor (aranumtoolkit/tests/_emission_corpus.py) so the
+corpus this benefit number is measured on is byte-for-byte the corpus the S1
+gates assert on — they cannot drift. Each rendered emission is run through
+report.py's classifier guard (_classify_line, default + AD-depth rules).
 
-Metrics (pre-registered, see the plan doc):
-  neg_graded   miss/log lines that the classifier grades as a finding (FP)
-  crit_ungraded crit/err "CRITICAL" lines the classifier does not grade (FN)
+Metrics (pre-registered, see PLAN-001-25OCT2026):
+  neg_graded     miss/log lines the classifier grades as a finding (FP)   -> M1
+  crit_ungraded  crit/err "CRITICAL" lines the classifier does not grade  -> M2
+  tp_recall      labeled true positives that still grade                  -> M3
+  tp_sev_exact   labeled true positives that grade at the exact severity  -> M3b
+
 Usage: emission_audit.py <repo-root> [--json OUT]
 """
-import importlib.util, json, re, sys
+import importlib.util, json, sys
 from collections import Counter
 from pathlib import Path
 
 root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "aranumtoolkit" / "tests"))
+from _emission_corpus import extract_emissions  # noqa: E402
+
 spec = importlib.util.spec_from_file_location("rep", root / "aranumtoolkit/network/report.py")
 rep = importlib.util.module_from_spec(spec); sys.modules["rep"] = rep; spec.loader.exec_module(rep)
-rules = rep._DEFAULT_RULES + rep._AD_DEPTH_RULES
+rules = list(rep._DEFAULT_RULES) + list(rep._AD_DEPTH_RULES)
 classify = getattr(rep, "_classify_line", None) or rep._classify
 
-MARK = {"hit": "[+] ", "miss": "[-] ", "err": "[!] ", "crit": "[!!] ", "log": "[10:00:00] "}
-call = re.compile(r'(?<![\w-])(hit|miss|err|crit|log)\s+"((?:[^"\\]|\\.)*)"')
-VARS = {"ip": "10.0.0.9", "port": "8080", "host": "10.0.0.9", "url": "http://10.0.0.9:8080"}
-def render(s):
-    s = re.sub(r"\$\(([^()]*)\)", "3", s)
-    s = re.sub(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)[^}\s]*\}?", lambda m: VARS.get(m[1].lower(), "x"), s)
-    return s.replace('\\"', '"')
 
-rows = []
-for f in sorted((root / "aranumtoolkit/network").glob("enum-*.sh")):
-    for n, line in enumerate(f.read_text(errors="replace").splitlines(), 1):
-        if line.lstrip().startswith("#"):
-            continue
-        for m in call.finditer(line):
-            kind, text = m[1], render(m[2])
-            out = MARK[kind] + text
-            rows.append({"file": f.name, "line": n, "kind": kind, "text": out,
-                         "sev": classify(out, rules)})
+def _sev(text):
+    """Severity string for a rendered line, or None. Normalizes the D1.0 Rule
+    return (classify now returns a Rule namedtuple, not a bare severity)."""
+    m = classify(text, rules)
+    if m is None:
+        return None
+    return getattr(m, "severity", m)  # tolerate either return shape
+
+
+rows = extract_emissions(root)
+for r in rows:
+    r["sev"] = _sev(r["text"])
 
 c = Counter((r["kind"], r["sev"] is not None) for r in rows)
 neg = [r for r in rows if r["kind"] in ("miss", "log") and r["sev"]]
@@ -50,7 +51,7 @@ if "--json" in sys.argv:
     out = Path(sys.argv[sys.argv.index("--json") + 1])
     out.write_text(json.dumps({"summary": summary, "neg_graded": neg, "crit_ungraded": critu}, indent=1))
 
-# ---- M4: labeled true-positive recall + severity accuracy (tp_labels.json)
+# ---- labeled true-positive recall + severity accuracy (tp_labels.json)
 lab = json.loads((Path(__file__).parent / "tp_labels.json").read_text())["labels"]
 hit_rows = [r for r in rows if r["kind"] in ("hit", "err", "crit")]
 recall = acc = present = 0

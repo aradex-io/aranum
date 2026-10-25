@@ -547,6 +547,43 @@ def _classify(line: str, rules: "list[Rule]") -> "Rule | None":
     return None
 
 
+# Dispatcher markers that mean "this line is a miss/log line, not a finding".
+# D1.1 suppression keys on the MARKER only — never on content negation such as
+# "NOT VULNERABLE" or "STATUS_ACCOUNT_DISABLED", which legitimately appear inside
+# enumeration output. The three markers are the _lib.sh miss prefix, the _lib.sh
+# log timestamp, and the NetExec failure column.
+_SUPPRESS_MARKERS: tuple = (
+    re.compile(r"^\s*\[-\]\s"),                            # _lib.sh miss  → [-] ...
+    re.compile(r"^\s*\[\d{2}:\d{2}:\d{2}\]\s"),            # _lib.sh log   → [HH:MM:SS] ...
+    re.compile(r"^\S+\s+\S+\s+\d{1,5}\s+\S+\s+\[-\]\s"),   # NetExec       → PROTO host port name [-] ...
+)
+
+
+def _is_suppressed_marker(cleaned: str) -> bool:
+    return any(m.search(cleaned) for m in _SUPPRESS_MARKERS)
+
+
+def _classify_line(line: str, rules: "list[Rule]") -> "Rule | None":
+    """Marker-aware classifier used by every finding walker (G01/G02).
+
+    `_classify` stays the raw first-match primitive; this wrapper adds
+    dispatcher-marker suppression so a line carried on a miss/log marker does
+    not surface as a finding. Overrides run before suppression: a line matched
+    by a `miss_ok` rule (operator `--severity-rules`, always miss_ok, or a
+    built-in rule flagged miss_ok because it is legitimately emitted through
+    Miss()/Log()) is kept regardless of its marker. Marker detection only runs
+    when a non-miss_ok rule actually matched — the only case where suppression
+    changes the outcome — so the common no-match line costs nothing extra."""
+    matched = _classify(line, rules)
+    if matched is None:
+        return None
+    if matched.miss_ok:
+        return matched
+    if _is_suppressed_marker(_clean_line(line)):
+        return None
+    return matched
+
+
 def _load_rules(path: Path | None) -> "list[Rule]":
     custom: list = []
     if path:
@@ -1242,7 +1279,7 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
                 except Exception:
                     continue
                 for line in text.splitlines():
-                    matched = _classify(line, rules)
+                    matched = _classify_line(line, rules)
                     if matched is None:
                         continue
                     yield _structured_finding(
@@ -1265,7 +1302,7 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
             except Exception:
                 continue
             for line in text.splitlines():
-                matched = _classify(line, rules)
+                matched = _classify_line(line, rules)
                 if matched is None:
                     continue
                 yield _structured_finding(
@@ -1431,7 +1468,7 @@ def walk_findings_bulk(
             except Exception:
                 continue
             for line in text.splitlines():
-                matched = _classify(line, rules)
+                matched = _classify_line(line, rules)
                 if matched is None:
                     continue
                 yield _with_bulk_identity(_structured_finding(
