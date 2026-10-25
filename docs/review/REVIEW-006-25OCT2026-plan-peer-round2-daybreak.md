@@ -1,0 +1,28 @@
+REVISE.
+
+The relay blocker is resolved, but three prior high findings remain partial and the Rule migration introduces one new high-risk defect.
+
+| Item | Status | Why |
+|---|---|---|
+| BLOCKER — relay/§9 | RESOLVED | No listener, target fetch, or result-upload remains; output uses the selected transport or manual paste-back, with ceiling refusal. [plan:12](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:12), [plan:318](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:318), [plan:365](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:365) |
+| D1.1 guard | RESOLVED | Suppression is marker-only; custom and corpus-sized built-in `miss_ok` overrides precede it; content negation is gone. [plan:87](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:87) |
+| D1.2 shadow audit | RESOLVED | Expected `rule_id`+severity replaces “longest literal,” with reasoned overlap allowlisting. [plan:103](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:103) |
+| D1.4 dedup | RESOLVED | Port/protocol compatibility, protected-token equality, boundary restriction, and one-to-one matching are hard gates before prose similarity. [plan:123](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:123) |
+| D2.1 KB identity | RESOLVED | KB lookup uses the classification-time `rule_id`; no second regex classification remains. [plan:184](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:184) |
+| D2.2 AD chains | RESOLVED | Pre-domain correlations are explicitly “uncorrelated signals”; confirmed chains wait for domain identity. [plan:205](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:205) |
+| D1.6/D3.5 collection | RESOLVED | `Collection` carries findings, posture, domains, and diagnostics; both consumers use it and `posture.json` is copied. [plan:155](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:155), [plan:333](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:333) |
+| D3.2 AD scope/checks | PARTIALLY RESOLVED | Scope, bounds, missing checks, and consent are specified, but `-AdChecks` has no `aranum local/run`, bulk-engine, or wrapper pass-through; delivered posture therefore cannot explicitly enable it. [plan:253](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:253), [plan:267](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:267), [plan:296](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:296) |
+| D3.2 helpers/tests | RESOLVED | ADSI filters and conversions are named helpers with specific offline fixture tests. [plan:253](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:253), [plan:282](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:282) |
+| D3.3 domain rollup | PARTIALLY RESOLVED | Canonical `(domain,check)` findings are defined, but `observed_from: [host,…]` cannot preserve each observer’s status/detail; conflicting PASS/ERR evidence is still lost, and ERR/NA ordering remains undefined. [plan:261](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:261) |
+| D3.4 PowerShell delivery | RESOLVED | Each advanced script gets its own script block and the exact combined payload is parsed for 5.1 compatibility. [plan:265](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:265) |
+| D4.4 argument partition | RESOLVED | Separate declared argument sets and exact subprocess-argv testing address forwarding. [plan:329](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:329) |
+| D4.4 mixed tree | PARTIALLY RESOLVED | Marker, walker exclusion, and path rebasing are defined, but the dashboard and output model remain binary `bulk`/non-bulk; mixed `mode`, inventory, and `per_host` behavior are still unspecified. [plan:334](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:334), [report-dashboard.py:381](/srv/share/dev/aranum/aranumtoolkit/network/report-dashboard.py:381), [report.py:1691](/srv/share/dev/aranum/aranumtoolkit/network/report.py:1691) |
+| D5.1 Linux RDP | RESOLVED | Automated Linux RDP is no longer claimed; Linux-only RDP resolves to SSH/general assisted mode and is tested accordingly. [plan:362](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:362) |
+| D5.1 VNC | RESOLVED | Assisted mode is default; blind automation requires two gates and focus validation and is not counted as captured enumeration. [plan:361](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:361) |
+| S4 RED gate | RESOLVED | Mutation now exercises the actual command builder and ceiling refusal. [plan:344](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:344) |
+| D1.0 Rule representation | NEW-ISSUE | A four-field `namedtuple` does not preserve existing two-value tuple unpacking; current `_prefilter_for` and `_classify` will raise unless every consumer is migrated explicitly. [plan:83](/srv/share/dev/aranum/docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md:83), [report.py:470](/srv/share/dev/aranum/aranumtoolkit/network/report.py:470), [report.py:501](/srv/share/dev/aranum/aranumtoolkit/network/report.py:501) |
+
+No blocker remains, but these high correctness gaps prevent APPROVE.
+---
+Reviewer: codex Daybreak Blue (gpt-daybreak-blue-latest), xhigh, read-only.
+Artifact: PLAN-001 @ d3a4b45 (post round-1 revision). Verdict: REVISE (blocker RESOLVED; 4 items remained, all patched in the following commit).
