@@ -1,0 +1,447 @@
+
+[1;36m===[ 1. Bash syntax — every .sh file ]===[0m
+[1;32m[+][0m syntax: ./aranumtoolkit/network/autoenum-diff.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/auto-enum.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/bulk-enum-linux.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-activemq.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-afp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ajp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-artifact.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-backup.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-bambu.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-cassandra.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-clickhouse.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-consul.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-couchbase.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-couchdb.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-dns.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-docker.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-elastic.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-etcd.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-finger.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-flexnet.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ftp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-git.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-hpc.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-http.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-https.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ike.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-imap.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-influxdb.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ipmi.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ipp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-jabber.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-jmx.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-kafka.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-kerberos.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-kubernetes.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ldap.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-mdns.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-memcached.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-mongo.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-monitoring.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-mqtt.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-msrpc.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-mssql.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-mysql.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-nats.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-neo4j.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-netbios-ns.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-nfs.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ntp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-oracle.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-platform.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-pop3.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-postgres.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-print.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-rabbitmq.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-radius.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-rdp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-redis.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-rethinkdb.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-rsync.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-sip.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-slp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-smb.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-smtp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-snmp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-solr.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-squid.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ssdp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-ssh.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-storage.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-telnet.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-tftp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-unknown.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-vault.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-vnc.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-winrm.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-x11.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-xmpp.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/enum-zookeeper.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/iterative-enum.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/_lib.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/network/ssh-triage.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/tests/fp-harness.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/tests/release-tag-gate.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/tests/smoke.sh
+[1;32m[+][0m syntax: ./aranumtoolkit/tests/test_release_tag_gate.sh
+[1;32m[+][0m syntax: ./deps-check.sh
+[1;32m[+][0m syntax: ./standalones/activemq/activemq-jolokia-rce.sh
+[1;32m[+][0m syntax: ./standalones/activemq/_activemq_lib.sh
+[1;32m[+][0m syntax: ./standalones/activemq/activemq-queues.sh
+[1;32m[+][0m syntax: ./standalones/activemq/activemq-quickwin.sh
+[1;32m[+][0m syntax: ./standalones/graphql/examples/authz-diff.sh
+[1;32m[+][0m syntax: ./standalones/graphql/examples/idor-sweep.sh
+[1;32m[+][0m syntax: ./standalones/jabber/jabber-admin-api-probe.sh
+[1;32m[+][0m syntax: ./standalones/linux/apt-source-check.sh
+[1;32m[+][0m syntax: ./standalones/linux/capabilities-enum.sh
+[1;32m[+][0m syntax: ./standalones/linux/container-detect.sh
+[1;32m[+][0m syntax: ./standalones/linux/creds-hunt.sh
+[1;32m[+][0m syntax: ./standalones/linux/cron-enum.sh
+[1;32m[+][0m syntax: ./standalones/linux/group-enum.sh
+[1;32m[+][0m syntax: ./standalones/linux/imds-check.sh
+[1;32m[+][0m syntax: ./standalones/linux/io-uring-check.sh
+[1;32m[+][0m syntax: ./standalones/linux/juicy-files-hunt.sh
+[1;32m[+][0m syntax: ./standalones/linux/linenum-fast.sh
+[1;32m[+][0m syntax: ./standalones/linux/looney-check.sh
+[1;32m[+][0m syntax: ./standalones/linux/namespaces-check.sh
+[1;32m[+][0m syntax: ./standalones/linux/overlayfs-check.sh
+[1;32m[+][0m syntax: ./standalones/linux/proc-hardening-check.sh
+[1;32m[+][0m syntax: ./standalones/linux/pwnkit-check.sh
+[1;32m[+][0m syntax: ./standalones/linux/sudo-enum.sh
+[1;32m[+][0m syntax: ./standalones/linux/suid-gtfobins.sh
+[1;32m[+][0m syntax: ./standalones/linux/thickclient-hunt.sh
+[1;32m[+][0m syntax: ./standalones/linux/writable-files.sh
+[1;32m[+][0m syntax: ./standalones/ot/enum-bacnet.sh
+[1;32m[+][0m syntax: ./standalones/ot/enum-dnp3.sh
+[1;32m[+][0m syntax: ./standalones/ot/enum-enip.sh
+[1;32m[+][0m syntax: ./standalones/ot/enum-iec104.sh
+[1;32m[+][0m syntax: ./standalones/ot/enum-modbus.sh
+[1;32m[+][0m syntax: ./standalones/ot/enum-opcua.sh
+[1;32m[+][0m syntax: ./standalones/ot/enum-s7.sh
+[1;32m[+][0m syntax: ./standalones/ot/_lib.sh
+[1;32m[+][0m syntax: ./standalones/ot/ot-enum.sh
+[1;32m[+][0m syntax: ./standalones/passwords/password-scrape.sh
+[1;32m[+][0m syntax: ./standalones/redis/redis-lateral.sh
+[1;32m[+][0m syntax: ./standalones/redis/_redis_lib.sh
+[1;32m[+][0m syntax: ./standalones/redis/redis-quickwin.sh
+[1;32m[+][0m syntax: ./standalones/redis/redis-rce-lua.sh
+[1;32m[+][0m syntax: ./standalones/redis/redis-rce-module.sh
+[1;32m[+][0m syntax: ./standalones/redis/redis-rce-ssh.sh
+[1;32m[+][0m syntax: ./standalones/smtp/_smtp_lib.sh
+[1;32m[+][0m syntax: ./standalones/smtp/smtp-phish-send.sh
+[1;32m[+][0m syntax: ./standalones/smtp/smtp-quickwin.sh
+[1;32m[+][0m syntax: ./standalones/smtp/smtp-relay-test.sh
+[1;32m[+][0m syntax: ./standalones/smtp/smtp-user-enum.sh
+[1;32m[+][0m syntax: ./standalones/smtp/spf-dmarc-check.sh
+[1;32m[+][0m syntax: ./standalones/tomcat/tomcat-war-deploy.sh
+
+[1;36m===[ 2. Python compile — every .py file ]===[0m
+[1;32m[+][0m compile: ./aranum.py
+[1;32m[+][0m compile: ./aranumtoolkit/interop/aranum_to_recce.py
+[1;32m[+][0m compile: ./aranumtoolkit/network/bulk-enum-windows.py
+[1;32m[+][0m compile: ./aranumtoolkit/network/merge-results.py
+[1;32m[+][0m compile: ./aranumtoolkit/network/nmap-parse.py
+[1;32m[+][0m compile: ./aranumtoolkit/network/plan.py
+[1;32m[+][0m compile: ./aranumtoolkit/network/report-dashboard.py
+[1;32m[+][0m compile: ./aranumtoolkit/network/report.py
+[1;32m[+][0m compile: ./aranumtoolkit/network/ssh-key-triage.py
+[1;32m[+][0m compile: ./aranumtoolkit/network/wiki.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/data_audit.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/fp-server.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/__init__.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_ad_signals.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_bulk_enum_linux_auth.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_bulk_enum_report.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_bulk_enum_windows.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_bulk_enum_windows_transports.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_creds_hardening.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_default_creds_activemq.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_dispatcher_contract.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_gql_cli.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_gql_hardening.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_gql_internals.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_interop_recce.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_merge_results.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_new_dispatchers_tp.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_nmap_parse.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_phase1_hardening.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_planner.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_proxy_norpc.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_quality_gate_r1.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_queue.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_r1_remediation.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_r2_host_predicates.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_r2_protocol_transports.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_report_dashboard.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_specialist_semantics_r3.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_ssh_key_triage.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_ssh_triage.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_structured_findings.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_thickclient_enum.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_unified_cli.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/test_wiki.py
+[1;32m[+][0m compile: ./aranumtoolkit/tests/tp-server.py
+[1;32m[+][0m compile: ./standalones/activemq/activemq-cve-2023-46604.py
+[1;32m[+][0m compile: ./standalones/activemq/jolokia_inventory.py
+[1;32m[+][0m compile: ./standalones/creds/default-creds-sweep.py
+[1;32m[+][0m compile: ./standalones/creds/hash-format.py
+[1;32m[+][0m compile: ./standalones/creds/spray-scheduler.py
+[1;32m[+][0m compile: ./standalones/graphql/gql.py
+[1;32m[+][0m compile: ./standalones/jabber/jabber-user-enum.py
+[1;32m[+][0m compile: ./standalones/jabber/jabber-validate.py
+[1;32m[+][0m compile: ./standalones/jabber/openfire-cve-2023-32315.py
+[1;32m[+][0m compile: ./standalones/proxy/connect-reply-sim.py
+[1;32m[+][0m compile: ./standalones/redis/module/verify_source.py
+[1;32m[+][0m compile: ./standalones/redis/redis-rogue-master.py
+[1;32m[+][0m compile: ./standalones/smtp/smtp-smuggling-test.py
+
+[1;36m===[ 3. CLI --help on every tool ]===[0m
+[1;32m[+][0m help: python3 standalones/graphql/gql.py
+[1;32m[+][0m help: python3 standalones/creds/default-creds-sweep.py
+[1;32m[+][0m help: python3 aranumtoolkit/network/nmap-parse.py
+[1;32m[+][0m help: python3 standalones/jabber/jabber-user-enum.py
+[1;32m[+][0m help: python3 standalones/jabber/jabber-validate.py
+[1;32m[+][0m help: python3 standalones/jabber/openfire-cve-2023-32315.py
+[1;32m[+][0m help: python3 standalones/activemq/activemq-cve-2023-46604.py
+[1;32m[+][0m help: python3 standalones/smtp/smtp-smuggling-test.py
+[1;32m[+][0m help: python3 standalones/redis/redis-rogue-master.py
+[1;32m[+][0m help: bash aranumtoolkit/network/auto-enum.sh
+[1;32m[+][0m help: bash standalones/jabber/jabber-admin-api-probe.sh
+
+[1;36m===[ 4. Security regression — shell-injection footgun stays closed ]===[0m
+[1;32m[+][0m shell-injection: no NXC_ARGS+= patterns (A.1 holds)
+[1;32m[+][0m shell-injection: no creds= patterns (A.1 holds)
+[1;32m[+][0m shell-injection: nxc_creds_array preserves literal credential bytes
+[1;32m[+][0m ldap_url v4: ldap://10.0.0.1
+[1;32m[+][0m ldap_url v6+port+scheme: ldaps://[2001:db8::1]:636
+
+[1;36m===[ 5. nmap-parse.py — benign fixtures parse + categories present ]===[0m
+[1;32m[+][0m parse benign: aranumtoolkit/network/test.xml
+[1;32m[+][0m parse benign: aranumtoolkit/network/test.gnmap
+[1;32m[+][0m parse benign: aranumtoolkit/network/test.nmap
+[1;32m[+][0m test.xml has 1 host (regression check)
+
+[1;36m===[ 6. nmap-parse.py — malicious XML is rejected ]===[0m
+[1;32m[+][0m rejected with rc=3: aranumtoolkit/tests/fixtures/malicious_xxe.xml
+[1;32m[+][0m rejected with rc=3: aranumtoolkit/tests/fixtures/billion_laughs.xml
+
+[1;36m===[ 7. nmap-parse.py — XMPP + OpenFire categories present ]===[0m
+[1;32m[+][0m categories: xmpp, openfire-admin, postgres, mysql, mongo, elastic, ipmi all present
+[1;32m[+][0m xmpp routing: 10.0.0.10:5222
+[1;32m[+][0m openfire-admin routing: 10.0.0.10:9090
+[1;32m[+][0m openfire-admin: port 80 NOT mis-tagged (regex a^ holds)
+
+[1;36m===[ 8. gql.py — flags + cache_key + range bound ]===[0m
+[1;32m[+][0m gql.py: --insecure flag present
+[1;32m[+][0m cache_key: 7 distinct identities -> 7 distinct cache files
+[1;32m[+][0m range bound: >1M refused with --allow-huge hint
+
+[1;36m===[ 9. jabber-validate.py — RFC 5802 SCRAM-SHA-1 reference vector ]===[0m
+[1;32m[+][0m SCRAM RFC 5802 §5 reference vector matches
+
+[1;36m===[ 10. CLI smoke — connect-refused handled cleanly ]===[0m
+[1;32m[+][0m jabber-user-enum: clean STREAM_FAIL on closed port
+[1;32m[+][0m jabber-validate: rc=2 on connect-refused
+[1;32m[+][0m openfire detect: rc=2 on connect-refused
+[1;32m[+][0m openfire exploit: ADR-001 D3 typed-FQDN refusal works
+[1;32m[+][0m enum-jabber.sh: produces _hints.txt on empty input
+
+[1;36m===[ 10b. Iteration B dispatchers — empty-targets smoke ]===[0m
+[1;32m[+][0m enum-postgres.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-mysql.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-mongo.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-elastic.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-docker.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-kubernetes.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-ipmi.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-vnc.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-jmx.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-rabbitmq.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-memcached.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-couchdb.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-etcd.sh: empty-targets smoke + _hints.txt produced
+
+[1;36m===[ 10b.2. Remaining dispatchers — empty-targets smoke (Phase 7 expansion) ]===[0m
+[1;32m[+][0m enum-artifact.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-backup.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-cassandra.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-consul.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-flexnet.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-hpc.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-influxdb.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-ipp.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-kafka.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-monitoring.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-neo4j.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-netbios-ns.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-platform.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-pop3.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-imap.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-print.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-solr.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-storage.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-telnet.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-vault.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-zookeeper.sh: empty-targets smoke + _hints.txt produced
+[1;32m[+][0m enum-dns.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-ftp.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-kerberos.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-ldap.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-rdp.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-smb.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-smtp.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-snmp.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-ssh.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-unknown.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-winrm.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-http.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-https.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-activemq.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-ajp.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-mqtt.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-oracle.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-sip.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-rsync.sh: empty-targets smoke (no _hints.txt expected — pre-convention dispatcher)
+[1;32m[+][0m enum-ike.sh: refuses without ENUM_RUN_IKE=1 (CLAUDE.md §9 invariant)
+[1;32m[+][0m enum-slp.sh: refuses without ENUM_RUN_SLP=1 (CLAUDE.md §9 invariant)
+[1;32m[+][0m enum-radius.sh: refuses without ENUM_RUN_RADIUS=1 (CLAUDE.md §9 invariant)
+[1;32m[+][0m docker routing: 2375 only
+[1;32m[+][0m kubernetes routing: 6443 only
+[1;32m[+][0m docker: port 80 NOT mis-tagged
+
+[1;36m===[ 10c. Iteration F gql.py subcommands ]===[0m
+[1;32m[+][0m gql.py suggest: empty corpus, clean exit
+[1;32m[+][0m gql.py apq-probe: runs to completion
+[1;32m[+][0m gql.py csrf-probe: unreachable target is indeterminate/nonzero
+[1;32m[+][0m gql.py --alias-dos-check: refuses without --confirm
+[1;32m[+][0m gql.py --proxy: stderr warning emitted
+
+[1;36m===[ 10d. Iteration E — report.py + autoenum-diff.sh ]===[0m
+[1;32m[+][0m report.py: findings.json + report.md + report.html written
+[1;32m[+][0m report.py: severity classification (≥1 critical, ≥1 high)
+[1;32m[+][0m report.py: structured findings v2 fields present
+[1;32m[+][0m report.py: strips broken ANSI marker fragments
+[1;32m[+][0m report.py --redact: IPs replaced with <TARGET-N>
+[1;32m[+][0m autoenum-diff.sh: exit 1 when new findings detected
+[1;32m[+][0m report-dashboard.py: all top-level pages + assets + data.json written
+[1;32m[+][0m report-dashboard.py: inventory page has port rows + n_ports in data.json
+[1;32m[+][0m report-dashboard.py: data.json schema (generated_at/out_dir/summary/hosts/services/inbox/guidance)
+[1;32m[+][0m report-dashboard.py: critical finding rendered on severity_critical.html
+[1;32m[+][0m report-dashboard.py: coverage matrix present
+[1;32m[+][0m report-dashboard.py: inbox + guidance pages present
+[1;32m[+][0m report-dashboard.py: evidence dropdown includes inline preview
+[1;32m[+][0m deps-check.sh: version_floor section present
+[1;32m[+][0m auto-enum.sh: --resume present
+[1;32m[+][0m auto-enum.sh: run_log writer present
+[1;32m[+][0m auto-enum.sh: failure tally present
+[1;32m[+][0m auto-enum.sh: --profile --plan-only writes plan/queue/guidance
+[1;32m[+][0m aranum.py: root help succeeds
+
+[1;36m===[ 11. deps-check.sh reports executable dependency state ]===[0m
+[1;32m[+][0m deps-check.sh exit status matches its required-dependency summary (rc=1)
+
+[1;36m===[ 11b. --throttle (G.7) — default + operator-explicit precedence ]===[0m
+[1;32m[+][0m throttle: parallel=1 default applied
+[1;32m[+][0m throttle: NUCLEI_RATE=20 default applied
+[1;32m[+][0m throttle: NO_FFUF=1 default applied
+[1;32m[+][0m throttle: operator -P 8 wins over --throttle default
+[1;32m[+][0m throttle_delay/nmap_args: off-state returns 0 and empty
+[1;32m[+][0m throttle_delay/nmap_args: on-state returns 1 and -T2
+
+[1;36m===[ 11c. write-gates (G.8) — every gated helper dry-runs without its gate ]===[0m
+[1;32m[+][0m gate: activemq-cve-2023-46604.py (--exploit) dry-runs without its gate flag
+[1;32m[+][0m gate: activemq-jolokia-rce.sh   (--exploit) dry-runs without its gate flag
+[1;32m[+][0m gate: redis-rce-module.sh       (--exploit) dry-runs without its gate flag
+[1;32m[+][0m gate: redis-rce-ssh.sh      (--write) dry-runs without its gate flag
+[1;32m[+][0m gate: smtp-phish-send.sh (--send) dry-runs without its gate flag
+[1;32m[+][0m gate: smtp-smuggling-test.py    (--send) dry-runs without its gate flag
+
+[1;36m===[ 11d. bulk-enum-linux.sh (J.1) — --dry-run + parsing + xargs fanout ]===[0m
+[1;32m[+][0m bulk-enum --dry-run rc=0
+[1;32m[+][0m bulk-enum --dry-run parses bare hostname with default user
+[1;32m[+][0m bulk-enum --dry-run parses user@host:port
+[1;32m[+][0m bulk-enum writes run.log
+[1;32m[+][0m bulk-enum writes per-engagement known_hosts file
+[1;32m[+][0m bulk-enum copies hosts.txt for audit
+[1;32m[+][0m bulk-enum: operator -P 4 wins over --throttle
+[1;32m[+][0m bulk-enum: -P 64 refused (cap=16 protects local resource limits)
+
+[1;36m===[ 11e. report.py bulk-enum mode (J.2) — fixtures + verdict tiers ]===[0m
+[1;32m[+][0m report.py rc=0 on bulk-enum fixtures
+[1;32m[+][0m report.py emits findings.json + report.md + report.html
+[1;32m[+][0m verdict: web01=critical (NOPASSWD sudo)
+[1;32m[+][0m verdict: db02=critical (cap_setuid + suid)
+[1;32m[+][0m verdict: app03=high (writable systemd)
+[1;32m[+][0m verdict: old04=medium (old kernel + suid)
+[1;32m[+][0m verdict: win-svc-imperson=critical (SeImpersonate + AlwaysInstallElevated + WRITABLE BINARY)
+[1;32m[+][0m verdict: win-backup-op=high (SeBackup + Account Operators + SYSTEM task + writable PATH)
+[1;32m[+][0m verdict: win-old-rdp=medium (RDP user + cred-in-file + EOL Win7)
+[1;32m[+][0m report.html contains per-host verdict surface
+
+[1;36m===[ 11i. Linux CVE-check scripts (D2.1) — syntax + execution on this host ]===[0m
+[1;32m[+][0m syntax: standalones/linux/pwnkit-check.sh
+[1;32m[+][0m syntax: standalones/linux/looney-check.sh
+[1;32m[+][0m syntax: standalones/linux/overlayfs-check.sh
+[1;32m[+][0m syntax: standalones/linux/io-uring-check.sh
+[1;32m[+][0m syntax: standalones/linux/namespaces-check.sh
+[1;32m[+][0m syntax: standalones/linux/apt-source-check.sh
+[1;32m[+][0m real-data run: standalones/linux/pwnkit-check.sh produced output
+[1;32m[+][0m real-data run: standalones/linux/looney-check.sh produced output
+[1;32m[+][0m real-data run: standalones/linux/overlayfs-check.sh produced output
+[1;32m[+][0m real-data run: standalones/linux/io-uring-check.sh produced output
+[1;32m[+][0m real-data run: standalones/linux/namespaces-check.sh produced output
+[1;32m[+][0m real-data run: standalones/linux/apt-source-check.sh produced output
+
+[1;36m===[ 11j. creds helpers (D2.2) — hash-format + spray-scheduler dry-run ]===[0m
+[1;32m[+][0m hash-format: rc=0 on synthetic input
+[1;32m[+][0m hash-format: emitted hashcat-{ntlmv2,asrep}.txt
+[1;32m[+][0m hash-format: emitted _index.tsv
+[1;32m[+][0m spray-scheduler --dry-run rc=0 (no spurious lockout sleep)
+[1;32m[+][0m spray-scheduler: emitted 9 [DRY] lines (3 users × 3 passwords)
+
+[1;36m===[ 11g. AD-depth signal rules (D1.5/D1.6) — fixture classifications ]===[0m
+[1;32m[+][0m report.py rc=0 on AD-signal fixtures
+[1;32m[+][0m AD signals: CRITICAL count >= 3 (Certipy ESC1 + GPP cpassword + LAPS)
+[1;32m[+][0m AD signals: HIGH count >= 1 (unconstrained delegation / LAPS encrypted)
+
+[1;36m===[ 11h. AD Windows PS1 scripts (D1.4) — pwsh AST parse ]===[0m
+[1;32m[+][0m pwsh AST parse: standalones/windows/Get-LAPSPassword.ps1
+[1;32m[+][0m pwsh AST parse: standalones/windows/Get-ADCSMisconfig.ps1
+[1;32m[+][0m pwsh AST parse: standalones/windows/Get-GPPCPassword.ps1
+[1;32m[+][0m pwsh AST parse: standalones/windows/Get-DPAPIBlobs.ps1
+[1;32m[+][0m pwsh AST parse: standalones/windows/Get-NamedPipes.ps1
+[1;32m[+][0m pwsh AST parse: standalones/windows/Get-PrintNightmare.ps1
+[1;32m[+][0m pwsh AST parse: standalones/windows/Get-PetitPotamSignals.ps1
+[1;32m[+][0m pwsh AST parse: standalones/windows/Test-CoercedAuth.ps1
+
+[1;36m===[ 11f. bulk-enum-windows.py (K.1) — --dry-run + arg-validation ]===[0m
+[1;32m[+][0m bulk-enum-windows --dry-run rc=0
+[1;32m[+][0m win --dry-run: bare host -> default port 5985
+[1;32m[+][0m win --dry-run: user@host:port parsed
+[1;32m[+][0m win --dry-run: IPv6 bracketed correctly
+[1;32m[+][0m win: writes run.log + hosts.txt
+[1;32m[+][0m win --throttle: parallel=1 by default
+[1;32m[+][0m win --throttle -P 6: operator wins
+[1;32m[+][0m win: --auth basic over HTTP refused (rc=2)
+[1;32m[+][0m win: --use-smb-admin without --pass refused
+[1;32m[+][0m win: -P 32 refused (cap=16)
+
+[1;36m===[ 12. git working tree is clean ]===[0m
+[1;33m[?][0m git: working tree dirty (local dev; set SMOKE_REQUIRE_CLEAN=1 to fail): ?? docs/test-strategy/
+[1;31m[-][0m git: latest released tag v0.34.0 MISSING — allowed only in GitHub pull_request CI
+[1;32m[+][0m release tag gate: PR allowance and strict push/local behavior verified
+
+[1;36m===[ 13. False-positive / true-positive regression harness ]===[0m
+=== fp-harness (FP/TP regression) ===
+[1;32m[+][0m fp-harness: no FPs, TP markers intact
+
+[1;36m=====[ SUMMARY ]=====[0m
+  [1;32mPASS[0m: 383
+  [1;31mFAIL[0m: 1
+  [1;33mSKIP[0m: 1
+
+[1;31mFAILURES:[0m
+  - git: latest released tag v0.34.0 MISSING — allowed only in GitHub pull_request CI
+rc=1

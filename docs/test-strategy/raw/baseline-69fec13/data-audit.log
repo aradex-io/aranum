@@ -1,0 +1,9 @@
+[ok] default-credentials-catalog: 1 file(s), reviewed 2026-07-20 (97d; owner=aranum maintainers)
+[ok] gtfobins-suid-subset: 1 file(s), reviewed 2026-05-01 (177d; owner=aranum maintainers)
+[ok] service-classification-metadata: 1 file(s), reviewed 2026-09-13 (42d; owner=network/report maintainers)
+[ok] engagement-profile-rules: 1 file(s), reviewed 2026-09-13 (42d; owner=planner maintainers)
+[ok] graphql-fallback-catalog: 1 file(s), reviewed 2026-09-13 (42d; owner=GraphQL specialist maintainers)
+[ok] redis-module-build-provenance: 1 file(s), reviewed 2026-09-14 (41d; owner=Redis specialist maintainers)
+[ok] embedded-cve-version-rule-families: 79 file(s), reviewed 2026-09-13 (42d; owner=specialist and dispatcher maintainers)
+Manifest: aranumtoolkit/data-sources.json; policy: aranumtoolkit/docs/DATA-SOURCES.md
+rc=0
