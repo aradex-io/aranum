@@ -1,0 +1,35 @@
+{
+ "_doc": "Frozen D1.2 shadow-audit ground truth (PLAN-001-25OCT2026). For each sample: the emission substring to locate in the static corpus, the expected SEVERITY (pre-registered in tp_labels.json before any S1 edit), and a rule_id_substr identifying the SPECIFIC (non-generic) rule that must win first-match. A shadowing regression flips either the severity or the winning rule, so both are asserted. Overlaps are resolved by the expectation entry itself (deterministic first-match); no sample here is legitimately claimed by two rules at different severities.",
+ "expectations": [
+  {"sample": "admin:admin WORKS",                     "severity": "critical", "rule_id_substr": "admin-admin-works"},
+  {"sample": "OPEN RELAY CANDIDATE",                   "severity": "high",     "rule_id_substr": "open-relay-candidate"},
+  {"sample": "VRFY enabled",                           "severity": "medium",   "rule_id_substr": "vrfy-enabled"},
+  {"sample": "NFS no_root_squash export",              "severity": "critical", "rule_id_substr": "no-root-squash"},
+  {"sample": "NFS no_all_squash export",               "severity": "medium",   "rule_id_substr": "no-all-squash"},
+  {"sample": "NFS insecure export",                    "severity": "low",      "rule_id_substr": "nfs-insecure-export"},
+  {"sample": "POTENTIAL CRED LEAK",                    "severity": "high",     "rule_id_substr": "potential-cred-leak"},
+  {"sample": "HMAC; brute the secret",                 "severity": "medium",   "rule_id_substr": "hmac-brute-the-secret"},
+  {"sample": "Terrapin (ssh-audit)",                   "severity": "medium",   "rule_id_substr": "terrapin-ssh-audit"},
+  {"sample": "deprecated read-only kubelet",           "severity": "high",     "rule_id_substr": "read-only-kubelet"},
+  {"sample": "BloodHound collection:",                 "severity": "high",     "rule_id_substr": "bloodhound-collection"},
+  {"sample": "Rubrik backup API detected",             "severity": "high",     "rule_id_substr": "rubrik-cohesity-backup"},
+  {"sample": "Cohesity backup API detected",           "severity": "high",     "rule_id_substr": "rubrik-cohesity-backup"},
+  {"sample": "Dell PowerProtect Data Manager API detected", "severity": "high", "rule_id_substr": "rubrik-cohesity-backup"},
+  {"sample": "RMI registry:",                          "severity": "medium",   "rule_id_substr": "rmi-registry"},
+  {"sample": "KIBANA API responds",                    "severity": "medium",   "rule_id_substr": "kibana-api-responds"},
+  {"sample": "Jenkins detected:",                      "severity": "medium",   "rule_id_substr": "jenkins-gitlab-sonarqube"},
+  {"sample": "GitLab detected:",                       "severity": "medium",   "rule_id_substr": "jenkins-gitlab-sonarqube"},
+  {"sample": "SonarQube detected:",                    "severity": "medium",   "rule_id_substr": "jenkins-gitlab-sonarqube"},
+  {"sample": "Grafana detected:",                      "severity": "medium",   "rule_id_substr": "jenkins-gitlab-sonarqube"},
+  {"sample": "Prometheus detected:",                   "severity": "medium",   "rule_id_substr": "jenkins-gitlab-sonarqube"},
+  {"sample": "UNAUTH: Jenkins API exposed:",           "severity": "critical", "rule_id_substr": "unauth-jenkins-api-exposed"},
+  {"sample": "UNAUTH: Tomcat Manager exposed:",        "severity": "critical", "rule_id_substr": "unauth-tomcat-manager-exposed"},
+  {"sample": "UNAUTH: Tomcat host-manager exposed:",   "severity": "critical", "rule_id_substr": "unauth-tomcat-host-manager-exposed"},
+  {"sample": "Vault reachable",                        "severity": "low",      "rule_id_substr": "vault-reachable"}
+ ],
+ "cross_list_nfs": [
+  {"sample": "NFS no_root_squash export", "severity": "critical"},
+  {"sample": "NFS no_all_squash export",  "severity": "medium"},
+  {"sample": "NFS insecure export",       "severity": "low"}
+ ]
+}

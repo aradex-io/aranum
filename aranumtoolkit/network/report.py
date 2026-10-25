@@ -311,6 +311,21 @@ _DEFAULT_RULES_RAW: list = [
     (re.compile(r"\bcipher 0\b", re.I),                                 "critical"),
     (re.compile(r"\bremote command execution\b", re.I),                 "critical"),
     (re.compile(r"\bguest:guest\b", re.I),                              "critical"),
+    # D1.2 — specific CRITICAL HTTP product exposures, hoisted ABOVE the generic
+    # EXPOSED/UNAUTH high rules so first-match-wins grades them critical (their
+    # emission text contains "exposed:"/"UNAUTH", which the generics would steal).
+    (re.compile(r"\bUNAUTH: Tomcat Manager exposed:", re.I),            "critical"),
+    (re.compile(r"\bUNAUTH: Tomcat host-manager exposed:", re.I),       "critical"),
+    (re.compile(r"\bUNAUTH: Jenkins API exposed:", re.I),               "critical"),
+    (re.compile(r"\bCRITICAL: Jenkins Groovy script console reachable:", re.I), "critical"),
+    # D1.5 — critical findings the classifier previously missed (G07).
+    (re.compile(r"\badmin:admin WORKS\b", re.I),                        "critical"),
+    (re.compile(r"\bno_root_squash\b", re.I),                           "critical"),
+    # D1.5 — generic crit-marker fallback. All `crit`/[!!] dispatcher call sites
+    # are criticals; this catches any [!!] line not matched by a specific rule
+    # above. Placed after the specific criticals (so those keep their rule_id)
+    # and before the high/medium rules (so a [!!] line is never downgraded).
+    (re.compile(r"^\s*\[!!\]\s"),                                       "critical"),
     (re.compile(r"\bEXPOSED\b", re.I),                                  "high"),
     # E2 tier-2a medium rules that contain "UNAUTH" — must precede the generic UNAUTH high rule
     # so first-match-wins classifies them at the intended severity.
@@ -374,13 +389,9 @@ _DEFAULT_RULES_RAW: list = [
     (re.compile(r"\bCORS\b.*\breflect", re.I),                          "medium"),
     (re.compile(r"\bKEY_ONLY\b", re.I),                                 "medium"),
     (re.compile(r"\bAUTH OK\b", re.I),                                  "medium"),
-    # E3 HTTP product-detect rules — CRITICAL for unauth Tomcat Manager and Jenkins Groovy console;
-    # HIGH for all other unauth product exposures; MEDIUM for Spark UI (lower-impact API).
-    # Ordered: most-specific (CRITICAL) first so first-match-wins classifies correctly.
-    (re.compile(r"\bUNAUTH: Tomcat Manager exposed:", re.I),            "critical"),
-    (re.compile(r"\bUNAUTH: Tomcat host-manager exposed:", re.I),       "critical"),
-    (re.compile(r"\bUNAUTH: Jenkins API exposed:", re.I),               "critical"),
-    (re.compile(r"\bCRITICAL: Jenkins Groovy script console reachable:", re.I), "critical"),
+    # E3 HTTP product-detect rules — HIGH for unauth product exposures; MEDIUM
+    # for Spark UI (lower-impact API). The CRITICAL Tomcat/Jenkins rules were
+    # hoisted above the generic EXPOSED/UNAUTH rules (D1.2); see that block.
     (re.compile(r"\bJenkins user enumeration exposed:", re.I),          "high"),
     (re.compile(r"\bUNAUTH: GitLab API exposed:", re.I),                "high"),
     (re.compile(r"\bUNAUTH: SonarQube system info exposed:", re.I),     "high"),
@@ -435,7 +446,9 @@ _DEFAULT_RULES_RAW: list = [
     (re.compile(r"\bPlatform (HashiCorp Nomad|Portainer|Rancher|Argo CD) detected:", re.I), "medium"),
     (re.compile(r"\bStorage iSCSI target exposed:", re.I),                  "high"),
     (re.compile(r"\bStorage (MinIO|Ceph/RADOSGW object gateway|Ceph monitor|Gluster management) (?:detected|reachable):", re.I), "medium"),
-    (re.compile(r"\bBackup (Rubrik|Cohesity|Dell PowerProtect Data Manager) API detected:", re.I), "high"),
+    # D1.2 — the live emission is "Rubrik backup API detected:" (Dell omits the
+    # word "backup"); match that and the legacy "Backup Rubrik API detected:".
+    (re.compile(r"\b(?:(?:Rubrik|Cohesity) backup|Dell PowerProtect Data Manager|Backup (?:Rubrik|Cohesity|Dell PowerProtect Data Manager)) API detected:", re.I), "high"),
     (re.compile(r"\bDell Avamar / PowerProtect legacy service reachable:", re.I), "high"),
     (re.compile(r"\bSource/CI (TeamCity|GitHub Enterprise|Azure DevOps Server) detected:", re.I), "medium"),
     (re.compile(r"\bHTTP source fingerprint:", re.I),                "low"),
@@ -481,6 +494,22 @@ _DEFAULT_RULES_RAW: list = [
     (re.compile(r"\bOPC-UA endpoint advertises 'None' security policy:", re.I), "low"),
     (re.compile(r"\bOT-ID (Modbus|S7|EtherNet/IP|BACnet|OPC-UA|DNP3|IEC-104)\b", re.I), "low"),
     (re.compile(r"\bBAMBU_LAB_CORRELATED:", re.I),                   "low"),
+    # D1.5 — true positives the classifier previously missed (G07/G08). Each is
+    # anchored to its exact dispatcher emission text so it cannot broaden into a
+    # false positive; placed before the catch-all banner rule below.
+    (re.compile(r"\bOPEN RELAY CANDIDATE\b", re.I),                   "high"),
+    (re.compile(r"\bVRFY enabled\b", re.I),                           "medium"),
+    (re.compile(r"\bno_all_squash\b", re.I),                          "medium"),
+    (re.compile(r"\bNFS insecure export\b", re.I),                    "low"),
+    (re.compile(r"\bPOTENTIAL CRED LEAK\b", re.I),                    "high"),
+    (re.compile(r"\bHMAC; brute the secret\b", re.I),                 "medium"),
+    (re.compile(r"\bTerrapin \(ssh-audit\)", re.I),                   "medium"),
+    (re.compile(r"\b(?:deprecated )?read-only kubelet\b", re.I),      "high"),
+    (re.compile(r"\bBloodHound collection:", re.I),                   "high"),
+    (re.compile(r"\bRMI registry:", re.I),                            "medium"),
+    (re.compile(r"\bKIBANA API responds\b", re.I),                    "medium"),
+    (re.compile(r"\b(?:Jenkins|GitLab|SonarQube|Grafana|Prometheus) detected:", re.I), "medium"),
+    (re.compile(r"\bVault reachable\b", re.I),                        "low"),
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
 
@@ -724,8 +753,11 @@ _BULK_RULES_RAW: list = [
     (re.compile(r"\bwritable\b.*/etc/cron", re.I),                               "high"),
     # LD_* env in sudo env_keep
     (re.compile(r"env_keep.*LD_(PRELOAD|LIBRARY_PATH)", re.I),                   "critical"),
-    # NFS no_root_squash
-    (re.compile(r"\bno_root_squash\b", re.I),                                    "high"),
+    # NFS exports (D1.5 — no_root_squash raised high->critical for parity with
+    # _DEFAULT_RULES; no_all_squash/insecure added so a bulk NFS tree grades too).
+    (re.compile(r"\bno_root_squash\b", re.I),                                    "critical"),
+    (re.compile(r"\bno_all_squash\b", re.I),                                     "medium"),
+    (re.compile(r"\bNFS insecure export\b", re.I),                               "low"),
     # Docker
     (re.compile(r"Privileged:\s*true", re.I),                                    "critical"),
     (re.compile(r"docker.sock", re.I),                                           "high"),
