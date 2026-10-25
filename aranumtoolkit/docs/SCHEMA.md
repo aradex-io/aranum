@@ -62,7 +62,10 @@ canonical phase, and risk/priority fields are unchanged.
 | key | type | notes |
 |---|---|---|
 | `finding_id` | string | stable `AR-2-<sha1[:14]>` over logical endpoint + severity + complete evidence identity; relocation does not change it |
-| `host` | string | IP or hostname (or `<TARGET-N>` when redacted; `(dispatcher)` for run-level) |
+| `host` | string | IP or hostname (or `<TARGET-N>` when redacted; `(dispatcher)` when a run-level line could not be attributed to a known endpoint) |
+| `scope` | string | **(additive)** `"endpoint"` (attributed to `host:port`), `"host"` (host known, port ambiguous — `port` is empty), or `"run"` (unattributed; `host` is `(dispatcher)`). Consumers may collapse `run`-scope findings into an "unattributed" view and exclude them from per-host and severity rollups |
+| `attribution` | string | **(additive)** same value as `scope`; names how `host`/`port` were resolved |
+| `rule_id` | string | **(additive)** stable id of the severity rule that graded this line; the finding knowledge base is keyed on it |
 | `port` | string | may be empty |
 | `protocol` | string | `tcp`, `udp`, or empty only when the source cannot disambiguate it |
 | `service` | string | dispatcher/category (e.g. `redis`, `linux`) |

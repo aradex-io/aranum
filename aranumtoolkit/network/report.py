@@ -1034,6 +1034,14 @@ def _inventory_endpoints(out_dir: Path) -> list[dict]:
                 seen.add(key)
                 records.append({"host": host, "port": port, "protocol": "",
                                 "service": svc_dir.name})
+    # D1.3 — fold a port-less record into its port-specific siblings. A bare
+    # (host, "", svc) record (from a port-less target list or host dir) would
+    # only ever yield host-level attribution; if any port-specific record
+    # exists for the same (host, service), drop the port-less one so a line is
+    # attributed to the real endpoint instead of falling back to host level.
+    ported = {(r["host"], r["service"]) for r in records if r["port"]}
+    records = [r for r in records
+               if r["port"] or (r["host"], r["service"]) not in ported]
     return records
 
 
@@ -1079,17 +1087,52 @@ def _line_mentions_endpoint(line: str, host: str, port: str) -> bool:
     return any(re.search(pattern, line, flags) for pattern in patterns)
 
 
+_SCHEME_DEFAULT_PORTS = {"http": "80", "https": "443", "ldap": "389",
+                         "ldaps": "636", "ftp": "21"}
+_SCHEME_URL_RE = re.compile(
+    r"(?P<scheme>https?|ldaps?|ftp)://(?P<host>\[[^\]]+\]|[^/:\s?#]+)", re.I)
+
+
+def _normalize_scheme_default_ports(line: str) -> str:
+    """Return the line with ``scheme://host`` URLs that carry no explicit port
+    rewritten to ``scheme://host:<default>`` for MATCHING ONLY (http 80,
+    https 443, ldap 389, ldaps 636, ftp 21). A URL that already names a port is
+    left untouched. The stored evidence text is never changed — only the string
+    handed to the token matcher — so ``https://10.0.0.30`` can attribute to the
+    known 443 endpoint instead of falling back to host level."""
+    def repl(m: "re.Match") -> str:
+        default = _SCHEME_DEFAULT_PORTS.get(m.group("scheme").lower())
+        end = m.end()
+        # Leave a URL that already has an explicit :port alone.
+        if not default or line[end:end + 1] == ":":
+            return m.group(0)
+        return f"{m.group(0)}:{default}"
+    return _SCHEME_URL_RE.sub(repl, line)
+
+
 def _endpoint_in_text(line: str, endpoints: list[dict], service: str) -> dict | None:
-    """Resolve one exact known endpoint from structured address tokens."""
+    """Resolve one exact known endpoint from structured address tokens.
+
+    Falls back to a host-level record ``{host, port="", ...}`` when the matches
+    are ambiguous on port but share a single host — one known host is better
+    than ``(dispatcher)`` (D1.3)."""
+    match_line = _normalize_scheme_default_ports(line)
     matches: list[dict] = []
     for endpoint in endpoints:
         if endpoint["service"] != service:
             continue
         host, port = endpoint["host"], endpoint["port"]
-        if _line_mentions_endpoint(line, host, port):
+        if _line_mentions_endpoint(match_line, host, port):
             matches.append(endpoint)
     unique = {(m["host"], m["port"], m["protocol"]): m for m in matches}
-    return next(iter(unique.values())) if len(unique) == 1 else None
+    if len(unique) == 1:
+        return next(iter(unique.values()))
+    if unique:
+        hosts = {m["host"] for m in unique.values()}
+        if len(hosts) == 1:
+            return {"host": next(iter(hosts)), "port": "",
+                    "protocol": "", "service": service}
+    return None
 
 
 def _refresh_finding_identity(finding: dict) -> None:
@@ -1122,6 +1165,18 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
         if endpoint:
             finding.update(endpoint)
         finding.setdefault("protocol", "")
+        # D1.3 — additive scope label. A line we could not attribute keeps
+        # host="(dispatcher)" and is run-scoped; the dashboard collapses these
+        # into an Unattributed panel and excludes them from host tables and
+        # severity KPIs. An attributed line is endpoint-scoped when it carries a
+        # port, host-scoped when only the host is known.
+        if finding.get("host") == "(dispatcher)":
+            finding["scope"] = "run"
+        elif finding.get("port"):
+            finding["scope"] = "endpoint"
+        else:
+            finding["scope"] = "host"
+        finding["attribution"] = finding["scope"]
         identity = str(finding.get("evidence_identity", ""))
         if not identity:
             identity = hashlib.sha256(str(finding.get("line", "")).encode()).hexdigest()
