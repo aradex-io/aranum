@@ -687,6 +687,18 @@ def _partition_local(args: Sequence[str]) -> tuple[list[str], list[str]]:
     i = 0
     while i < len(args):
         arg = args[i]
+        if arg.startswith("--") and "=" in arg:
+            # `--opt=value` form: route by the option name, keep the token whole.
+            name = arg.split("=", 1)[0]
+            if name in _LOCAL_ENUM_VALUE_FLAGS or name in _LOCAL_ENUM_BOOL_FLAGS:
+                local.append(arg)
+            elif name in _LOCAL_SHARED_VALUE_FLAGS or name in _LOCAL_SHARED_BOOL_FLAGS:
+                auto.append(arg)
+                local.append(arg)
+            elif name != "--local":
+                auto.append(arg)
+            i += 1
+            continue
         if arg == "--local":
             i += 1
         elif arg in _LOCAL_ENUM_VALUE_FLAGS:
