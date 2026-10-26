@@ -104,6 +104,21 @@ function Get-RegValue {
     return $p.Value
 }
 
+function Get-RegPolicy {
+    # A registry policy value validated against its documented value set. $null =
+    # absent (the check's documented default applies). A value outside -Allowed
+    # throws, so Invoke-PostureCheck grades ERR: an unexpected value is never graded
+    # as if it were a known one (no fall-through PASS). CLM-safe (no [ref]/TryParse).
+    param([string]$Path, [string]$Name, [int[]]$Allowed)
+    $v = Get-RegValue $Path $Name
+    if ($null -eq $v) { return $null }
+    $t = ([string]$v).Trim()
+    if (-not ($t -match '^-?[0-9]{1,10}$') -or ($Allowed -notcontains [int64]$t)) {
+        throw ($Name + '=' + $t + ' outside documented values (' + ($Allowed -join ',') + ')')
+    }
+    return [int]$t
+}
+
 function Format-RegText {
     param($Value)
     if ($null -eq $Value) { return 'unset' }
@@ -347,8 +362,8 @@ function Invoke-HostPostureChecks {
             if ($fwSvc -and $fwSvc.Status -ne 'Running') {
                 return (New-PostureResult $fp.Bad ('firewall service mpssvc ' + $fwSvc.Status))
             }
-            $pol = Get-RegValue ('HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\' + $fp.Pol) 'EnableFirewall'
-            $loc = Get-RegValue ('HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\' + $fp.Key) 'EnableFirewall'
+            $pol = Get-RegPolicy ('HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\' + $fp.Pol) 'EnableFirewall' @(0,1)
+            $loc = Get-RegPolicy ('HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\' + $fp.Key) 'EnableFirewall' @(0,1)
             $src = 'local'
             $val = $loc
             if ($null -ne $pol) { $val = $pol; $src = 'policy' }
@@ -401,7 +416,7 @@ function Invoke-HostPostureChecks {
     }
 
     Invoke-PostureCheck 'WIN-SECUREBOOT' {
-        $v = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' 'UEFISecureBootEnabled'
+        $v = Get-RegPolicy 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' 'UEFISecureBootEnabled' @(0,1)
         if ($null -eq $v) { return (New-PostureResult 'INFO' 'legacy BIOS or Secure Boot state key absent') }
         if ([int]$v -eq 1) { return (New-PostureResult 'PASS' 'UEFISecureBootEnabled=1') }
         New-PostureResult 'WARN' 'UEFISecureBootEnabled=0'
@@ -410,17 +425,17 @@ function Invoke-HostPostureChecks {
     $lmSrv = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
     $lmWks = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters'
     Invoke-PostureCheck 'WIN-SMB-V1' {
-        $v = Get-RegValue $lmSrv 'SMB1'
+        $v = Get-RegPolicy $lmSrv 'SMB1' @(0,1)
         if ($null -ne $v) {
             if ([int]$v -eq 0) { return (New-PostureResult 'PASS' 'SMB1=0') }
             return (New-PostureResult 'FAIL' ('SMB1=' + $v))
         }
-        $start = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\srv' 'Start'
+        $start = Get-RegPolicy 'HKLM:\SYSTEM\CurrentControlSet\Services\srv' 'Start' @(0..4)
         if ($null -ne $start -and [int]$start -ne 4) { return (New-PostureResult 'FAIL' ('SMB1 server driver srv.sys Start=' + $start)) }
         New-PostureResult 'PASS' 'SMB1 server driver absent or disabled'
     }
     Invoke-PostureCheck 'WIN-SMB-SRVSIGN' {
-        $v = Get-RegValue $lmSrv 'RequireSecuritySignature'
+        $v = Get-RegPolicy $lmSrv 'RequireSecuritySignature' @(0,1)
         $src = 'registry'
         if ($null -eq $v) {
             try { $v = [int][bool](Get-SmbServerConfiguration -ErrorAction Stop).RequireSecuritySignature; $src = 'SmbServerConfiguration' } catch { }
@@ -429,7 +444,7 @@ function Invoke-HostPostureChecks {
         New-PostureResult 'FAIL' ('RequireSecuritySignature=' + (Format-RegText $v) + ' (' + $src + ')')
     }
     Invoke-PostureCheck 'WIN-SMB-CLISIGN' {
-        $v = Get-RegValue $lmWks 'RequireSecuritySignature'
+        $v = Get-RegPolicy $lmWks 'RequireSecuritySignature' @(0,1)
         $src = 'registry'
         if ($null -eq $v) {
             try { $v = [int][bool](Get-SmbClientConfiguration -ErrorAction Stop).RequireSecuritySignature; $src = 'SmbClientConfiguration' } catch { }
@@ -439,7 +454,7 @@ function Invoke-HostPostureChecks {
     }
 
     Invoke-PostureCheck 'WIN-NR-LLMNR' {
-        $v = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMulticast'
+        $v = Get-RegPolicy 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMulticast' @(0,1)
         if ($null -ne $v -and [int]$v -eq 0) { return (New-PostureResult 'PASS' 'EnableMulticast=0') }
         New-PostureResult 'FAIL' ('LLMNR not disabled by policy (EnableMulticast=' + (Format-RegText $v) + ')')
     }
@@ -450,23 +465,23 @@ function Invoke-HostPostureChecks {
         New-PostureResult 'PASS' ('NetBIOS disabled on ' + $ads.Count + ' IP adapters')
     }
     Invoke-PostureCheck 'WIN-NR-WPAD' {
-        $dis = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp' 'DisableWpad'
+        $dis = Get-RegPolicy 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp' 'DisableWpad' @(0,1)
         if ($null -ne $dis -and [int]$dis -eq 1) { return (New-PostureResult 'PASS' 'DisableWpad=1') }
-        $start = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\WinHttpAutoProxySvc' 'Start'
+        $start = Get-RegPolicy 'HKLM:\SYSTEM\CurrentControlSet\Services\WinHttpAutoProxySvc' 'Start' @(0..4)
         if ($null -ne $start -and [int]$start -eq 4) { return (New-PostureResult 'PASS' 'WinHttpAutoProxySvc disabled') }
         New-PostureResult 'WARN' ('WPAD discovery possible (WinHttpAutoProxySvc Start=' + (Format-RegText $start) + ')')
     }
     Invoke-PostureCheck 'WIN-LDAP-CLISIGN' {
-        $v = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\LDAP' 'LDAPClientIntegrity'
+        $v = Get-RegPolicy 'HKLM:\SYSTEM\CurrentControlSet\Services\LDAP' 'LDAPClientIntegrity' @(0,1,2)
         if ($null -ne $v -and [int]$v -ge 2) { return (New-PostureResult 'PASS' ('LDAPClientIntegrity=' + $v)) }
         $shown = '1 (default)'
         if ($null -ne $v) { $shown = (Format-RegText $v) }
         New-PostureResult 'WARN' ('LDAPClientIntegrity=' + $shown)
     }
     Invoke-PostureCheck 'WIN-ANON-RESTRICT' {
-        $sam = Get-RegValue $lsa 'RestrictAnonymousSAM'
-        $eia = Get-RegValue $lsa 'EveryoneIncludesAnonymous'
-        $ra = Get-RegValue $lsa 'RestrictAnonymous'
+        $sam = Get-RegPolicy $lsa 'RestrictAnonymousSAM' @(0,1)
+        $eia = Get-RegPolicy $lsa 'EveryoneIncludesAnonymous' @(0,1)
+        $ra = Get-RegPolicy $lsa 'RestrictAnonymous' @(0,1,2)
         $detail = 'RestrictAnonymousSAM=' + (Format-RegText $sam) + ' RestrictAnonymous=' + (Format-RegText $ra) + ' EveryoneIncludesAnonymous=' + (Format-RegText $eia)
         if (($null -ne $sam -and [int]$sam -eq 0) -or ($null -ne $eia -and [int]$eia -eq 1)) { return (New-PostureResult 'WARN' $detail) }
         New-PostureResult 'PASS' $detail
@@ -475,16 +490,17 @@ function Invoke-HostPostureChecks {
     $psPol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell'
     Invoke-PostureCheck 'WIN-PS-V2' {
         $v = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine' 'PowerShellVersion'
+        if ($null -ne $v -and -not ([string]$v -match '^[0-9]+(\.[0-9]+)*$')) { throw ('PowerShellVersion=' + [string]$v + ' is not a version') }
         if ($v -and ([string]$v).StartsWith('2')) { return (New-PostureResult 'WARN' ('PowerShell ' + $v + ' engine installed')) }
         New-PostureResult 'PASS' 'PowerShell 2.0 engine not installed'
     }
     Invoke-PostureCheck 'WIN-PS-SBLOG' {
-        $v = Get-RegValue ($psPol + '\ScriptBlockLogging') 'EnableScriptBlockLogging'
+        $v = Get-RegPolicy ($psPol + '\ScriptBlockLogging') 'EnableScriptBlockLogging' @(0,1)
         if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'PASS' 'EnableScriptBlockLogging=1') }
         New-PostureResult 'WARN' 'script-block logging not enabled by policy'
     }
     Invoke-PostureCheck 'WIN-PS-TRANSCRIPT' {
-        $v = Get-RegValue ($psPol + '\Transcription') 'EnableTranscripting'
+        $v = Get-RegPolicy ($psPol + '\Transcription') 'EnableTranscripting' @(0,1)
         if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'PASS' 'EnableTranscripting=1') }
         New-PostureResult 'WARN' 'transcription not enabled by policy'
     }
@@ -495,8 +511,8 @@ function Invoke-HostPostureChecks {
     $rdpDeny = $null
     $rdpErr = ''
     try {
-        $rdpDeny = Get-RegValue $tsPol 'fDenyTSConnections'
-        if ($null -eq $rdpDeny) { $rdpDeny = Get-RegValue $ts 'fDenyTSConnections' }
+        $rdpDeny = Get-RegPolicy $tsPol 'fDenyTSConnections' @(0,1)
+        if ($null -eq $rdpDeny) { $rdpDeny = Get-RegPolicy $ts 'fDenyTSConnections' @(0,1) }
     } catch { $rdpErr = $_.Exception.Message }
     $rdpOn = ($null -ne $rdpDeny -and [int]$rdpDeny -eq 0)
     Invoke-PostureCheck 'WIN-RDP-ENABLED' {
@@ -507,14 +523,14 @@ function Invoke-HostPostureChecks {
     Invoke-PostureCheck 'WIN-RDP-NLA' {
         if ($rdpErr) { throw ('fDenyTSConnections unreadable: ' + $rdpErr) }
         if (-not $rdpOn) { return (New-PostureResult 'NA' 'RDP disabled') }
-        $v = Get-RegValue $tsPol 'UserAuthentication'
-        if ($null -eq $v) { $v = Get-RegValue ($ts + '\WinStations\RDP-Tcp') 'UserAuthentication' }
+        $v = Get-RegPolicy $tsPol 'UserAuthentication' @(0,1)
+        if ($null -eq $v) { $v = Get-RegPolicy ($ts + '\WinStations\RDP-Tcp') 'UserAuthentication' @(0,1) }
         if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'PASS' 'NLA required') }
         New-PostureResult 'FAIL' ('NLA not required (UserAuthentication=' + (Format-RegText $v) + ')')
     }
 
     Invoke-PostureCheck 'WIN-CRED-RUNASPPL' {
-        $v = Get-RegValue $lsa 'RunAsPPL'
+        $v = Get-RegPolicy $lsa 'RunAsPPL' @(0,1,2)
         if ($null -ne $v -and ([int]$v -eq 1 -or [int]$v -eq 2)) { return (New-PostureResult 'PASS' ('RunAsPPL=' + $v)) }
         New-PostureResult 'WARN' ('RunAsPPL=' + (Format-RegText $v))
     }
@@ -524,51 +540,50 @@ function Invoke-HostPostureChecks {
         New-PostureResult 'WARN' 'Credential Guard not running'
     }
     Invoke-PostureCheck 'WIN-CRED-WDIGEST' {
-        $v = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' 'UseLogonCredential'
+        $v = Get-RegPolicy 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' 'UseLogonCredential' @(0,1)
         if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'FAIL' 'UseLogonCredential=1') }
         if ($null -eq $v -and $Context.Build -gt 0 -and $Context.Build -lt 9600) { return (New-PostureResult 'FAIL' ('UseLogonCredential unset on pre-8.1 build ' + $Context.Build + ' (default on)')) }
         New-PostureResult 'PASS' ('UseLogonCredential=' + (Format-RegText $v))
     }
     Invoke-PostureCheck 'WIN-CRED-LMCOMPAT' {
-        $v = Get-RegValue $lsa 'LmCompatibilityLevel'
+        $v = Get-RegPolicy $lsa 'LmCompatibilityLevel' @(0..5)
         if ($null -eq $v) { return (New-PostureResult 'WARN' 'LmCompatibilityLevel unset (default 3)') }
-        if ([int]$v -lt 0 -or [int]$v -gt 5) { return (New-PostureResult 'ERR' ('LmCompatibilityLevel=' + $v + ' (outside 0..5)')) }
         if ([int]$v -lt 3) { return (New-PostureResult 'FAIL' ('LmCompatibilityLevel=' + $v)) }
         if ([int]$v -lt 5) { return (New-PostureResult 'WARN' ('LmCompatibilityLevel=' + $v)) }
         New-PostureResult 'PASS' ('LmCompatibilityLevel=' + $v)
     }
     Invoke-PostureCheck 'WIN-CRED-NOLMHASH' {
-        $v = Get-RegValue $lsa 'NoLMHash'
+        $v = Get-RegPolicy $lsa 'NoLMHash' @(0,1)
         if ($null -ne $v -and [int]$v -eq 0) { return (New-PostureResult 'FAIL' 'NoLMHash=0') }
         New-PostureResult 'PASS' ('NoLMHash=' + (Format-RegText $v))
     }
     Invoke-PostureCheck 'WIN-CRED-CACHEDLOGONS' {
         if (-not $Context.PartOfDomain) { return (New-PostureResult 'NA' 'not domain-joined') }
-        $v = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' 'CachedLogonsCount'
+        $v = Get-RegPolicy 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' 'CachedLogonsCount' @(0..50)
         $n = 10
-        if ($null -ne $v) { $n = [int]((Format-RegText $v)) }
+        if ($null -ne $v) { $n = $v }
         if ($n -gt 4) { return (New-PostureResult 'WARN' ('CachedLogonsCount=' + $n)) }
         New-PostureResult 'PASS' ('CachedLogonsCount=' + $n)
     }
 
     Invoke-PostureCheck 'WIN-UAC-LUA' {
-        $v = Get-RegValue $sys 'EnableLUA'
+        $v = Get-RegPolicy $sys 'EnableLUA' @(0,1)
         if ($null -ne $v -and [int]$v -eq 0) { return (New-PostureResult 'FAIL' 'EnableLUA=0') }
         New-PostureResult 'PASS' ('EnableLUA=' + (Format-RegText $v))
     }
     Invoke-PostureCheck 'WIN-UAC-CONSENT' {
-        $v = Get-RegValue $sys 'ConsentPromptBehaviorAdmin'
+        $v = Get-RegPolicy $sys 'ConsentPromptBehaviorAdmin' @(0..5)
         if ($null -ne $v -and [int]$v -eq 0) { return (New-PostureResult 'WARN' 'ConsentPromptBehaviorAdmin=0') }
         New-PostureResult 'PASS' ('ConsentPromptBehaviorAdmin=' + (Format-RegText $v))
     }
     Invoke-PostureCheck 'WIN-UAC-LATFP' {
-        $v = Get-RegValue $sys 'LocalAccountTokenFilterPolicy'
+        $v = Get-RegPolicy $sys 'LocalAccountTokenFilterPolicy' @(0,1)
         if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'WARN' 'LocalAccountTokenFilterPolicy=1') }
         New-PostureResult 'PASS' ('LocalAccountTokenFilterPolicy=' + (Format-RegText $v))
     }
     Invoke-PostureCheck 'WIN-AIE' {
-        $m = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer' 'AlwaysInstallElevated'
-        $u = Get-RegValue 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer' 'AlwaysInstallElevated'
+        $m = Get-RegPolicy 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer' 'AlwaysInstallElevated' @(0,1)
+        $u = Get-RegPolicy 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer' 'AlwaysInstallElevated' @(0,1)
         if ($null -ne $m -and $null -ne $u -and [int]$m -eq 1 -and [int]$u -eq 1) { return (New-PostureResult 'FAIL' 'AlwaysInstallElevated=1 in HKLM and HKCU') }
         New-PostureResult 'PASS' ('HKLM=' + (Format-RegText $m) + ' HKCU=' + (Format-RegText $u))
     }
@@ -597,14 +612,16 @@ function Invoke-HostPostureChecks {
         $item = Get-ItemProperty -LiteralPath $wl -ErrorAction Stop
         $hasPw = ($null -ne $item.PSObject.Properties['DefaultPassword']) -and ([string]$item.DefaultPassword).Length -gt 0
         if ($hasPw) { return (New-PostureResult 'FAIL' 'Winlogon DefaultPassword present (value not shown)') }
+        $aal = $item.PSObject.Properties['AutoAdminLogon']
+        if ($null -ne $aal -and @('0', '1') -notcontains ([string]$aal.Value).Trim()) { throw ('AutoAdminLogon=' + [string]$aal.Value + ' outside documented values (0,1)') }
         if ([string]$item.AutoAdminLogon -eq '1') { return (New-PostureResult 'WARN' 'AutoAdminLogon=1 without stored DefaultPassword') }
         New-PostureResult 'PASS' 'no AutoLogon configured'
     }
     Invoke-PostureCheck 'WIN-LAPS' {
         if (-not $Context.PartOfDomain) { return (New-PostureResult 'NA' 'not domain-joined') }
-        $b1 = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS' 'BackupDirectory'
-        $b2 = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LAPS' 'BackupDirectory'
-        $legacy = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd' 'AdmPwdEnabled'
+        $b1 = Get-RegPolicy 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS' 'BackupDirectory' @(0,1,2)
+        $b2 = Get-RegPolicy 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LAPS' 'BackupDirectory' @(0,1,2)
+        $legacy = Get-RegPolicy 'HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd' 'AdmPwdEnabled' @(0,1)
         if (($null -ne $b1 -and [int]$b1 -gt 0) -or ($null -ne $b2 -and [int]$b2 -gt 0)) { return (New-PostureResult 'PASS' 'Windows LAPS policy BackupDirectory set') }
         if ($null -ne $legacy -and [int]$legacy -eq 1) { return (New-PostureResult 'PASS' 'legacy LAPS AdmPwdEnabled=1') }
         New-PostureResult 'WARN' 'no LAPS policy'
@@ -619,8 +636,8 @@ function Invoke-HostPostureChecks {
         $s = $null
         try { $s = Get-Service -Name WinRM -ErrorAction Stop } catch { }
         if (-not $s -or $s.Status -ne 'Running') { return (New-PostureResult 'NA' 'WinRM not running') }
-        $u1 = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service' 'AllowUnencrypted'
-        $u2 = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WSMAN\Service' 'allow_unencrypted'
+        $u1 = Get-RegPolicy 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service' 'AllowUnencrypted' @(0,1)
+        $u2 = Get-RegPolicy 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WSMAN\Service' 'allow_unencrypted' @(0,1)
         if (($null -ne $u1 -and [int]$u1 -eq 1) -or ($null -ne $u2 -and [int]$u2 -eq 1)) { return (New-PostureResult 'FAIL' 'AllowUnencrypted=1') }
         $ls = @(Get-ChildItem -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WSMAN\Listener' -ErrorAction Stop | ForEach-Object { $_.PSChildName })
         $https = @($ls | Where-Object { $_ -match '\+HTTPS$' })
@@ -774,8 +791,8 @@ function Invoke-AdPostureChecks {
         $si = $null
         $cb = $null
         if ($Context.IsDC) {
-            $si = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters' 'LDAPServerIntegrity'
-            $cb = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters' 'LdapEnforceChannelBinding'
+            $si = Get-RegPolicy 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters' 'LDAPServerIntegrity' @(0,1,2)
+            $cb = Get-RegPolicy 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters' 'LdapEnforceChannelBinding' @(0,1,2)
             if ($null -eq $si) { $si = 1 }
         }
         Resolve-LdapSigningStatus $si $cb

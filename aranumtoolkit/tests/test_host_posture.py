@@ -395,6 +395,61 @@ Invoke-HostPostureChecks -Context $ctx
     assert got["WIN-CRED-LMCOMPAT"] == want, got.get("WIN-CRED-LMCOMPAT")
 
 
+def test_windows_get_regpolicy_validates_the_documented_domain(tmp_path):
+    # REVIEW-010 round-3 escalation: one validated reader for every enumerated/boolean
+    # policy. Absent -> $null; in-domain (DWORD or REG_SZ digits) -> int; anything else
+    # throws, so the calling check grades ERR.
+    body = _lib(r"""
+foreach ($c in @(@('absent', $null), @('two', 2), @('twostr', ' 2 '), @('three', 3), @('neg', -1), @('word', 'abc'))) {
+  $script:fake = $c[1]
+  function Get-RegValue { param([string]$Path, [string]$Name) return $script:fake }
+  try { $r = Get-RegPolicy 'HKLM:\X' 'V' @(0,1,2); 'ROW|' + $c[0] + '|ok|' + (Format-RegText $r) }
+  catch { 'ROW|' + $c[0] + '|throw|' + $_.Exception.Message }
+}
+""")
+    proc = _pwsh_file(tmp_path, body)
+    assert proc.returncode == 0, proc.stderr
+    rows = {ln.split("|")[1]: ln.split("|")[2:] for ln in proc.stdout.splitlines() if ln.startswith("ROW|")}
+    assert rows["absent"] == ["ok", "unset"]
+    assert rows["two"] == ["ok", "2"] and rows["twostr"] == ["ok", "2"]
+    for k in ("three", "neg", "word"):
+        assert rows[k][0] == "throw" and "outside documented values (0,1,2)" in rows[k][1], (k, rows[k])
+
+
+@pytest.mark.parametrize("fuzz", ["99", "-1", "'x'"])
+def test_gate_out_of_domain_registry_values_never_grade_pass(tmp_path, fuzz):
+    # GATE (REVIEW-010 round-3 escalation, structural): with EVERY registry value set
+    # outside any documented domain, no registry-backed host check may grade PASS. This
+    # decides the "enumerated policy with fall-through PASS" class for every current and
+    # future check, instead of patching checks one by one.
+    body = _lib(r"""
+function Get-RegValue { param([string]$Path, [string]$Name) return %(f)s }
+function Get-ItemProperty { param($LiteralPath, $Name, $ErrorAction) [pscustomobject]@{ AutoAdminLogon = %(f)s } }
+function Get-Service { param([string]$Name) [pscustomobject]@{ Name=$Name; Status='Running' } }
+function Get-HotFix { @([pscustomobject]@{ InstalledOn = (Get-Date).AddDays(-3) }) }
+function Get-CimInstance { param($ClassName,$Namespace,$Filter) throw 'no cim' }
+$ctx = @{ ComputerName='WS01'; PartOfDomain=$true; Domain='corp.local'; IsDC=$false; Build=19045; Caption='Windows 10'; ProductType=1 }
+Invoke-HostPostureChecks -Context $ctx
+""" % {"f": fuzz})
+    proc = _pwsh_file(tmp_path, body)
+    assert proc.returncode == 0, proc.stderr
+    got = {c: (st, d) for c, st, d in _posture_lines(proc.stdout)}
+    assert len(got) == 41
+    passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
+    # Only non-registry evidence may PASS: the stubbed hotfix date, and -- for a
+    # numeric fuzz -- PS-V2, where "99" is a real (non-2.x) engine version.
+    allowed = {"WIN-PATCH-AGE"} | ({"WIN-PS-V2"} if fuzz == "99" else set())
+    assert set(passed) <= allowed, passed
+    # Anti-vacuous: the checks round 3 reproduced as fall-through PASS are now ERR, and
+    # the gate actually drove the registry path (a floor of ERR results).
+    for cid in ("WIN-LDAP-CLISIGN", "WIN-UAC-CONSENT", "WIN-LAPS", "WIN-ANON-RESTRICT",
+                "WIN-CRED-WDIGEST", "WIN-UAC-LATFP", "WIN-AIE", "WIN-CRED-LMCOMPAT",
+                "WIN-CRED-NOLMHASH", "WIN-UAC-LUA", "WIN-AUTOLOGON"):
+        assert got[cid][0] == "ERR", (cid, got[cid])
+        assert "outside documented values" in got[cid][1] or "is not a version" in got[cid][1], got[cid]
+    assert sum(st == "ERR" for st, _ in got.values()) >= 25
+
+
 def test_windows_rootdse_uses_the_bounded_searcher(tmp_path):
     # R5: RootDSE is read through Invoke-LdapSearch (ClientTimeout/ServerTimeLimit), with
     # the collector's -TimeoutSeconds threaded through -- not an unbounded DirectoryEntry.
