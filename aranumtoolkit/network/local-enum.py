@@ -556,6 +556,9 @@ def run_bounded(argv: list, *, timeout: int, stdin_data: Optional[str] = None,
                 try:
                     os.killpg(p.pid, sig)
                 except ProcessLookupError:
+                    # The group exited between our timeout and this signal;
+                    # still reap buffered output so out/errb are bound.
+                    out, errb = p.communicate()
                     break
                 try:
                     out, errb = p.communicate(timeout=10)
@@ -653,11 +656,22 @@ def plan_host(spec: HostSpec, cred: Cred, allowed: set, win_exec: Optional[str],
                 hp.rows.append(PlanRow(spec.host, osn, win_exec, "compact", "compact-probe",
                                        f"fits=no refuse ({probe_error})"))
                 continue
-            hp.pathways.append(win_exec)
             auth = "nthash" if not cred.password else "password"
-            note = (f"fits=yes chars={probe.chars}/{probe.ceiling} "
-                    f"checks={len(probe.checks)} omitted={len(probe.omitted)} auth={auth}")
-            hp.rows.append(PlanRow(spec.host, osn, win_exec, "compact", "compact-probe", note))
+            fit = (f"chars={probe.chars}/{probe.ceiling} "
+                   f"checks={len(probe.checks)} omitted={len(probe.omitted)} auth={auth}")
+            if any(p in ("winrm", "ssh") for p in hp.pathways):
+                # execute_plans routes a host by its FIRST pathway; a full-engine
+                # pathway already claims this host, so the compact probe would
+                # never run. Emit a visibility row but do not seed a dead
+                # pathways entry (true runtime fallback is backlog S4-BL-01).
+                note = ("superseded by winrm/ssh (compact probe runs only when it "
+                        f"is the sole pathway); fits=yes {fit}")
+                hp.rows.append(PlanRow(spec.host, osn, win_exec, "compact",
+                                       "compact-probe", note))
+                continue
+            hp.pathways.append(win_exec)
+            hp.rows.append(PlanRow(spec.host, osn, win_exec, "compact", "compact-probe",
+                                   f"fits=yes {fit}"))
             continue
         hp.pathways.append(pw)
         engine = "bulk-enum-linux.sh" if osn == "linux" else (
@@ -781,7 +795,13 @@ def run_windows_engine(group: list, cred: Cred, transports: list, tls: bool,
     if cred.key:
         argv += ["--key", cred.key]
     log(f"windows engine ({','.join(transports)}): {len(group)} host(s), group g{gid}")
-    rc, _o, _e, _ = run_bounded(argv, timeout=0, stdout_path=work / "engine.out",
+    # bulk-enum-windows.py has no --host-timeout of its own (unlike the linux
+    # engine, which self-limits per host), so --host-timeout is enforced here as
+    # a whole-invocation subprocess cap. The engine runs a credential GROUP, so
+    # the cap is the generous sequential bound host_timeout*len(group); 0 stays
+    # unbounded. This only guarantees a hung collector cannot run forever.
+    cap = args.host_timeout * max(1, len(group)) if args.host_timeout > 0 else 0
+    rc, _o, _e, _ = run_bounded(argv, timeout=cap, stdout_path=work / "engine.out",
                                 stderr_path=work / "engine.err")
     if rc != 0:
         warn(f"bulk-enum-windows.py exited rc={rc} (group g{gid}); see {work / 'engine.err'}")
@@ -821,9 +841,22 @@ def exec_argv(tool: str, method: str, host: str, cred: Cred, command: str) -> tu
 
 
 def clean_exec_output(raw: str) -> tuple:
-    """(stdout, noise): impacket banner/status lines and shell prompts removed."""
+    """(stdout, noise): impacket banner/status lines and shell prompts removed.
+    Everything between the probe's own PROBE_HEADER and PROBE_END sentinels is
+    kept verbatim: the compact probe reports privilege evidence on lines that
+    begin with `[+]`/`[-]` (see PROBE_PRIVS), which collide with impacket's
+    banner prefixes. The noise filter must run only OUTSIDE the probe span or it
+    discards exactly the findings the probe exists to collect."""
     keep, noise = [], []
+    in_probe = False
     for line in raw.replace("\r\n", "\n").split("\n"):
+        if PROBE_HEADER in line:
+            in_probe = True
+        if in_probe:
+            keep.append(PROMPT_PREFIX.sub("", line))
+            if PROBE_END in line:
+                in_probe = False
+            continue
         if IMPACKET_NOISE.match(line.strip()):
             noise.append(line)
             continue
@@ -896,11 +929,17 @@ def _which_powershell() -> Optional[str]:
     return shutil.which("pwsh") or shutil.which("powershell") or shutil.which("powershell.exe")
 
 
+def _self_scan_os() -> str:
+    """The OS this host runs (factored out so tests can drive the windows
+    self-scan branch without repatching the global os.name)."""
+    return "windows" if os.name == "nt" else "linux"
+
+
 def run_self_scan(out: Path, args, default: Cred) -> int:
     """Enumerate THIS machine directly (no transport). Posture collector first
     (fast), then the privesc collector (its SUID walk can run minutes), sharing
     one wall-clock --host-timeout; partial output is kept on timeout."""
-    osn = "windows" if os.name == "nt" else "linux"
+    osn = _self_scan_os()
     root = out / osn
     mark_root(root, osn)
     hdir = root / "localhost"
@@ -915,6 +954,7 @@ def run_self_scan(out: Path, args, default: Cred) -> int:
         return max(1, budget - int(time.time() - t0))
 
     timed_out = False
+    collector_rc = 0            # first non-zero, non-timeout collector exit
     if osn == "linux":
         ev = hdir / "linenum.txt"
         erf = hdir / "linenum.err"
@@ -930,6 +970,8 @@ def run_self_scan(out: Path, args, default: Cred) -> int:
                 e.write(f"== {label} rc={rc} ==\n".encode())
                 e.write(se.encode("utf-8", "replace"))
                 timed_out = timed_out or to
+                if rc != 0 and not to and not collector_rc:
+                    collector_rc = rc
                 if to:
                     break
     else:
@@ -942,25 +984,36 @@ def run_self_scan(out: Path, args, default: Cred) -> int:
             _write_self_meta(hdir, osn, started, int(time.time() - t0), "DEP_MISSING",
                              "no PowerShell interpreter", ev, erf)
             return 0
-        payload = WE.build_posture_payload(WIN_PRIVESC.read_text(encoding="utf-8"),
+        privesc = Path(args.windows_script) if args.windows_script else WIN_PRIVESC
+        payload = WE.build_posture_payload(privesc.read_text(encoding="utf-8"),
                                            WIN_POSTURE.read_text(encoding="utf-8"), ad=args.ad)
         rc, so, se, to = run_bounded([ps, "-NoProfile", "-NonInteractive", "-Command", "-"],
                                      timeout=remaining(), stdin_data=payload)
         ev.write_text(so)
         erf.write_text(se)
         timed_out = to
-    status = "HOST_TIMEOUT" if timed_out else "OK"
-    reason = "self-scan exceeded --host-timeout (partial output kept)" if timed_out else ""
-    _write_self_meta(hdir, osn, started, int(time.time() - t0), status, reason, ev, erf)
+        if rc != 0 and not to:
+            collector_rc = rc
+    if timed_out:
+        status = "HOST_TIMEOUT"
+        reason = "self-scan exceeded --host-timeout (partial output kept)"
+    elif collector_rc:
+        status = "COLLECTOR_ERR"
+        reason = f"self-scan collector exited rc={collector_rc} (partial output kept)"
+    else:
+        status = "OK"
+        reason = ""
+    _write_self_meta(hdir, osn, started, int(time.time() - t0), status, reason, ev, erf,
+                     rc=collector_rc)
     log(f"self-scan ({osn}): localhost status={status}")
     return 0
 
 
 def _write_self_meta(hdir: Path, osn: str, started: str, elapsed: int, status: str,
-                     reason: str, ev: Path, erf: Path) -> None:
+                     reason: str, ev: Path, erf: Path, rc: int = 0) -> None:
     write_json_atomic(hdir / "_meta.json", {
         "host": "localhost", "user": "", "port": "",
-        "rc": 0 if status == "OK" else 1, "status": status, "fail_reason": reason,
+        "rc": rc if rc else (0 if status == "OK" else 1), "status": status, "fail_reason": reason,
         "transport": "local", "artifact_id": "localhost",
         "started": started, "elapsed_s": elapsed,
         "size_bytes": ev.stat().st_size if ev.exists() else 0,
@@ -1014,6 +1067,10 @@ def execute_plans(plans: list, out: Path, allowed: set, win_exec: Optional[str],
         root = out / "windows"
         mark_root(root, "windows")
         for hp in win_exec_hosts:
+            if hp.spec.port and hp.spec.port != 445:
+                warn(f"{hp.spec.host}: port {hp.spec.port} ignored for "
+                     f"{hp.pathways[0]} (impacket exec uses the method's fixed "
+                     "SMB/DCOM port)")
             key = WE.endpoint_key(WE.Target(user=_win_user(hp.cred), host=hp.spec.host,
                                             port=hp.spec.port or 445, raw_spec=hp.spec.host))
             hdir = root / key
@@ -1021,6 +1078,24 @@ def execute_plans(plans: list, out: Path, allowed: set, win_exec: Optional[str],
             meta = run_exec_probe(hp.spec.host, hp.cred, hp.pathways[0], probe, hdir, args)
             write_json_atomic(hdir / "_meta.json", meta)
             log(f"exec probe ({hp.pathways[0]}): {hp.spec.host} status={meta['status']}")
+
+    # No-usable-pathway hosts: write a SKIPPED per-host record so an unreachable
+    # machine appears in the inventory as skipped, rather than silently vanishing.
+    for hp in (p for p in plans if not p.pathways):
+        osn = hp.spec.os if hp.spec.os in ("linux", "windows") else "unknown"
+        root = out / osn
+        mark_root(root, osn)
+        key = re.sub(r"[^A-Za-z0-9._-]", "_", hp.spec.host) or "host"
+        hdir = root / key
+        hdir.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(hdir / "_meta.json", {
+            "host": hp.spec.host, "user": hp.cred.user, "port": hp.spec.port or "",
+            "rc": 1, "status": "SKIPPED",
+            "fail_reason": f"skip:{hp.skip or 'no-pathway'}",
+            "transport": "none", "artifact_id": key,
+            "started": now_iso(), "elapsed_s": 0, "size_bytes": 0, "err_bytes": 0,
+        })
+        log(f"skipped: {hp.spec.host} ({hp.skip or 'no-pathway'})")
 
 
 # --------------------------------------------------------------------- CLI
