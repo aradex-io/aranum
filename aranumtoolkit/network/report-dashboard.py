@@ -214,6 +214,26 @@ def safe_name(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", str(s)).strip("-") or "unknown"
 
 
+def target_page(f: dict) -> str:
+    """The page a finding's target links to. A domain-scope (AD posture) finding
+    is keyed by a domain, not a host, and has no host page: it links to that
+    domain's posture section on the AD page."""
+    host = str(f.get("host", ""))
+    if f.get("scope") == "domain":
+        return f"ad.html#domain-{safe_name(host)}"
+    return f"host_{safe_name(host)}.html"
+
+
+def target_link(f: dict, mono: bool = False) -> str:
+    """Scope-aware target cell: host link, or domain link + a "domain" label."""
+    host = str(f.get("host", ""))
+    text = f'<code class="mono">{e(host)}</code>' if mono else e(host)
+    link = f'<a href="{e(target_page(f))}">{text}</a>'
+    if f.get("scope") == "domain":
+        link += ' <span class="chip chip-scope">domain</span>'
+    return link
+
+
 def fmt_time(ts: str | None) -> str:
     if not ts:
         return ""
@@ -516,8 +536,9 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
 
     events = read_run_log(out_dir)
     per_host_verdicts = collection.per_host or {}
-    posture_hosts = (collection.posture or {}).get("hosts", {}) or {}
-    domains = collection.domains or {}
+    posture_hosts, domains = _normalize_posture(
+        (collection.posture or {}).get("hosts") if isinstance(collection.posture, dict) else {},
+        collection.domains)
 
     # ----- port discovery (three sources, unioned) -----
     # Map (host, service) -> set[int] of ports observed.
@@ -810,7 +831,7 @@ def render_index(model: dict) -> str:
         <tr>
           <td>{severity_chip(f['severity'])}</td>
           <td><code class="mono">{e(truncate(f['line'], 120))}</code></td>
-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
+          <td>{target_link(f)}</td>
           <td>{e(f['service'])}</td>
         </tr>""")
 
@@ -1194,7 +1215,7 @@ def render_service_detail(model: dict, svc: str) -> str:
         <tr data-severity="{e(f['severity'])}" data-host="{e(f['host'])}">
           <td>{severity_chip(f['severity'])}</td>
           <td><code class="mono">{e(truncate(f['line'], 280))}</code></td>
-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
+          <td>{target_link(f)}</td>
           <td><code class="mono small">{e(f['evidence_path'])}</code></td>
         </tr>""")
 
@@ -1329,7 +1350,7 @@ def render_inbox(model: dict) -> str:
           <td class="num priority">{e(f.get('priority', 0))}</td>
           <td>{severity_chip(f.get('severity', 'info'))}</td>
           <td>{e(f.get('confidence', 'medium'))}</td>
-          <td><a href="host_{e(safe_name(host))}.html">{e(host)}</a></td>
+          <td>{target_link(f)}</td>
           <td class="num">{e(f.get('port', '') or '')}</td>
           <td><a href="service_{e(safe_name(svc))}.html">{e(svc)}</a></td>
           <td><strong>{e(f.get('title', 'Finding'))}</strong><br><code class="mono small">{e(truncate(f.get('line', ''), 180))}</code></td>
@@ -1435,7 +1456,7 @@ def render_severity_detail(model: dict, sev: str) -> str:
         rows.append(f"""
         <tr data-host="{e(f['host'])}" data-service="{e(f['service'])}">
           <td><code class="mono">{e(truncate(f['line'], 280))}</code></td>
-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
+          <td>{target_link(f)}</td>
           <td><a href="service_{e(safe_name(f['service']))}.html">{e(f['service'])}</a></td>
           <td><code class="mono small">{e(f['evidence_path'])}</code></td>
         </tr>""")
@@ -1610,7 +1631,7 @@ def export_data_json(model: dict) -> str:
                 "port": f.get("port", ""),
                 "service": f.get("service", ""),
                 "title": f.get("title", ""),
-                "page": f"host_{safe_name(f.get('host', ''))}.html",
+                "page": target_page(f),
             }
             for f in model.get("inbox", [])
         ],
@@ -1860,6 +1881,7 @@ details.kb-guide > summary { cursor: pointer; color: var(--accent, #6af); font-s
 .kb-refs { font-size: 0.82em; opacity: 0.8; margin-top: 6px; }
 .copybtn { cursor: pointer; border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text); border-radius: 4px; padding: 1px 6px; font-size: 0.9em; line-height: 1.2; }
 .copybtn.copied { color: var(--sev-low); border-color: var(--sev-low); }
+.chip-scope { background: var(--bg-elev-2); color: var(--text-dim); border: 1px solid var(--border); font-size: 0.75em; }
 .chip-svc, .chip-host {
   background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border);
   margin-right: 4px; margin-bottom: 4px; text-decoration: none;
@@ -2456,7 +2478,7 @@ the finding knowledge base (<code class="mono">aranumtoolkit/network/finding-kb.
             rows.append(f"""
             <tr>
               <td>{severity_chip(str(f.get('severity', '')))}</td>
-              <td><a href="host_{e(safe_name(host))}.html"><code class="mono">{e(host)}</code></a></td>
+              <td>{target_link(f, mono=True)}</td>
               <td><code class="mono">{e(truncate(clean_line(str(f.get('line', ''))), 200))}</code>{guide}</td>
             </tr>""")
         body.append(f"""
@@ -2501,6 +2523,56 @@ def _check_guidance(cid: str) -> str:
 
 def _group_title(group: str) -> str:
     return _POSTURE_GROUP_TITLES.get(group, group or "other")
+
+
+def _norm_posture_status(v) -> str:
+    # An unknown status is undetermined (ERR) -- never promoted to a determined one.
+    return v if isinstance(v, str) and v in _POSTURE_STATUS_ORDER else "ERR"
+
+
+def _norm_posture_check(c, with_observers: bool) -> "dict | None":
+    if not isinstance(c, dict):
+        return None
+    out = {"status": _norm_posture_status(c.get("status")), "detail": str(c.get("detail", ""))}
+    if with_observers:
+        obs = c.get("observed_from")
+        out["observed_from"] = [
+            {"host": str(o.get("host", "")), "status": _norm_posture_status(o.get("status")),
+             "detail": str(o.get("detail", ""))}
+            for o in (obs if isinstance(obs, list) else []) if isinstance(o, dict)]
+    return out
+
+
+def _norm_posture_checks(raw, with_observers: bool) -> dict:
+    out = {}
+    for cid, c in (raw.items() if isinstance(raw, dict) else []):
+        n = _norm_posture_check(c, with_observers)
+        if n is not None:
+            out[str(cid)] = n
+    return out
+
+
+def _normalize_posture(hosts, domains) -> "tuple[dict, dict]":
+    """The model boundary for posture: every renderer below reads only what this
+    returns. Dict-valued records only; malformed host/check/observer records are
+    discarded; keys and details coerced to str; an unknown status becomes ERR.
+    collect() builds a well-formed structure today; this keeps a future producer
+    (or a hand-built Collection) from crashing every posture page."""
+    nh = {}
+    for h, rec in (hosts.items() if isinstance(hosts, dict) else []):
+        if not isinstance(rec, dict):
+            continue
+        nh[str(h)] = {
+            "os": str(rec.get("os", "")), "source": str(rec.get("source", "")),
+            "checks": _norm_posture_checks(rec.get("checks"), False),
+            "domain_observations": _norm_posture_checks(rec.get("domain_observations"), False),
+        }
+    nd = {}
+    for d, rec in (domains.items() if isinstance(domains, dict) else []):
+        if not isinstance(rec, dict):
+            continue
+        nd[str(d)] = {"checks": _norm_posture_checks(rec.get("checks"), True)}
+    return nh, nd
 
 
 def _domain_membership(posture_hosts: dict, domains: dict) -> "dict[str, dict]":
@@ -2708,7 +2780,7 @@ def render_domain_posture(model: dict) -> str:
             <td>{obs_html}</td>
           </tr>""")
         out.append(f"""
-<section class="card">
+<section class="card" id="domain-{e(safe_name(dom))}">
   <h2 class="card-title">Domain posture · <code class="mono">{e(dom)}</code> <span class="chip chip-info">{len(checks)}</span></h2>
   <p class="card-sub">Read-only directory checks reported by domain-joined hosts (<code class="mono">-AdChecks</code>).
   One canonical status per check: any determined result beats ERR/NA, the worst determined result wins, and
