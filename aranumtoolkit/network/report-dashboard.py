@@ -433,8 +433,14 @@ def _dc_hosts(inventory: list[dict]) -> list[str]:
     (445) — the inventory signature of a DC."""
     ports: "dict[str, set[int]]" = defaultdict(set)
     for r in inventory:
-        if r.get("host") and isinstance(r.get("port"), int):
-            ports[r["host"]].add(r["port"])
+        host = r.get("host")
+        if not host:
+            continue
+        try:
+            pnum = int(r.get("port"))  # inventory ports may be int or numeric str
+        except (TypeError, ValueError):
+            continue
+        ports[str(host)].add(pnum)
     dcs = [h for h, ps in ports.items() if 88 in ps and (389 in ps or 445 in ps)]
     return sorted(dcs)
 
@@ -2331,14 +2337,16 @@ def render_ad(model: dict) -> str:
         if not group:
             continue
         rows = []
-        for f in sorted(group, key=lambda x: (SEVERITY_ORDER.index(x["severity"])
-                                              if x["severity"] in SEVERITY_ORDER else 9, x.get("host", ""))):
+        for f in sorted(group, key=lambda x: (SEVERITY_ORDER.index(x.get("severity"))
+                                              if x.get("severity") in SEVERITY_ORDER else 9,
+                                              str(x.get("host", "")))):
             guide = kb_guidance_html(f)
+            host = str(f.get("host", ""))
             rows.append(f"""
             <tr>
-              <td>{severity_chip(f['severity'])}</td>
-              <td><a href="host_{e(safe_name(f['host']))}.html"><code class="mono">{e(f['host'])}</code></a></td>
-              <td><code class="mono">{e(truncate(clean_line(f['line']), 200))}</code>{guide}</td>
+              <td>{severity_chip(str(f.get('severity', '')))}</td>
+              <td><a href="host_{e(safe_name(host))}.html"><code class="mono">{e(host)}</code></a></td>
+              <td><code class="mono">{e(truncate(clean_line(str(f.get('line', ''))), 200))}</code>{guide}</td>
             </tr>""")
         body.append(f"""
 <section class="card">
@@ -2370,14 +2378,16 @@ the finding knowledge base (<code class="mono">aranumtoolkit/network/finding-kb.
         title = cats.get(cat, {}).get("title", cat)
         group = by_cat[cat]
         rows = []
-        for f in sorted(group, key=lambda x: (SEVERITY_ORDER.index(x["severity"])
-                                              if x["severity"] in SEVERITY_ORDER else 9, x.get("host", ""))):
+        for f in sorted(group, key=lambda x: (SEVERITY_ORDER.index(x.get("severity"))
+                                              if x.get("severity") in SEVERITY_ORDER else 9,
+                                              str(x.get("host", "")))):
             guide = kb_guidance_html(f)
+            host = str(f.get("host", ""))
             rows.append(f"""
             <tr>
-              <td>{severity_chip(f['severity'])}</td>
-              <td><a href="host_{e(safe_name(f['host']))}.html"><code class="mono">{e(f['host'])}</code></a></td>
-              <td><code class="mono">{e(truncate(clean_line(f['line']), 200))}</code>{guide}</td>
+              <td>{severity_chip(str(f.get('severity', '')))}</td>
+              <td><a href="host_{e(safe_name(host))}.html"><code class="mono">{e(host)}</code></a></td>
+              <td><code class="mono">{e(truncate(clean_line(str(f.get('line', ''))), 200))}</code>{guide}</td>
             </tr>""")
         body.append(f"""
 <section class="card">

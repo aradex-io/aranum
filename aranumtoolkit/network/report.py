@@ -181,12 +181,39 @@ def _load_finding_kb() -> dict:
     if not isinstance(raw, dict):
         kb = empty
     else:
-        kb = {
-            "categories": raw.get("categories") if isinstance(raw.get("categories"), dict) else {},
-            "classes": raw.get("classes") if isinstance(raw.get("classes"), dict) else {},
-            "service_categories": raw.get("service_categories")
-            if isinstance(raw.get("service_categories"), dict) else {},
-        }
+        # Normalize nested structure so a syntactically valid but structurally
+        # malformed KB (a null category value, a class with `test: null` or no
+        # title) can never reach a renderer and raise. Category values must be
+        # dicts; a class must point at a known category and is coerced to safe
+        # field types (missing/wrong-typed fields become empty, not None). A
+        # class whose category is absent/non-string is dropped (it then falls
+        # back to the service->category map), honoring the "never hard-fail on
+        # a KB problem" contract.
+        raw_cats = raw.get("categories") if isinstance(raw.get("categories"), dict) else {}
+        categories = {k: v for k, v in raw_cats.items() if isinstance(v, dict)}
+        raw_classes = raw.get("classes") if isinstance(raw.get("classes"), dict) else {}
+        classes: dict = {}
+        for rid, c in raw_classes.items():
+            if not isinstance(c, dict):
+                continue
+            cat = c.get("category")
+            if not isinstance(cat, str) or cat not in categories:
+                continue
+            classes[rid] = {
+                "category": cat,
+                "title": str(c.get("title") or rid),
+                "why": str(c.get("why") or ""),
+                "test": [t for t in c.get("test", []) if isinstance(t, dict)]
+                        if isinstance(c.get("test"), list) else [],
+                "fix": [x for x in c.get("fix", []) if isinstance(x, dict)]
+                       if isinstance(c.get("fix"), list) else [],
+                "refs": [r for r in c.get("refs", []) if isinstance(r, str)]
+                        if isinstance(c.get("refs"), list) else [],
+            }
+        raw_svc = raw.get("service_categories") if isinstance(raw.get("service_categories"), dict) else {}
+        service_categories = {k: v for k, v in raw_svc.items() if isinstance(v, str) and v}
+        kb = {"categories": categories, "classes": classes,
+              "service_categories": service_categories}
     _FINDING_KB_CACHE = kb
     _FINDING_KB_CACHE_PATH = path
     return kb
@@ -2046,6 +2073,28 @@ def _summary(findings: list[dict], out_dir: Path | None = None) -> dict:
     }
 
 
+def _md_text(s: object) -> str:
+    """Flatten an untrusted value to a single safe markdown-inline fragment: no
+    CR/LF (so it cannot forge a heading or section), angle brackets escaped (so
+    it cannot inject raw HTML in renderers that pass HTML through). Used for
+    every interpolated title / why / label / fix-text in the Top-risks section,
+    where a value can originate from a matched engagement line or an override
+    KB."""
+    s = str(s).replace("\r", " ").replace("\n", " ")
+    return s.replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _md_code(s: object) -> str:
+    """Render a command as a backtick-safe inline code span. Picks a backtick
+    fence longer than any run inside the value so a backtick in the command can
+    never break out of the span; newlines are flattened."""
+    s = str(s).replace("\r", " ").replace("\n", " ")
+    longest = max((len(m) for m in re.findall(r"`+", s)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if (s.startswith("`") or s.endswith("`")) else ""
+    return f"{fence}{pad}{s}{pad}{fence}"
+
+
 def _render_top_risks(findings: list[dict], kb: dict, redactor: Redactor) -> list[str]:
     """S2/D2.2 — a 'Top risks by category' section. Non-low findings are grouped
     by KB category (category `order`), then by finding class; each class shows
@@ -2067,7 +2116,8 @@ def _render_top_risks(findings: list[dict], kb: dict, redactor: Redactor) -> lis
         slot = by_cat[cat].setdefault(class_key, {
             "rule_id": rule_id if has_cls else "",
             "sev": f.get("severity", ""),
-            "title": classes[rule_id]["title"] if has_cls else str(f.get("title", "finding")),
+            "title": _md_text(classes[rule_id]["title"]) if has_cls
+                     else _md_text(f.get("title", "finding")),
             "hosts": set()})
         if _SEV_ORDER.get(f.get("severity", "low"), 9) < _SEV_ORDER.get(slot["sev"], 9):
             slot["sev"] = f.get("severity", "")
@@ -2093,31 +2143,31 @@ def _render_top_risks(findings: list[dict], kb: dict, redactor: Redactor) -> lis
                 out.append("")
                 continue
             if cls.get("why"):
-                out.append(f"**Why:** {cls['why']}")
+                out.append(f"**Why:** {_md_text(cls['why'])}")
                 out.append("")
             tests = [t for t in cls.get("test", []) if isinstance(t, dict)]
             if tests:
                 out.append("**How to test:**")
                 out.append("")
                 for t in tests:
-                    label = str(t.get("label", "")).strip()
+                    label = _md_text(str(t.get("label", "")).strip())
                     cmd = str(t.get("cmd", "")).strip()
-                    out.append(f"- {label}: `{cmd}`" if cmd else f"- {label}")
+                    out.append(f"- {label}: {_md_code(cmd)}" if cmd else f"- {label}")
                 out.append("")
             fixes = [x for x in cls.get("fix", []) if isinstance(x, dict)]
             if fixes:
                 out.append("**How to fix:**")
                 out.append("")
                 for x in fixes:
-                    label = str(x.get("label", "")).strip()
+                    label = _md_text(str(x.get("label", "")).strip())
                     if x.get("cmd"):
-                        out.append(f"- {label}: `{str(x['cmd']).strip()}`")
+                        out.append(f"- {label}: {_md_code(str(x['cmd']).strip())}")
                     else:
-                        out.append(f"- {label}: {str(x.get('text', '')).strip()}")
+                        out.append(f"- {label}: {_md_text(str(x.get('text', '')).strip())}")
                 out.append("")
             refs = [r for r in cls.get("refs", []) if isinstance(r, str)]
             if refs:
-                out.append("**References:** " + ", ".join(refs))
+                out.append("**References:** " + ", ".join(_md_text(r) for r in refs))
                 out.append("")
     return out
 

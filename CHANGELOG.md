@@ -19,6 +19,10 @@ See `CLAUDE.md` §6 for the entry style guide.
 - `standalones/passwords/Get-WeakPassword.cmd`: double-click / console launcher for the Windows password scanner — per-process `-ExecutionPolicy Bypass` (nothing system-wide changed), prefers PowerShell 7 (`pwsh`) then in-box Windows PowerShell 5.1, passes arguments through, keeps the window open on a double-click. Fixes the "double-clicking the .ps1 just opens a document viewer" problem.
 - `standalones/windows/README.md`: run guide for the Windows standalones — how to invoke on Windows 10/11 (don't double-click a `.ps1`; use `-File` / Run with PowerShell / the `.cmd`), execution policy, 5.1-vs-pwsh7 compatibility, and a script index.
 
+### Security
+- `network/report.py`: `_load_finding_kb()` now normalizes nested KB structure — category values must be dicts, a class must point at a known category and has its `title`/`why`/`test`/`fix`/`refs` coerced to safe types — so a syntactically valid but structurally malformed KB (a null category, `"test": null`, a class with no title) can never reach a renderer and raise. The "Top risks" section flattens newlines and escapes angle brackets in every interpolated title/why/label/fix-text and renders commands in a backtick-safe inline-code span, so an override KB or an engagement-derived finding title cannot forge a report heading, inject raw HTML, or break out of a code span.
+- `network/report-dashboard.py`: the Active Directory and Categories renderers read finding fields defensively (missing `host`/`line`/`severity` no longer crash rendering), and `_dc_hosts()` coerces numeric string ports so a domain controller is still detected when inventory ports arrive as strings.
+
 ### Changed
 - `network/report.py`: findings now carry additive `scope` (`"endpoint"` | `"host"` | `"run"`) and structured `host`/`port`/`protocol` attribution fields; the output schema stays `"2"` (purely additive, no consumer break).
 
