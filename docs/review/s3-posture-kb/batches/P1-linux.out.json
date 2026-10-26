@@ -1,0 +1,894 @@
+{
+  "LIN-OS-RELEASE": {
+    "why": "Accurate operating-system and kernel inventory is essential for identifying unsupported releases and matching the host to applicable security advisories. Attackers commonly exploit known vulnerabilities on obsolete or unpatched platforms.",
+    "test": [
+      {
+        "label": "Show distribution and kernel release",
+        "cmd": "cat /etc/os-release; uname -r"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Maintain supported releases",
+        "text": "Compare the reported distribution and kernel with vendor support and security-advisory information, then upgrade any end-of-life release through the vendor-supported process."
+      }
+    ],
+    "refs": [
+      "https://www.freedesktop.org/software/systemd/man/latest/os-release.html",
+      "https://man7.org/linux/man-pages/man2/uname.2.html"
+    ]
+  },
+  "LIN-PKG-SECUPDATES": {
+    "why": "Pending security updates leave publicly documented vulnerabilities available for exploitation. An attacker can fingerprint package versions and use a matching local or remote exploit to gain access or elevate privileges.",
+    "test": [
+      {
+        "label": "Inspect the cached APT upgrade plan",
+        "cmd": "apt-get -s upgrade"
+      },
+      {
+        "label": "List cached DNF security updates",
+        "cmd": "dnf -C updateinfo list --security"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Apply Debian or Ubuntu updates",
+        "cmd": "sudo apt-get update && sudo apt-get upgrade"
+      },
+      {
+        "label": "Apply RPM security updates",
+        "cmd": "sudo dnf upgrade --security"
+      }
+    ],
+    "refs": [
+      "https://documentation.ubuntu.com/server/how-to/software/package-management/",
+      "https://dnf.readthedocs.io/en/latest/command_ref.html"
+    ]
+  },
+  "LIN-PKG-AUTOUPDATE": {
+    "why": "Without automatic security updates, exploitable packages can remain vulnerable until an administrator intervenes. Attackers often weaponize disclosed vulnerabilities faster than manual patch cycles can respond.",
+    "test": [
+      {
+        "label": "Check APT automatic-upgrade scheduling",
+        "cmd": "systemctl is-enabled apt-daily-upgrade.timer 2>/dev/null; grep -RHE 'APT::Periodic::(Enable|Unattended-Upgrade)' /etc/apt/apt.conf.d 2>/dev/null"
+      },
+      {
+        "label": "Check DNF automatic-upgrade scheduling",
+        "cmd": "systemctl is-enabled dnf-automatic.timer dnf-automatic-install.timer 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable unattended upgrades on Debian or Ubuntu",
+        "cmd": "sudo apt-get install unattended-upgrades && sudo systemctl enable --now apt-daily-upgrade.timer"
+      },
+      {
+        "label": "Enable automatic updates on DNF systems",
+        "text": "Install dnf-automatic, set upgrade_type = security and apply_updates = yes in /etc/dnf/automatic.conf, then enable the applicable dnf-automatic timer."
+      }
+    ],
+    "refs": [
+      "https://documentation.ubuntu.com/server/how-to/software/automatic-updates/",
+      "https://dnf.readthedocs.io/en/latest/automatic.html"
+    ]
+  },
+  "LIN-REBOOT-REQUIRED": {
+    "why": "A pending reboot can mean that updated kernels or shared libraries are installed but vulnerable code remains loaded. An attacker may continue exploiting the active old code until the host or affected services are restarted.",
+    "test": [
+      {
+        "label": "Check the reboot-required marker",
+        "cmd": "if [ -e /var/run/reboot-required ]; then echo 'reboot required'; else echo 'no reboot marker'; fi"
+      },
+      {
+        "label": "List packages requesting a reboot",
+        "cmd": "test -r /var/run/reboot-required.pkgs && cat /var/run/reboot-required.pkgs || true"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Schedule a controlled reboot",
+        "text": "Validate service redundancy and maintenance requirements, then reboot the host during an approved window and confirm that /var/run/reboot-required is absent afterward."
+      }
+    ],
+    "refs": [
+      "https://documentation.ubuntu.com/server/how-to/software/package-management/"
+    ]
+  },
+  "LIN-SYSCTL-PTRACE": {
+    "why": "With kernel.yama.ptrace_scope=0, same-user processes can trace one another without a parent-child relationship. A compromised process can use this access to inspect or modify an SSH agent, browser, or privileged helper and steal credentials or tokens.",
+    "test": [
+      {
+        "label": "Read the current ptrace restriction",
+        "cmd": "sysctl kernel.yama.ptrace_scope"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict ptrace to descendants",
+        "cmd": "echo 'kernel.yama.ptrace_scope = 1' | sudo tee /etc/sysctl.d/60-ptrace.conf && sudo sysctl --system"
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/LSM/Yama.html"
+    ]
+  },
+  "LIN-SYSCTL-KPTR": {
+    "why": "Unrestricted kernel pointer disclosure gives attackers address information that can weaken kernel address-space randomization. A local attacker can use exposed addresses to make kernel exploits more reliable.",
+    "test": [
+      {
+        "label": "Read the kernel pointer restriction",
+        "cmd": "sysctl kernel.kptr_restrict"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict kernel pointer exposure",
+        "cmd": "echo 'kernel.kptr_restrict = 1' | sudo tee /etc/sysctl.d/60-kptr.conf && sudo sysctl --system"
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#kptr-restrict"
+    ]
+  },
+  "LIN-SYSCTL-DMESG": {
+    "why": "Allowing unprivileged users to read the kernel log can expose kernel addresses, device details, and security-relevant failures. A local attacker can use that information to refine privilege-escalation exploits and reconnaissance.",
+    "test": [
+      {
+        "label": "Read the dmesg restriction",
+        "cmd": "sysctl kernel.dmesg_restrict"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict unprivileged dmesg access",
+        "cmd": "echo 'kernel.dmesg_restrict = 1' | sudo tee /etc/sysctl.d/60-dmesg.conf && sudo sysctl --system"
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#dmesg-restrict"
+    ]
+  },
+  "LIN-SYSCTL-BPF": {
+    "why": "Unprivileged eBPF expands the kernel attack surface available to ordinary users and has historically enabled privilege-escalation vulnerabilities. A compromised account can load BPF programs to probe kernel behavior or exploit verifier and JIT defects.",
+    "test": [
+      {
+        "label": "Read the unprivileged BPF setting",
+        "cmd": "sysctl kernel.unprivileged_bpf_disabled"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable unprivileged BPF",
+        "cmd": "echo 'kernel.unprivileged_bpf_disabled = 1' | sudo tee /etc/sysctl.d/60-bpf.conf && sudo sysctl --system"
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#unprivileged-bpf-disabled"
+    ]
+  },
+  "LIN-SYSCTL-USERNS": {
+    "why": "Unrestricted user namespaces expose additional kernel namespace and filesystem code to unprivileged processes. Attackers can use that expanded surface to turn kernel vulnerabilities into local privilege escalation, although disabling namespaces can disrupt rootless containers and sandboxing.",
+    "test": [
+      {
+        "label": "Read user-namespace controls",
+        "cmd": "sysctl kernel.unprivileged_userns_clone user.max_user_namespaces kernel.apparmor_restrict_unprivileged_userns 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict user namespaces with AppArmor",
+        "cmd": "echo 'kernel.apparmor_restrict_unprivileged_userns = 1' | sudo tee /etc/sysctl.d/60-userns.conf && sudo sysctl --system"
+      },
+      {
+        "label": "Disable unprivileged user namespaces where compatible",
+        "text": "After validating container and application requirements, set kernel.unprivileged_userns_clone=0 or user.max_user_namespaces=0 in a file under /etc/sysctl.d and apply it with sysctl --system."
+      }
+    ],
+    "refs": [
+      "https://docs.kernel.org/admin-guide/namespaces/index.html",
+      "https://documentation.ubuntu.com/security/security-features/privilege-restriction/unprivileged-user-namespaces/"
+    ]
+  },
+  "LIN-SYSCTL-ASLR": {
+    "why": "Incomplete address-space randomization makes process memory locations more predictable. Attackers can use predictable addresses to improve the reliability of memory-corruption exploits and code-reuse attacks.",
+    "test": [
+      {
+        "label": "Read the ASLR mode",
+        "cmd": "sysctl kernel.randomize_va_space"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable full ASLR",
+        "cmd": "echo 'kernel.randomize_va_space = 2' | sudo tee /etc/sysctl.d/60-aslr.conf && sudo sysctl --system"
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#randomize-va-space"
+    ]
+  },
+  "LIN-SYSCTL-SUIDDUMP": {
+    "why": "Core dumps from set-user-ID or otherwise privileged programs can contain passwords, keys, tokens, and sensitive process memory. An attacker who can access or influence these dumps may recover secrets or overwrite files through unsafe dump handling.",
+    "test": [
+      {
+        "label": "Read the setuid dump policy",
+        "cmd": "sysctl fs.suid_dumpable"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable privileged-process core dumps",
+        "cmd": "echo 'fs.suid_dumpable = 0' | sudo tee /etc/sysctl.d/60-suid-dump.conf && sudo sysctl --system"
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/fs.html#suid-dumpable"
+    ]
+  },
+  "LIN-SYSCTL-PROTLINKS": {
+    "why": "Weak symbolic-link and hard-link protections make shared writable directories more susceptible to link-following attacks. A local attacker can redirect a privileged process toward sensitive files or retain access to files that should no longer be reachable.",
+    "test": [
+      {
+        "label": "Read protected-link settings",
+        "cmd": "sysctl fs.protected_symlinks fs.protected_hardlinks"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable protected links",
+        "cmd": "printf '%s\\n' 'fs.protected_symlinks = 1' 'fs.protected_hardlinks = 1' | sudo tee /etc/sysctl.d/60-protected-links.conf && sudo sysctl --system"
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/fs.html#protected-symlinks",
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/fs.html#protected-hardlinks"
+    ]
+  },
+  "LIN-SYSCTL-PERF": {
+    "why": "Permissive performance-event access can expose kernel and other-process execution data to unprivileged users. A local attacker can use performance counters for side-channel analysis, reconnaissance, or exploitation of the perf subsystem.",
+    "test": [
+      {
+        "label": "Read the perf-event restriction",
+        "cmd": "sysctl kernel.perf_event_paranoid"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict performance-event access",
+        "cmd": "echo 'kernel.perf_event_paranoid = 2' | sudo tee /etc/sysctl.d/60-perf.conf && sudo sysctl --system"
+      }
+    ],
+    "refs": [
+      "https://docs.kernel.org/admin-guide/perf-security.html"
+    ]
+  },
+  "LIN-SYSCTL-IPFWD": {
+    "why": "IPv4 forwarding allows the host to route traffic between network interfaces. If an attacker compromises the host, that routing capability can support network pivoting or bypass intended segmentation.",
+    "test": [
+      {
+        "label": "Read the IPv4 forwarding setting",
+        "cmd": "sysctl net.ipv4.ip_forward"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable IPv4 forwarding",
+        "cmd": "echo 'net.ipv4.ip_forward = 0' | sudo tee /etc/sysctl.d/60-ip-forward.conf && sudo sysctl --system"
+      },
+      {
+        "label": "Retain only for approved routers",
+        "text": "If the host is intentionally a router, VPN gateway, or container node, document the exception and enforce forwarding paths with a restrictive firewall policy."
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/networking/ip-sysctl.html#ip-forward"
+    ]
+  },
+  "LIN-LSM-MAC": {
+    "why": "Without an enforcing mandatory-access-control system, a compromised service is constrained mainly by traditional Unix permissions and discretionary access controls. Attackers can more easily access files, capabilities, and processes available to the compromised account.",
+    "test": [
+      {
+        "label": "Check SELinux state",
+        "cmd": "getenforce 2>/dev/null || sestatus 2>/dev/null"
+      },
+      {
+        "label": "Check AppArmor state",
+        "cmd": "aa-status --enabled 2>/dev/null; aa-status 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable an enforcing MAC system",
+        "text": "Enable SELinux in enforcing mode through /etc/selinux/config, or enable AppArmor and load enforcing profiles appropriate to the distribution; test application policy before production rollout."
+      }
+    ],
+    "refs": [
+      "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/changing-selinux-states-and-modes_using-selinux",
+      "https://documentation.ubuntu.com/server/how-to/security/apparmor/"
+    ]
+  },
+  "LIN-FIREWALL": {
+    "why": "Without an active host firewall, every listening service is exposed to any network that can route to the host. Attackers can scan and directly target unnecessary or accidentally exposed services.",
+    "test": [
+      {
+        "label": "Check common firewall services",
+        "cmd": "systemctl is-active ufw firewalld nftables iptables 2>/dev/null"
+      },
+      {
+        "label": "Check UFW enablement",
+        "cmd": "grep -E '^ENABLED=' /etc/ufw/ufw.conf 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable the distribution firewall",
+        "text": "Configure an allowlist for required management and application traffic, then enable the distribution-supported firewall such as ufw, firewalld, or nftables. Confirm remote-management access before enforcing the policy."
+      }
+    ],
+    "refs": [
+      "https://firewalld.org/documentation/",
+      "https://documentation.ubuntu.com/server/how-to/security/firewalls/"
+    ]
+  },
+  "LIN-SSH-ROOTLOGIN": {
+    "why": "Direct SSH login as root gives attackers a known privileged username and removes the accountability provided by individual administrator accounts. If root credentials or a root key are compromised, the attacker immediately obtains unrestricted remote access.",
+    "test": [
+      {
+        "label": "Show the effective root-login policy",
+        "cmd": "sudo sshd -T | grep -i '^permitrootlogin '"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable direct root login",
+        "text": "Set PermitRootLogin no in /etc/ssh/sshd_config or a validated file under /etc/ssh/sshd_config.d, verify with sshd -t, and reload the SSH service after confirming sudo-capable administrative access."
+      }
+    ],
+    "refs": [
+      "https://man.openbsd.org/sshd_config#PermitRootLogin"
+    ]
+  },
+  "LIN-SSH-PASSAUTH": {
+    "why": "SSH password authentication permits online password guessing and exposes reused credentials to credential-stuffing attacks. Disabling it forces stronger key-based or centrally managed authentication when those alternatives are properly protected.",
+    "test": [
+      {
+        "label": "Show the effective password-authentication policy",
+        "cmd": "sudo sshd -T | grep -i '^passwordauthentication '"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable SSH password authentication",
+        "text": "Provision and test public-key or approved centralized authentication, set PasswordAuthentication no in /etc/ssh/sshd_config or a validated drop-in, run sshd -t, and reload the SSH service."
+      }
+    ],
+    "refs": [
+      "https://man.openbsd.org/sshd_config#PasswordAuthentication"
+    ]
+  },
+  "LIN-SSH-EMPTYPW": {
+    "why": "Permitting empty passwords can allow an account with a blank password to authenticate remotely without knowing a secret. Attackers can enumerate accounts and obtain shell access with trivial authentication.",
+    "test": [
+      {
+        "label": "Show the effective empty-password policy",
+        "cmd": "sudo sshd -T | grep -i '^permitemptypasswords '"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Reject empty passwords over SSH",
+        "text": "Set PermitEmptyPasswords no in /etc/ssh/sshd_config or a validated drop-in, run sshd -t, and reload the SSH service."
+      }
+    ],
+    "refs": [
+      "https://man.openbsd.org/sshd_config#PermitEmptyPasswords"
+    ]
+  },
+  "LIN-SSH-X11": {
+    "why": "SSH X11 forwarding extends trust from the server into a client's graphical session and creates additional proxying and authentication-cookie exposure. A compromised server account may use that channel to observe or interact with forwarded X applications.",
+    "test": [
+      {
+        "label": "Show the effective X11-forwarding policy",
+        "cmd": "sudo sshd -T | grep -i '^x11forwarding '"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable SSH X11 forwarding",
+        "text": "Set X11Forwarding no in /etc/ssh/sshd_config or a validated drop-in, run sshd -t, and reload the SSH service unless an approved application requires forwarding."
+      }
+    ],
+    "refs": [
+      "https://man.openbsd.org/sshd_config#X11Forwarding"
+    ]
+  },
+  "LIN-SSH-MAXAUTH": {
+    "why": "A high MaxAuthTries value gives an attacker more authentication attempts within each SSH connection. Reducing it limits online guessing and excessive key offers, although network-level rate limiting remains important.",
+    "test": [
+      {
+        "label": "Show the effective authentication-attempt limit",
+        "cmd": "sudo sshd -T | grep -i '^maxauthtries '"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Limit SSH authentication attempts",
+        "text": "Set MaxAuthTries 4 or lower in /etc/ssh/sshd_config or a validated drop-in, run sshd -t, and reload the SSH service."
+      }
+    ],
+    "refs": [
+      "https://man.openbsd.org/sshd_config#MaxAuthTries"
+    ]
+  },
+  "LIN-SSH-CIPHERS": {
+    "why": "Legacy SSH ciphers, MACs, and key-exchange algorithms can provide weaker confidentiality or integrity than modern alternatives. An attacker positioned on the network may exploit cryptographic weaknesses or force use of an unnecessarily weak configured algorithm.",
+    "test": [
+      {
+        "label": "Show effective SSH algorithms",
+        "cmd": "sudo sshd -T | grep -Ei '^(ciphers|macs|kexalgorithms) '"
+      },
+      {
+        "label": "Highlight configured weak algorithm names",
+        "cmd": "sudo sshd -T | grep -Ei '^(ciphers|macs|kexalgorithms) .*([^a-z]|^)(cbc|arcfour|3des|md5|diffie-hellman-group1-sha1|diffie-hellman-group-exchange-sha1)([^a-z]|$)'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove legacy SSH algorithms",
+        "text": "Remove CBC, arcfour, 3DES, MD5, SHA-1 key exchange, and group1 algorithms from Ciphers, MACs, and KexAlgorithms directives; prefer the current OpenSSH defaults, validate with sshd -t, and reload the service."
+      }
+    ],
+    "refs": [
+      "https://man.openbsd.org/sshd_config#Ciphers",
+      "https://man.openbsd.org/sshd_config#KexAlgorithms"
+    ]
+  },
+  "LIN-SSH-HOSTKEY-PERMS": {
+    "why": "An exposed SSH host private key lets an attacker impersonate the server and can undermine clients that trust that key. Write access can also allow key replacement and persistent interception after the host is restored.",
+    "test": [
+      {
+        "label": "Inspect host private-key ownership and modes",
+        "cmd": "stat -c '%A %a %U:%G %n' /etc/ssh/ssh_host_*_key 2>/dev/null"
+      },
+      {
+        "label": "Find group- or world-readable host private keys",
+        "cmd": "find /etc/ssh -maxdepth 1 -type f -name 'ssh_host_*_key' -perm /0044 -print 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict SSH host private keys",
+        "cmd": "sudo chown root:root /etc/ssh/ssh_host_*_key && sudo chmod 600 /etc/ssh/ssh_host_*_key"
+      }
+    ],
+    "refs": [
+      "https://man.openbsd.org/sshd#FILES"
+    ]
+  },
+  "LIN-ACCT-UID0": {
+    "why": "Every UID 0 account has the same unrestricted kernel identity as root regardless of its username. An attacker who compromises any additional UID 0 account gains full control while making attribution and account governance harder.",
+    "test": [
+      {
+        "label": "List all UID 0 accounts",
+        "cmd": "awk -F: '$3 == 0 {print $1 \":\" $3}' /etc/passwd"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove unauthorized UID 0 identities",
+        "text": "Change each non-root UID 0 account to a unique nonzero UID or remove it after reviewing file ownership and service dependencies; retain root as the only UID 0 account."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/passwd.5.html",
+      "https://man7.org/linux/man-pages/man8/usermod.8.html"
+    ]
+  },
+  "LIN-ACCT-EMPTYPW": {
+    "why": "An account with an empty password may be accessible without a secret through services or PAM configurations that permit blank passwords. Attackers can target such accounts for immediate local or remote access.",
+    "test": [
+      {
+        "label": "List accounts with empty password fields",
+        "cmd": "sudo awk -F: '$2 == \"\" {print $1}' /etc/shadow"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Lock each empty-password account",
+        "cmd": "sudo passwd -l <user>"
+      },
+      {
+        "label": "Assign credentials where login is required",
+        "text": "For each reported account, either set a strong managed password through the approved identity process or lock the account if interactive login is unnecessary."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/shadow.5.html",
+      "https://man7.org/linux/man-pages/man1/passwd.1.html"
+    ]
+  },
+  "LIN-ACCT-NOPASSWD": {
+    "why": "A sudo NOPASSWD rule allows the authorized command to run without a fresh authentication check. Malware or an attacker controlling that account can immediately exercise the delegated privilege, and broad command rules may lead directly to root access.",
+    "test": [
+      {
+        "label": "Find active NOPASSWD directives",
+        "cmd": "sudo grep -RHE '^[[:space:]]*[^#].*NOPASSWD[[:space:]]*:' /etc/sudoers /etc/sudoers.d 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove or narrowly scope passwordless sudo",
+        "text": "Use visudo to remove unnecessary NOPASSWD tags or restrict them to exact non-shell commands with fixed arguments; avoid ALL, interpreters, editors, and commands that can execute arbitrary code."
+      }
+    ],
+    "refs": [
+      "https://www.sudo.ws/docs/man/sudoers.man/"
+    ]
+  },
+  "LIN-ACCT-ADMINS": {
+    "why": "Membership in sudo, wheel, or admin groups identifies accounts that can obtain elevated privileges. An attacker who compromises one of these accounts can often take full control of the host, so the inventory should remain minimal and attributable.",
+    "test": [
+      {
+        "label": "List administrative groups and members",
+        "cmd": "getent group sudo wheel admin 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enforce least privilege",
+        "text": "Review every listed member against current authorization records and remove stale or unnecessary memberships with the distribution's supported account-management process."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/group.5.html",
+      "https://man7.org/linux/man-pages/man8/gpasswd.8.html"
+    ]
+  },
+  "LIN-ACCT-UMASK": {
+    "why": "A permissive default umask can cause newly created files and directories to be writable by other users. A local attacker may alter shared data, startup files, or scripts created with those unsafe defaults.",
+    "test": [
+      {
+        "label": "Read the login.defs UMASK",
+        "cmd": "awk '$1 == \"UMASK\" && $1 !~ /^#/ {print $0}' /etc/login.defs"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Set a restrictive default umask",
+        "text": "Set UMASK 027 in /etc/login.defs, or 077 where users must not share files, and align PAM and shell-profile umask settings so they do not override the policy."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/login.defs.5.html",
+      "https://man7.org/linux/man-pages/man2/umask.2.html"
+    ]
+  },
+  "LIN-ACCT-AGING": {
+    "why": "Passwords with no maximum age can remain valid indefinitely after silent disclosure or reuse. An attacker who obtains such a password retains a longer opportunity to authenticate unless another control detects and revokes it.",
+    "test": [
+      {
+        "label": "Read the default maximum password age",
+        "cmd": "awk '$1 == \"PASS_MAX_DAYS\" && $1 !~ /^#/ {print $0}' /etc/login.defs"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Set the default maximum age",
+        "text": "Set PASS_MAX_DAYS to 365 or less in /etc/login.defs and update existing interactive accounts with chage according to the organization's password policy; favor stronger authentication and compromised-password controls where available."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/login.defs.5.html",
+      "https://man7.org/linux/man-pages/man1/chage.1.html"
+    ]
+  },
+  "LIN-FILE-SHADOW": {
+    "why": "World-readable shadow files expose password hashes that attackers can crack offline without triggering authentication controls. World-writable shadow or gshadow files can permit account manipulation and direct privilege escalation.",
+    "test": [
+      {
+        "label": "Inspect shadow-file permissions",
+        "cmd": "stat -c '%A %a %U:%G %n' /etc/shadow /etc/gshadow 2>/dev/null"
+      },
+      {
+        "label": "Find world-readable or world-writable shadow files",
+        "cmd": "find /etc -maxdepth 1 -type f \\( -name shadow -o -name gshadow \\) -perm /0006 -print"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restore restricted shadow-file modes",
+        "text": "Restore the distribution's expected root ownership and shadow-group settings, ensuring neither /etc/shadow nor /etc/gshadow has any permissions for other users; commonly these files use mode 640 or 600."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/shadow.5.html",
+      "https://man7.org/linux/man-pages/man5/gshadow.5.html"
+    ]
+  },
+  "LIN-FILE-PASSWD": {
+    "why": "If /etc/passwd or /etc/group is writable by non-privileged groups or other users, an attacker can manipulate account or group definitions. Such changes can create unauthorized identities, alter privilege relationships, or disrupt authentication.",
+    "test": [
+      {
+        "label": "Inspect account-database permissions",
+        "cmd": "stat -c '%A %a %U:%G %n' /etc/passwd /etc/group"
+      },
+      {
+        "label": "Find group- or world-writable account files",
+        "cmd": "find /etc -maxdepth 1 -type f \\( -name passwd -o -name group \\) -perm /0022 -print"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restore account-file ownership and modes",
+        "cmd": "sudo chown root:root /etc/passwd /etc/group && sudo chmod 644 /etc/passwd /etc/group"
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/passwd.5.html",
+      "https://man7.org/linux/man-pages/man5/group.5.html"
+    ]
+  },
+  "LIN-MNT-TMP": {
+    "why": "A shared /tmp without a separate mount and nosuid,nodev controls gives temporary files access to the root filesystem's mount behavior. Attackers can abuse device nodes or set-user-ID files where those features are honored, while a separate mount also improves containment of space exhaustion.",
+    "test": [
+      {
+        "label": "Show the /tmp mount source and options",
+        "cmd": "findmnt -no TARGET,SOURCE,FSTYPE,OPTIONS /tmp"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Harden the /tmp mount",
+        "text": "Create a dedicated /tmp mount or systemd mount unit with nosuid,nodev options, preserve mode 1777 on the directory, and validate application compatibility before adding the persistent configuration to /etc/fstab."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man8/mount.8.html",
+      "https://www.freedesktop.org/software/systemd/man/latest/systemd.mount.html"
+    ]
+  },
+  "LIN-MNT-SHM": {
+    "why": "Allowing executable or set-user-ID content on /dev/shm gives attackers a convenient memory-backed location for payload staging. The noexec and nosuid options reduce common execution and privilege-abuse paths without preventing normal shared-memory use.",
+    "test": [
+      {
+        "label": "Show /dev/shm mount options",
+        "cmd": "findmnt -no TARGET,SOURCE,FSTYPE,OPTIONS /dev/shm"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Harden the shared-memory mount",
+        "text": "Configure /dev/shm as tmpfs with noexec,nosuid options in /etc/fstab or the applicable systemd mount unit, then remount it during a controlled change after checking application requirements."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man8/mount.8.html",
+      "https://man7.org/linux/man-pages/man5/tmpfs.5.html"
+    ]
+  },
+  "LIN-PATH-WW": {
+    "why": "A non-sticky world-writable directory in PATH lets any local user replace or plant commands that another user may execute by name. Attackers can exploit command search order to run malicious code under an administrator or service account.",
+    "test": [
+      {
+        "label": "Inspect current PATH directory permissions",
+        "cmd": "printf '%s' \"$PATH\" | tr ':' '\\n' | while IFS= read -r d; do [ -n \"$d\" ] || d=.; stat -Lc '%A %a %U:%G %n' -- \"$d\" 2>/dev/null; done"
+      },
+      {
+        "label": "Inspect the system environment PATH",
+        "cmd": "grep -E '^[[:space:]]*PATH=' /etc/environment 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove unsafe PATH directories",
+        "text": "Remove world-writable directories from system and service PATH definitions, or change their ownership and permissions so untrusted users cannot write to them; do not rely on the sticky bit as a substitute for trusted command directories."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man7/environ.7.html",
+      "https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap08.html"
+    ]
+  },
+  "LIN-CRON-PERMS": {
+    "why": "A world-writable system cron file or cron directory entry lets an unprivileged attacker alter commands that a privileged scheduler executes. This can provide reliable persistence and privilege escalation, commonly to root.",
+    "test": [
+      {
+        "label": "Find world-writable cron configuration",
+        "cmd": "find /etc/crontab /etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly -xdev -perm /0002 -print 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove world-write permission",
+        "text": "Set root ownership and remove other-user write permission from every reported cron file or directory, using the distribution's package metadata or a known-good peer to confirm the intended mode."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/crontab.5.html"
+    ]
+  },
+  "LIN-LOG-AUDITD": {
+    "why": "Without an active audit daemon, security-sensitive system calls and policy events may not be captured in a durable audit trail. Attackers can operate with less chance that privilege use, account changes, or tampering will be reconstructed.",
+    "test": [
+      {
+        "label": "Check auditd service state",
+        "cmd": "systemctl is-active auditd"
+      },
+      {
+        "label": "Show loaded audit status and rules",
+        "cmd": "sudo auditctl -s; sudo auditctl -l"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable audit logging",
+        "text": "Install and enable auditd, configure rules under /etc/audit/rules.d for the host's security requirements, and protect or forward audit logs to limit attacker tampering."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man8/auditd.8.html",
+      "https://man7.org/linux/man-pages/man8/auditctl.8.html"
+    ]
+  },
+  "LIN-LOG-SYSLOG": {
+    "why": "A volatile-only journal loses evidence at reboot and may erase the record of an intrusion or crash. Persistent local logging or forwarding through a syslog daemon improves incident reconstruction, although remote protected storage provides stronger resilience.",
+    "test": [
+      {
+        "label": "Check syslog services",
+        "cmd": "systemctl is-active rsyslog syslog-ng 2>/dev/null"
+      },
+      {
+        "label": "Check journal persistence configuration",
+        "cmd": "grep -RHE '^[[:space:]]*Storage[[:space:]]*=' /etc/systemd/journald.conf /etc/systemd/journald.conf.d 2>/dev/null; test -d /var/log/journal && echo '/var/log/journal exists'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable persistent journaling",
+        "text": "Set Storage=persistent in /etc/systemd/journald.conf or an approved drop-in and ensure /var/log/journal exists with systemd-managed permissions, or enable a supported rsyslog or syslog-ng service."
+      }
+    ],
+    "refs": [
+      "https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html",
+      "https://www.rsyslog.com/doc/configuration/index.html"
+    ]
+  },
+  "LIN-TIME-SYNC": {
+    "why": "Unsynchronized time breaks reliable event ordering, certificate validation, and time-sensitive authentication such as Kerberos. Attackers benefit when defenders cannot accurately correlate activity across hosts or when authentication failures create operational confusion.",
+    "test": [
+      {
+        "label": "Check common time-synchronization services",
+        "cmd": "systemctl is-active chronyd systemd-timesyncd ntp ntpd 2>/dev/null"
+      },
+      {
+        "label": "Show system time synchronization state",
+        "cmd": "timedatectl show -p NTPSynchronized -p NTP -p TimeUSec"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable an approved time service",
+        "text": "Configure and enable chronyd, systemd-timesyncd, or ntpd with approved redundant time sources, then confirm the clock reports synchronized."
+      }
+    ],
+    "refs": [
+      "https://www.freedesktop.org/software/systemd/man/latest/systemd-timesyncd.service.html",
+      "https://chrony-project.org/doc/4.8/chronyd.html"
+    ]
+  },
+  "LIN-BOOT-SECUREBOOT": {
+    "why": "UEFI Secure Boot helps prevent untrusted bootloaders and kernels from running before operating-system defenses are active. If it is disabled on a UEFI system, an attacker with administrative or physical write access can establish pre-OS persistence that is difficult to detect.",
+    "test": [
+      {
+        "label": "Determine firmware boot mode",
+        "cmd": "if [ -d /sys/firmware/efi ]; then echo UEFI; else echo legacy-BIOS; fi"
+      },
+      {
+        "label": "Read Secure Boot state",
+        "cmd": "mokutil --sb-state"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable UEFI Secure Boot",
+        "text": "Verify that the bootloader, kernel, and required drivers are signed and compatible, then enable Secure Boot in the system firmware and protect firmware configuration from unauthorized changes."
+      }
+    ],
+    "refs": [
+      "https://uefi.org/specs/UEFI/2.10/32_Secure_Boot_and_Driver_Signing.html",
+      "https://docs.kernel.org/admin-guide/uefi/uefi.html"
+    ]
+  },
+  "LIN-SVC-FAILED": {
+    "why": "Failed systemd units can indicate disabled security controls, broken monitoring, incomplete patching, or an unstable service dependency. Attackers may benefit when a firewall, audit agent, authentication service, or other protective component has silently failed.",
+    "test": [
+      {
+        "label": "List failed systemd units",
+        "cmd": "systemctl --failed --no-pager"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Investigate each failed unit",
+        "text": "Review systemctl status and journalctl -u output for every failed unit, repair its configuration or dependency, and only disable the unit if its removal is intentional and documented."
+      }
+    ],
+    "refs": [
+      "https://www.freedesktop.org/software/systemd/man/latest/systemctl.html",
+      "https://www.freedesktop.org/software/systemd/man/latest/journalctl.html"
+    ]
+  },
+  "LIN-CTR-DOCKERSOCK": {
+    "why": "Write access to the Docker daemon socket is effectively root-equivalent because the daemon can create privileged containers and mount the host filesystem. An attacker who can write to the socket can escape normal account restrictions and take over the host.",
+    "test": [
+      {
+        "label": "Inspect Docker socket ownership and mode",
+        "cmd": "stat -Lc '%A %a %U:%G %n' /var/run/docker.sock"
+      },
+      {
+        "label": "Test current-user write access",
+        "cmd": "if [ -S /var/run/docker.sock ]; then if [ \"$(id -u)\" -ne 0 ] && [ -w /var/run/docker.sock ]; then echo 'writable by current non-root user'; else echo 'not writable by current non-root user'; fi; else echo 'socket absent'; fi"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict Docker daemon access",
+        "text": "Remove unauthorized users from the docker group, ensure the socket is not world-writable, and grant daemon access only to accounts treated as root-equivalent; consider rootless Docker where operationally suitable."
+      }
+    ],
+    "refs": [
+      "https://docs.docker.com/engine/security/#docker-daemon-attack-surface",
+      "https://docs.docker.com/engine/security/rootless/"
+    ]
+  },
+  "LIN-AD-JOINED": {
+    "why": "Directory-membership inventory identifies whether authentication and authorization depend on an external realm, SSSD, or winbind. Attackers who compromise domain credentials or trust configuration may gain access across multiple joined hosts, while unexpected membership can reveal unauthorized enrollment.",
+    "test": [
+      {
+        "label": "Show realmd membership",
+        "cmd": "realm list"
+      },
+      {
+        "label": "Show configured SSSD or winbind domains",
+        "cmd": "sssctl domain-list 2>/dev/null; wbinfo --own-domain 2>/dev/null"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Validate directory membership",
+        "text": "Confirm every reported realm against the approved asset and identity design; remove obsolete membership through the platform's supported realm-leave process only after arranging replacement authentication and recovery access."
+      }
+    ],
+    "refs": [
+      "https://www.freedesktop.org/software/realmd/docs/realm.html",
+      "https://sssd.io/docs/introduction.html"
+    ]
+  },
+  "LIN-AD-KEYTAB": {
+    "why": "A Kerberos host keytab contains long-term keys used to authenticate the machine or its services. A non-root attacker who can read it may impersonate principals, request tickets, or move laterally within the trusted realm.",
+    "test": [
+      {
+        "label": "Inspect keytab ownership and permissions",
+        "cmd": "stat -Lc '%A %a %U:%G %n' /etc/krb5.keytab"
+      },
+      {
+        "label": "Test non-root readability without displaying keys",
+        "cmd": "if [ ! -e /etc/krb5.keytab ]; then echo 'keytab absent'; elif [ \"$(id -u)\" -eq 0 ]; then echo 'run this readability test as a non-root user'; elif [ -r /etc/krb5.keytab ]; then echo 'readable by current non-root user'; else echo 'not readable by current non-root user'; fi"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict the host keytab",
+        "cmd": "sudo chown root:root /etc/krb5.keytab && sudo chmod 600 /etc/krb5.keytab"
+      },
+      {
+        "label": "Rotate exposed keys",
+        "text": "If unauthorized users could read the keytab, restrict it immediately and rotate the affected Kerberos keys through the domain's supported enrollment process."
+      }
+    ],
+    "refs": [
+      "https://web.mit.edu/kerberos/krb5-latest/doc/basic/keytab_def.html",
+      "https://web.mit.edu/kerberos/krb5-latest/doc/admin/admin_commands/ktutil.html"
+    ]
+  }
+}

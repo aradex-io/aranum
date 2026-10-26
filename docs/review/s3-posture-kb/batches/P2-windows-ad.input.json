@@ -1,0 +1,450 @@
+{
+ "WIN-OS-BUILD": {
+  "os": "windows",
+  "scope": "host",
+  "title": "OS edition and build",
+  "group": "patching",
+  "category": "winlocal",
+  "semantics": "INFO: caption, build.UBR, product type (workstation/server/DC)."
+ },
+ "WIN-PATCH-AGE": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Last update age",
+  "group": "patching",
+  "category": "winlocal",
+  "semantics": "FAIL: newest installed hotfix >90 days old; WARN: 45-90 days; PASS: <45; ERR: no hotfix dates readable."
+ },
+ "WIN-FW-DOMAIN": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Firewall - Domain profile",
+  "group": "network",
+  "category": "winlocal",
+  "semantics": "PASS: profile enabled (policy or local); WARN: disabled."
+ },
+ "WIN-FW-PRIVATE": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Firewall - Private profile",
+  "group": "network",
+  "category": "winlocal",
+  "semantics": "PASS: profile enabled; WARN: disabled."
+ },
+ "WIN-FW-PUBLIC": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Firewall - Public profile",
+  "group": "network",
+  "category": "winlocal",
+  "semantics": "PASS: profile enabled; FAIL: disabled."
+ },
+ "WIN-DEF-RTP": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Defender real-time protection",
+  "group": "endpoint-protection",
+  "category": "winlocal",
+  "semantics": "PASS: real-time protection on; FAIL: off; NA: Defender not present (third-party AV)."
+ },
+ "WIN-DEF-TAMPER": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Defender tamper protection",
+  "group": "endpoint-protection",
+  "category": "winlocal",
+  "semantics": "PASS: tamper protection on; WARN: off; NA: Defender not present."
+ },
+ "WIN-DEF-SIGAGE": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Defender signature age",
+  "group": "endpoint-protection",
+  "category": "winlocal",
+  "semantics": "WARN: AV signatures >7 days old; PASS: <=7; NA: Defender not present."
+ },
+ "WIN-BITLOCKER": {
+  "os": "windows",
+  "scope": "host",
+  "title": "BitLocker on system drive",
+  "group": "boot",
+  "category": "winlocal",
+  "semantics": "PASS: system drive protection on; WARN: off; ERR: not readable without elevation."
+ },
+ "WIN-SECUREBOOT": {
+  "os": "windows",
+  "scope": "host",
+  "title": "UEFI Secure Boot",
+  "group": "boot",
+  "category": "winlocal",
+  "semantics": "PASS: UEFISecureBootEnabled=1; WARN: 0; INFO: legacy BIOS / state key absent."
+ },
+ "WIN-SMB-V1": {
+  "os": "windows",
+  "scope": "host",
+  "title": "SMBv1 server",
+  "group": "network",
+  "category": "winlocal",
+  "semantics": "FAIL: SMB1 server enabled (LanmanServer SMB1=1 or mrxsmb10 driver enabled); PASS: disabled/absent."
+ },
+ "WIN-SMB-SRVSIGN": {
+  "os": "windows",
+  "scope": "host",
+  "title": "SMB server signing required",
+  "group": "relay",
+  "category": "ad",
+  "semantics": "FAIL: LanmanServer RequireSecuritySignature!=1 (relay target); PASS: 1."
+ },
+ "WIN-SMB-CLISIGN": {
+  "os": "windows",
+  "scope": "host",
+  "title": "SMB client signing required",
+  "group": "relay",
+  "category": "ad",
+  "semantics": "WARN: LanmanWorkstation RequireSecuritySignature!=1; PASS: 1."
+ },
+ "WIN-NR-LLMNR": {
+  "os": "windows",
+  "scope": "host",
+  "title": "LLMNR",
+  "group": "relay",
+  "category": "ad",
+  "semantics": "FAIL: LLMNR not disabled by policy (DNSClient EnableMulticast!=0); PASS: 0."
+ },
+ "WIN-NR-NBTNS": {
+  "os": "windows",
+  "scope": "host",
+  "title": "NetBIOS over TCP/IP",
+  "group": "relay",
+  "category": "ad",
+  "semantics": "WARN: >=1 IP-enabled adapter with NetBIOS not disabled (NetbiosOptions!=2); PASS: all disabled."
+ },
+ "WIN-NR-WPAD": {
+  "os": "windows",
+  "scope": "host",
+  "title": "WPAD auto-proxy discovery",
+  "group": "relay",
+  "category": "ad",
+  "semantics": "WARN: WinHttpAutoProxySvc enabled and WPAD not disabled; PASS: service disabled or DisableWpad=1."
+ },
+ "WIN-LDAP-CLISIGN": {
+  "os": "windows",
+  "scope": "host",
+  "title": "LDAP client signing",
+  "group": "relay",
+  "category": "ad",
+  "semantics": "PASS: LDAPClientIntegrity=2 (require); WARN: 0 (none) or 1 (negotiate, default)."
+ },
+ "WIN-ANON-RESTRICT": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Anonymous enumeration restrictions",
+  "group": "accounts",
+  "category": "winlocal",
+  "semantics": "WARN: RestrictAnonymousSAM=0 or RestrictAnonymous=0 with EveryoneIncludesAnonymous=1; PASS: restricted."
+ },
+ "WIN-PS-V2": {
+  "os": "windows",
+  "scope": "host",
+  "title": "PowerShell v2 engine",
+  "group": "logging",
+  "category": "winlocal",
+  "semantics": "WARN: PowerShell 2.0 engine installed (downgrade bypasses logging); PASS: absent."
+ },
+ "WIN-PS-SBLOG": {
+  "os": "windows",
+  "scope": "host",
+  "title": "PowerShell script-block logging",
+  "group": "logging",
+  "category": "winlocal",
+  "semantics": "PASS: EnableScriptBlockLogging=1 by policy; WARN: not enabled."
+ },
+ "WIN-PS-TRANSCRIPT": {
+  "os": "windows",
+  "scope": "host",
+  "title": "PowerShell transcription",
+  "group": "logging",
+  "category": "winlocal",
+  "semantics": "PASS: EnableTranscripting=1 by policy; WARN: not enabled."
+ },
+ "WIN-PS-LANGMODE": {
+  "os": "windows",
+  "scope": "host",
+  "title": "PowerShell language mode",
+  "group": "access-control",
+  "category": "winlocal",
+  "semantics": "INFO: current session language mode (FullLanguage / ConstrainedLanguage)."
+ },
+ "WIN-RDP-ENABLED": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Remote Desktop",
+  "group": "remote-access",
+  "category": "winlocal",
+  "semantics": "INFO: RDP enabled (fDenyTSConnections=0) or disabled."
+ },
+ "WIN-RDP-NLA": {
+  "os": "windows",
+  "scope": "host",
+  "title": "RDP Network Level Authentication",
+  "group": "remote-access",
+  "category": "winlocal",
+  "semantics": "FAIL: RDP enabled and UserAuthentication!=1; PASS: NLA required; NA: RDP disabled."
+ },
+ "WIN-CRED-RUNASPPL": {
+  "os": "windows",
+  "scope": "host",
+  "title": "LSA protection (RunAsPPL)",
+  "group": "credential-protection",
+  "category": "winlocal",
+  "semantics": "PASS: Lsa RunAsPPL 1 or 2; WARN: not set."
+ },
+ "WIN-CRED-CREDGUARD": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Credential Guard",
+  "group": "credential-protection",
+  "category": "winlocal",
+  "semantics": "PASS: Credential Guard running; WARN: not running; ERR: DeviceGuard WMI unavailable."
+ },
+ "WIN-CRED-WDIGEST": {
+  "os": "windows",
+  "scope": "host",
+  "title": "WDigest cleartext credentials",
+  "group": "credential-protection",
+  "category": "winlocal",
+  "semantics": "FAIL: WDigest UseLogonCredential=1 (cleartext passwords in LSASS); PASS: 0/absent on 8.1+."
+ },
+ "WIN-CRED-LMCOMPAT": {
+  "os": "windows",
+  "scope": "host",
+  "title": "LAN Manager authentication level",
+  "group": "credential-protection",
+  "category": "winlocal",
+  "semantics": "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5."
+ },
+ "WIN-CRED-NOLMHASH": {
+  "os": "windows",
+  "scope": "host",
+  "title": "LM hash storage",
+  "group": "credential-protection",
+  "category": "winlocal",
+  "semantics": "FAIL: NoLMHash=0; PASS: 1/default."
+ },
+ "WIN-CRED-CACHEDLOGONS": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Cached domain logons",
+  "group": "credential-protection",
+  "category": "winlocal",
+  "semantics": "WARN: CachedLogonsCount >4 (default 10); PASS: <=4; NA: not domain-joined."
+ },
+ "WIN-UAC-LUA": {
+  "os": "windows",
+  "scope": "host",
+  "title": "UAC enabled",
+  "group": "access-control",
+  "category": "winlocal",
+  "semantics": "FAIL: EnableLUA=0; PASS: 1."
+ },
+ "WIN-UAC-CONSENT": {
+  "os": "windows",
+  "scope": "host",
+  "title": "UAC admin consent prompt",
+  "group": "access-control",
+  "category": "winlocal",
+  "semantics": "WARN: ConsentPromptBehaviorAdmin=0 (elevate without prompting); PASS: otherwise."
+ },
+ "WIN-UAC-LATFP": {
+  "os": "windows",
+  "scope": "host",
+  "title": "LocalAccountTokenFilterPolicy",
+  "group": "access-control",
+  "category": "winlocal",
+  "semantics": "WARN: LocalAccountTokenFilterPolicy=1 (full admin token for remote local-account logons; pass-the-hash); PASS: 0/absent."
+ },
+ "WIN-AIE": {
+  "os": "windows",
+  "scope": "host",
+  "title": "AlwaysInstallElevated",
+  "group": "access-control",
+  "category": "winlocal",
+  "semantics": "FAIL: AlwaysInstallElevated=1 in both HKLM and HKCU; PASS: otherwise."
+ },
+ "WIN-ACCT-ADMINS": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Local Administrators members",
+  "group": "accounts",
+  "category": "winlocal",
+  "semantics": "INFO: member count and names of the local Administrators group."
+ },
+ "WIN-ACCT-GUEST": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Guest account",
+  "group": "accounts",
+  "category": "winlocal",
+  "semantics": "FAIL: built-in Guest enabled; PASS: disabled."
+ },
+ "WIN-AUTOLOGON": {
+  "os": "windows",
+  "scope": "host",
+  "title": "AutoLogon stored password",
+  "group": "credential-protection",
+  "category": "creds",
+  "semantics": "FAIL: Winlogon DefaultPassword present; WARN: AutoAdminLogon=1 without stored password; PASS: neither. Never prints the value."
+ },
+ "WIN-LAPS": {
+  "os": "windows",
+  "scope": "host",
+  "title": "LAPS client policy",
+  "group": "accounts",
+  "category": "winlocal",
+  "semantics": "PASS: Windows LAPS or legacy AdmPwd policy enabled; WARN: no LAPS policy; NA: not domain-joined."
+ },
+ "WIN-SVC-SPOOLER": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Print Spooler",
+  "group": "services",
+  "category": "winlocal",
+  "semantics": "WARN: Spooler running on a domain controller (coercion/PrintNightmare surface); INFO: running on a non-DC; PASS: stopped/disabled."
+ },
+ "WIN-WINRM-HTTP": {
+  "os": "windows",
+  "scope": "host",
+  "title": "WinRM transport",
+  "group": "remote-access",
+  "category": "winlocal",
+  "semantics": "FAIL: WinRM AllowUnencrypted=1; WARN: HTTP listener with no HTTPS listener; PASS: HTTPS or HTTP with encryption enforced; NA: WinRM not running."
+ },
+ "WIN-DOMAIN-JOINED": {
+  "os": "windows",
+  "scope": "host",
+  "title": "Domain membership",
+  "group": "domain",
+  "category": "ad",
+  "semantics": "INFO: domain name and role (workgroup / member / DC)."
+ },
+ "AD-PWPOL-MINLEN": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Domain minimum password length",
+  "group": "domain-policy",
+  "category": "ad",
+  "semantics": "FAIL: minPwdLength<8; WARN: 8-13; PASS: >=14."
+ },
+ "AD-PWPOL-LOCKOUT": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Domain account lockout threshold",
+  "group": "domain-policy",
+  "category": "ad",
+  "semantics": "FAIL: lockoutThreshold=0 (unlimited guessing); WARN: >10; PASS: 1-10."
+ },
+ "AD-PWPOL-MAXAGE": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Domain maximum password age",
+  "group": "domain-policy",
+  "category": "ad",
+  "semantics": "INFO: maxPwdAge in days (0 = never expires)."
+ },
+ "AD-KRBTGT-AGE": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "krbtgt password age",
+  "group": "domain-privilege",
+  "category": "ad",
+  "semantics": "FAIL: krbtgt pwdLastSet >365 days; WARN: 180-365; PASS: <180."
+ },
+ "AD-KERBEROASTABLE": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Kerberoastable user accounts",
+  "group": "domain-privilege",
+  "category": "ad",
+  "semantics": "FAIL: >=1 enabled user (not computer) with an SPN; PASS: 0."
+ },
+ "AD-ASREP": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "AS-REP roastable accounts",
+  "group": "domain-privilege",
+  "category": "ad",
+  "semantics": "FAIL: >=1 enabled account with DONT_REQ_PREAUTH; PASS: 0."
+ },
+ "AD-UNCONSTRAINED": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Unconstrained delegation (non-DC)",
+  "group": "domain-privilege",
+  "category": "ad",
+  "semantics": "FAIL: >=1 enabled non-DC computer or user with TRUSTED_FOR_DELEGATION; PASS: 0."
+ },
+ "AD-ADMINCOUNT": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "adminCount=1 users",
+  "group": "domain-privilege",
+  "category": "ad",
+  "semantics": "INFO: count of users with adminCount=1."
+ },
+ "AD-DA-MEMBERS": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Domain Admins membership",
+  "group": "domain-privilege",
+  "category": "ad",
+  "semantics": "WARN: >5 distinct (recursive) members; INFO: count otherwise."
+ },
+ "AD-PROTECTED-USERS": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Protected Users group",
+  "group": "domain-privilege",
+  "category": "ad",
+  "semantics": "WARN: Protected Users has no members; PASS: >=1."
+ },
+ "AD-MAQ": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Machine account quota",
+  "group": "domain-policy",
+  "category": "ad",
+  "semantics": "WARN: ms-DS-MachineAccountQuota>0 (any user can join computers; RBCD/Certifried aid); PASS: 0."
+ },
+ "AD-FUNC-LEVEL": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Domain/forest functional level",
+  "group": "domain-policy",
+  "category": "ad",
+  "semantics": "WARN: domain functional level below 2016 (msDS-Behavior-Version<7); PASS: >=7."
+ },
+ "AD-LDAP-SIGNING": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "DC LDAP signing / channel binding",
+  "group": "relay",
+  "category": "ad",
+  "semantics": "FAIL: DC LDAPServerIntegrity<2 where remotely readable; PASS: 2; NA: not remotely readable (never a false PASS)."
+ },
+ "AD-TRUSTS": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "Domain trusts",
+  "group": "domain-policy",
+  "category": "ad",
+  "semantics": "INFO: count and direction of trustedDomain objects."
+ },
+ "AD-LAPS-SCHEMA": {
+  "os": "windows",
+  "scope": "domain",
+  "title": "LAPS schema present",
+  "group": "domain-policy",
+  "category": "ad",
+  "semantics": "PASS: ms-Mcs-AdmPwd or msLAPS-Password attribute in schema; WARN: neither."
+ }
+}
