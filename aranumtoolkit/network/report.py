@@ -1142,6 +1142,166 @@ def _refresh_finding_identity(finding: dict) -> None:
     finding["finding_id"] = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(seed.encode()).hexdigest()[:14]}"
 
 
+# ---------------------------------------------------- echo dedup (D1.4, G06)
+_ECHO_JACCARD_MIN = 0.5
+_PROSE_STOPWORDS = frozenset(
+    {"at", "on", "the", "is", "to", "of", "a", "an", "via", "for", "and", "with"})
+# A file whose name starts with "_" directly under a service dir is a dispatcher
+# summary (``<svc>/_dispatcher.log``, ``_findings.txt``, ``_hints.txt``). A
+# per-host finding lives one level deeper (``<svc>/<host>/<file>``).
+
+
+def _is_dispatcher_echo(finding: dict) -> bool:
+    parts = Path(str(finding.get("evidence_path", ""))).parts
+    return len(parts) == 2 and parts[-1].startswith("_")
+
+
+def _protected_tokens(line: str, host: str = "", port: str = "") -> frozenset:
+    """Load-bearing tokens whose difference means a DIFFERENT fact: addresses,
+    ports, filesystem/UNC paths, admin/hidden shares, credential pairs, and
+    secret/hash blobs. Equality of this set is a hard gate for echo dedup, so
+    two distinct dispatcher facts about one host never merge.
+
+    The attributed endpoint (host, port) is folded in as a canonical token and
+    the line's own copy of that address/port is removed first, so a terse
+    per-host echo ("Jenkins API exposed") and its verbose dispatcher twin
+    ("UNAUTH: Jenkins API exposed: http://10.0.0.20:8080") — same endpoint —
+    carry the same protected set, while a different port or path still differs.
+    """
+    s = _clean_line(line)
+    toks: set = set()
+    toks.update(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", s))
+    toks.update(m.group(0) for m in re.finditer(
+        r"(?<![:.\w])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![:.\w])", s))
+    toks.update("port:" + p for p in re.findall(r":(\d{1,5})(?!\d)", s))
+    toks.update("port:" + p for p in re.findall(r"\bport\s+(\d{1,5})\b", s, re.I))
+    # Paths with at least one alphabetic segment (so a URL authority like
+    # //10.0.0.20:8080 is not mistaken for a path).
+    toks.update(re.findall(r"(?:[A-Za-z]:\\|\\\\|/)(?=[^\s]*[A-Za-z])[\w$.\\/-]+", s))
+    toks.update(t.rstrip(",.;") for t in re.findall(r"\b\w+\$", s))          # IPC$, C$
+    toks.update(m.group(1).lower() for m in re.finditer(                      # user:pass
+        r"\b([A-Za-z][\w.-]*:[\w.$!@#%^&*+-]+)\b(?=\s+(?:auth|works|succeed|valid|login|logon|cred))",
+        s, re.I))
+    toks.update(re.findall(r"\b[0-9A-Fa-f]{12,}\b", s))                       # hex blobs
+    toks.update(re.findall(r"\b[A-Za-z0-9+/]{20,}={0,2}\b", s))               # base64 blobs
+    toks.update(t.upper() for t in re.findall(r"\bCVE-\d{4}-\d+\b", s, re.I))
+    norm = {t.lower() for t in toks}
+    # Fold the attributed endpoint in and drop the line's own copy of it, so an
+    # address-asymmetric echo pair on the same endpoint matches.
+    if host:
+        norm.discard(host.lower())
+        norm.add("host:" + host.lower())
+    if port:
+        norm.discard("port:" + str(port))
+        norm.add("port:" + str(port))
+    return frozenset(norm)
+
+
+def _prose_tokens(line: str) -> frozenset:
+    """Alphabetic words only, markers/addresses/stopwords stripped — the prose
+    of a finding, used by Jaccard to confirm (never to decide) an echo match."""
+    s = _clean_line(line).lower()
+    return frozenset(w for w in re.findall(r"[a-z]{2,}", s) if w not in _PROSE_STOPWORDS)
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _merge_echo_pair(a: dict, b: dict) -> dict:
+    """Return one finding from an echo pair: the higher-severity grading wins
+    (per-host breaks a tie), the per-host evidence file stays the primary link,
+    and both findings' evidence paths are unioned."""
+    a_rank = (_SEV_ORDER.get(a["severity"], 9), 0 if not _is_dispatcher_echo(a) else 1)
+    b_rank = (_SEV_ORDER.get(b["severity"], 9), 0 if not _is_dispatcher_echo(b) else 1)
+    winner, loser = (a, b) if a_rank <= b_rank else (b, a)
+    survivor = dict(winner)
+    paths: list = []
+    for src in (winner, loser):
+        for p in src.get("evidence_paths") or ([src.get("evidence_path")] if src.get("evidence_path") else []):
+            if p and p not in paths:
+                paths.append(p)
+    survivor["evidence_paths"] = paths
+    # Prefer a per-host file as the clickable primary over a dispatcher summary.
+    if _is_dispatcher_echo(survivor):
+        per_host = next((p for p in paths if not Path(p).parts[-1].startswith("_")), "")
+        if per_host:
+            survivor["evidence_path"] = per_host
+    _refresh_finding_identity(survivor)
+    return survivor
+
+
+def _dedup_echoes(findings: list[dict]) -> list[dict]:
+    """Collapse a dispatcher summary line into the per-host finding it echoes —
+    across that boundary ONLY. Hard gates: same host+service, compatible
+    port/protocol, and EQUAL protected-token sets. Among the survivors, prose
+    Jaccard >= _ECHO_JACCARD_MIN confirms the match and one-to-one greedy
+    assignment (best prose first) prevents any fan-in/fan-out collapse. Two
+    per-host lines are never merged, so SUID / share enumerations are safe."""
+    groups: dict = defaultdict(lambda: {"echo": [], "host": []})
+    passthrough: list = []
+    for f in findings:
+        host = str(f.get("host", ""))
+        if host == "(dispatcher)" or not f.get("service"):
+            passthrough.append(f)
+            continue
+        groups[(host, str(f.get("service", "")))]["echo" if _is_dispatcher_echo(f) else "host"].append(f)
+
+    result: list = []
+    for (_h, _svc), bucket in groups.items():
+        echoes, hosts = bucket["echo"], bucket["host"]
+        if not echoes or not hosts:
+            result.extend(echoes)
+            result.extend(hosts)
+            continue
+        host_tok = {id(hf): _protected_tokens(hf.get("line", ""), hf.get("host", ""), hf.get("port", ""))
+                    for hf in hosts}
+        host_prose = {id(hf): _prose_tokens(hf.get("line", "")) for hf in hosts}
+        pairs: list = []
+        for ef in echoes:
+            et = _protected_tokens(ef.get("line", ""), ef.get("host", ""), ef.get("port", ""))
+            ep = _prose_tokens(ef.get("line", ""))
+            for hf in hosts:
+                if not _ports_compatible(ef, hf) or not _protocols_compatible(ef, hf):
+                    continue
+                if et != host_tok[id(hf)]:
+                    continue
+                score = _jaccard(ep, host_prose[id(hf)])
+                if score >= _ECHO_JACCARD_MIN:
+                    pairs.append((score, ef, hf))
+        pairs.sort(key=lambda t: t[0], reverse=True)
+        used_echo: set = set()
+        used_host: dict = {}
+        merged_for: dict = {}
+        for score, ef, hf in pairs:
+            if id(ef) in used_echo or id(hf) in used_host:
+                continue
+            used_echo.add(id(ef))
+            used_host[id(hf)] = True
+            merged_for[id(hf)] = _merge_echo_pair(ef, hf)
+        for hf in hosts:
+            result.append(merged_for.get(id(hf), hf))
+        for ef in echoes:
+            if id(ef) not in used_echo:
+                result.append(ef)
+    result.extend(passthrough)
+    return result
+
+
+def _ports_compatible(a: dict, b: dict) -> bool:
+    pa, pb = str(a.get("port", "")), str(b.get("port", ""))
+    return not pa or not pb or pa == pb
+
+
+def _protocols_compatible(a: dict, b: dict) -> bool:
+    pa, pb = str(a.get("protocol", "")), str(b.get("protocol", ""))
+    return not pa or not pb or pa == pb
+
+
 def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
     """Attribute dispatcher evidence, preserve protocol, and deduplicate it."""
     endpoints = _inventory_endpoints(out_dir)
@@ -1198,7 +1358,9 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
         # dispatcher stdout as secondary provenance.
         if "_dispatcher.log" in str(prior.get("evidence_path", "")) and path:
             prior["evidence_path"] = path
-    return list(deduped.values())
+    # D1.4 — after exact-identity dedup, collapse dispatcher summary lines into
+    # the per-host finding they echo (token-safe, one-to-one, boundary-only).
+    return _dedup_echoes(list(deduped.values()))
 
 
 def _coverage(out_dir: Path, findings: list[dict]) -> list[dict]:
