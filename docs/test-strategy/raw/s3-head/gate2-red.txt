@@ -1,0 +1,8 @@
+E         
+E         At index 0 diff: 'a' != 'LIN-SSH-ROOTLOGIN'
+E         Use -v to get more diff
+
+aranumtoolkit/tests/test_host_posture.py:502: AssertionError
+=========================== short test summary info ============================
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_parser_keeps_injected_pipes_inside_detail
+1 failed, 23 deselected in 2.35s

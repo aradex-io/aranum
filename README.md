@@ -368,6 +368,7 @@ By default the report server binds to `127.0.0.1` on the first free port at or a
 | `severity.html` + `severity_<sev>.html` | filtered findings by severity tier |
 | `timeline.html` | chronological events from `run.log` |
 | `coverage.html` | dispatch matrix (hosts × services) with severity-coloured cells |
+| `posture.html` | **host posture** — status tiles, host × check-group matrix with a score, and every check across hosts with failing hosts + test/fix guidance (populated by `--with-posture`) |
 | `data.json` | client-side search payload (consumed by the embedded JS) |
 
 Keyboard shortcuts inside the dashboard: `/` focuses the search box; `Esc` clears it; type `>host 10.0.0` then Enter to jump to a host page; `>svc smb` jumps to a service page. Dark theme by default with a toggle in the top nav.
@@ -507,6 +508,18 @@ python3 ./aranumtoolkit/network/report.py ./estate    # one report, mixed-OS, wo
 **Authentication reach (read this before you trust the orchestrator at scale).** WinRM as a domain user requires "Remote Management Users" group membership on each target. That's uncommon in real environments — many domains gate WinRM to local Administrators only. If your engagement creds don't have that membership, bulk-enum-windows will fail clean (rc=255 per host with the pywinrm fault in `winenum.err`) and you'll need to fall back to the standalone `standalones/windows/*.ps1` scripts via WinRM/SMB transfer or remote desktop. `--use-smb-admin` now runs an `impacket-wmiexec` fallback when WinRM fails: it delivers the script as an in-memory `powershell -EncodedCommand` (no disk write, same OPSEC property as WinRM). Because WMI's command line is capped near 8 KB, this fits only smaller `--script`s — the default `Invoke-PrivEscEnum.ps1` is too large and returns `rc=126` with guidance (use WinRM, a smaller script, or `impacket-psexec/-smbexec` manually). Like the WinRM path, this transport is unvalidated in CI per ADR-003.
 
 **Validation gap.** Per ADR-003 "WHAT THIS DOES NOT VALIDATE": this codebase ships on Fedora with no domain-joined Windows host in CI, so the WinRM transport is unverified pre-engagement. Mock-pywinrm unit tests cover everything OUTSIDE the transport (target parsing, IPv6 bracketing, output layout, arg validation, --dry-run, --throttle precedence). The operator's first real run against a known-good Windows VM is the transport validation. The ADR has a verification checklist.
+
+### Host posture — `--with-posture` (PLAN-001 S3)
+
+Both bulk enumerators take `--with-posture`, which runs a read-only host-posture collector after the privesc enum in the same session: [`standalones/linux/host-posture.sh`](standalones/linux/host-posture.sh) (43 checks) or [`standalones/windows/Invoke-HostPosture.ps1`](standalones/windows/Invoke-HostPosture.ps1) (41 host checks). On Windows, `--ad` adds 15 domain checks (`-AdChecks`). These are read-only, paged, time-limited LDAP queries against the host's own DC, and they never run unless you ask for them. Each check prints one strict line, `POSTURE|<check-id>|<PASS|FAIL|WARN|INFO|NA|ERR>|<detail>`, into the existing `linenum.txt`/`winenum.txt`. The combined payload is saved as `$OUT/_payload.sh` / `_payload.ps1` so you can see exactly what was sent.
+
+```bash
+./aranumtoolkit/network/bulk-enum-linux.sh --targets hosts.txt -k ~/.ssh/key -o ./out --with-posture
+./aranumtoolkit/network/bulk-enum-windows.py --targets win.txt -u corp\\op --key ~/.ssh/key --transport ssh -o ./out --with-posture --ad
+./aranumtoolkit/network/report.py ./out          # findings.json + posture.json + report.md
+```
+
+`report.py` grades FAIL/WARN as findings at the check's KB severity, with test and fix guidance from `network/finding-kb.json`. It records every status, including PASS, in `posture.json`. AD checks seen from several hosts become one finding per domain, and each observer's own result is kept. ERR means the check could not be evaluated, for example as non-root; it is never a pass. A malformed or unknown line is quarantined (`posture_quarantine` in `findings.json`) rather than graded. The collectors also run standalone on a host you are logged in to.
 
 ## Bulk-enum overhaul — password auth, transports, triage (iteration 28JUL / ADR-006)
 

@@ -1,0 +1,10 @@
+## mutation: Get-RegPolicy domain check removed (numeric values pass through unvalidated) at f309050
+        passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
+>       assert set(passed) <= allowed, passed
+        passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
+>       assert set(passed) <= allowed, passed
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[99]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[-1]
+2 failed, 1 passed, 44 deselected in 4.83s
+## restored (shipped f309050)
+3 passed, 44 deselected in 3.88s

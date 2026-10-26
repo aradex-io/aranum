@@ -5217,5 +5217,2908 @@
         "https://man.openbsd.org/ssh-keygen"
       ]
     }
+  },
+  "checks": {
+    "LIN-OS-RELEASE": {
+      "os": "linux",
+      "scope": "host",
+      "group": "patching",
+      "category": "linlocal",
+      "title": "OS release and kernel",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: distro, version, kernel release.",
+      "why": "Accurate operating-system and kernel inventory is essential for identifying unsupported releases and matching the host to applicable security advisories. Attackers commonly exploit known vulnerabilities on obsolete or unpatched platforms.",
+      "test": [
+        {
+          "label": "Show distribution and kernel release",
+          "cmd": "cat /etc/os-release; uname -r"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Maintain supported releases",
+          "text": "Compare the reported distribution and kernel with vendor support and security-advisory information, then upgrade any end-of-life release through the vendor-supported process."
+        }
+      ],
+      "refs": [
+        "https://www.freedesktop.org/software/systemd/man/latest/os-release.html",
+        "https://man7.org/linux/man-pages/man2/uname.2.html"
+      ]
+    },
+    "LIN-PKG-SECUPDATES": {
+      "os": "linux",
+      "scope": "host",
+      "group": "patching",
+      "category": "linlocal",
+      "title": "Pending security updates",
+      "sev_fail": "high",
+      "sev_warn": "medium",
+      "semantics": "FAIL: >=1 pending security update in the package cache; WARN: non-security updates pending only; PASS: none. Reads cache only (apt-get -s / dnf -C), never refreshes.",
+      "why": "Pending security updates leave publicly documented vulnerabilities available for exploitation. An attacker can fingerprint package versions and use a matching local or remote exploit to gain access or elevate privileges.",
+      "test": [
+        {
+          "label": "Inspect the cached APT upgrade plan",
+          "cmd": "apt-get -s upgrade"
+        },
+        {
+          "label": "List cached DNF security updates",
+          "cmd": "dnf -C updateinfo list --security"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Apply Debian or Ubuntu updates",
+          "cmd": "sudo apt-get update && sudo apt-get upgrade"
+        },
+        {
+          "label": "Apply RPM security updates",
+          "cmd": "sudo dnf upgrade --security"
+        }
+      ],
+      "refs": [
+        "https://documentation.ubuntu.com/server/how-to/software/package-management/",
+        "https://dnf.readthedocs.io/en/latest/command_ref.html"
+      ]
+    },
+    "LIN-PKG-AUTOUPDATE": {
+      "os": "linux",
+      "scope": "host",
+      "group": "patching",
+      "category": "linlocal",
+      "title": "Automatic security updates",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "PASS: unattended-upgrades / dnf-automatic enabled; WARN: not configured.",
+      "why": "Without automatic security updates, exploitable packages can remain vulnerable until an administrator intervenes. Attackers often weaponize disclosed vulnerabilities faster than manual patch cycles can respond.",
+      "test": [
+        {
+          "label": "Check APT automatic-upgrade scheduling",
+          "cmd": "systemctl is-enabled apt-daily-upgrade.timer 2>/dev/null; grep -RHE 'APT::Periodic::(Enable|Unattended-Upgrade)' /etc/apt/apt.conf.d 2>/dev/null"
+        },
+        {
+          "label": "Check DNF automatic-upgrade scheduling",
+          "cmd": "systemctl is-enabled dnf-automatic.timer dnf-automatic-install.timer 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable unattended upgrades on Debian or Ubuntu",
+          "cmd": "sudo apt-get install unattended-upgrades && sudo systemctl enable --now apt-daily-upgrade.timer"
+        },
+        {
+          "label": "Enable automatic updates on DNF systems",
+          "text": "Install dnf-automatic, set upgrade_type = security and apply_updates = yes in /etc/dnf/automatic.conf, then enable the applicable dnf-automatic timer."
+        }
+      ],
+      "refs": [
+        "https://documentation.ubuntu.com/server/how-to/software/automatic-updates/",
+        "https://dnf.readthedocs.io/en/latest/automatic.html"
+      ]
+    },
+    "LIN-REBOOT-REQUIRED": {
+      "os": "linux",
+      "scope": "host",
+      "group": "patching",
+      "category": "linlocal",
+      "title": "Reboot pending for updates",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: /var/run/reboot-required present (patched kernel/libs not loaded); PASS: absent.",
+      "why": "A pending reboot can mean that updated kernels or shared libraries are installed but vulnerable code remains loaded. An attacker may continue exploiting the active old code until the host or affected services are restarted.",
+      "test": [
+        {
+          "label": "Check the reboot-required marker",
+          "cmd": "if [ -e /var/run/reboot-required ]; then echo 'reboot required'; else echo 'no reboot marker'; fi"
+        },
+        {
+          "label": "List packages requesting a reboot",
+          "cmd": "test -r /var/run/reboot-required.pkgs && cat /var/run/reboot-required.pkgs || true"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Schedule a controlled reboot",
+          "text": "Validate service redundancy and maintenance requirements, then reboot the host during an approved window and confirm that /var/run/reboot-required is absent afterward."
+        }
+      ],
+      "refs": [
+        "https://documentation.ubuntu.com/server/how-to/software/package-management/"
+      ]
+    },
+    "LIN-SYSCTL-PTRACE": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "Yama ptrace scope",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: kernel.yama.ptrace_scope=0; PASS: >=1; NA: Yama absent.",
+      "why": "With kernel.yama.ptrace_scope=0, same-user processes can trace one another without a parent-child relationship. A compromised process can use this access to inspect or modify an SSH agent, browser, or privileged helper and steal credentials or tokens.",
+      "test": [
+        {
+          "label": "Read the current ptrace restriction",
+          "cmd": "sysctl kernel.yama.ptrace_scope"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict ptrace to descendants",
+          "cmd": "echo 'kernel.yama.ptrace_scope = 1' | sudo tee /etc/sysctl.d/60-ptrace.conf && sudo sysctl --system"
+        }
+      ],
+      "refs": [
+        "https://www.kernel.org/doc/html/latest/admin-guide/LSM/Yama.html"
+      ]
+    },
+    "LIN-SYSCTL-KPTR": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "Kernel pointer restriction",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: kernel.kptr_restrict=0; PASS: >=1.",
+      "why": "Unrestricted kernel pointer disclosure gives attackers address information that can weaken kernel address-space randomization. A local attacker can use exposed addresses to make kernel exploits more reliable.",
+      "test": [
+        {
+          "label": "Read the kernel pointer restriction",
+          "cmd": "sysctl kernel.kptr_restrict"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict kernel pointer exposure",
+          "cmd": "echo 'kernel.kptr_restrict = 1' | sudo tee /etc/sysctl.d/60-kptr.conf && sudo sysctl --system"
+        }
+      ],
+      "refs": [
+        "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#kptr-restrict"
+      ]
+    },
+    "LIN-SYSCTL-DMESG": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "dmesg restriction",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: kernel.dmesg_restrict=0; PASS: 1.",
+      "why": "Allowing unprivileged users to read the kernel log can expose kernel addresses, device details, and security-relevant failures. A local attacker can use that information to refine privilege-escalation exploits and reconnaissance.",
+      "test": [
+        {
+          "label": "Read the dmesg restriction",
+          "cmd": "sysctl kernel.dmesg_restrict"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict unprivileged dmesg access",
+          "cmd": "echo 'kernel.dmesg_restrict = 1' | sudo tee /etc/sysctl.d/60-dmesg.conf && sudo sysctl --system"
+        }
+      ],
+      "refs": [
+        "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#dmesg-restrict"
+      ]
+    },
+    "LIN-SYSCTL-BPF": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "Unprivileged eBPF",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: kernel.unprivileged_bpf_disabled=0; PASS: 1 or 2.",
+      "why": "Unprivileged eBPF expands the kernel attack surface available to ordinary users and has historically enabled privilege-escalation vulnerabilities. A compromised account can load BPF programs to probe kernel behavior or exploit verifier and JIT defects.",
+      "test": [
+        {
+          "label": "Read the unprivileged BPF setting",
+          "cmd": "sysctl kernel.unprivileged_bpf_disabled"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable unprivileged BPF",
+          "cmd": "echo 'kernel.unprivileged_bpf_disabled = 1' | sudo tee /etc/sysctl.d/60-bpf.conf && sudo sysctl --system"
+        }
+      ],
+      "refs": [
+        "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#unprivileged-bpf-disabled"
+      ]
+    },
+    "LIN-SYSCTL-USERNS": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "Unprivileged user namespaces",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: unprivileged userns creation allowed (unprivileged_userns_clone=1 / max_user_namespaces>0) and not AppArmor-restricted; PASS: disabled or apparmor_restrict_unprivileged_userns=1.",
+      "why": "Unrestricted user namespaces expose additional kernel namespace and filesystem code to unprivileged processes. Attackers can use that expanded surface to turn kernel vulnerabilities into local privilege escalation, although disabling namespaces can disrupt rootless containers and sandboxing.",
+      "test": [
+        {
+          "label": "Read user-namespace controls",
+          "cmd": "sysctl kernel.unprivileged_userns_clone user.max_user_namespaces kernel.apparmor_restrict_unprivileged_userns 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict user namespaces with AppArmor",
+          "cmd": "echo 'kernel.apparmor_restrict_unprivileged_userns = 1' | sudo tee /etc/sysctl.d/60-userns.conf && sudo sysctl --system"
+        },
+        {
+          "label": "Disable unprivileged user namespaces where compatible",
+          "text": "After validating container and application requirements, set kernel.unprivileged_userns_clone=0 or user.max_user_namespaces=0 in a file under /etc/sysctl.d and apply it with sysctl --system."
+        }
+      ],
+      "refs": [
+        "https://docs.kernel.org/admin-guide/namespaces/index.html",
+        "https://documentation.ubuntu.com/security/security-features/privilege-restriction/unprivileged-user-namespaces/"
+      ]
+    },
+    "LIN-SYSCTL-ASLR": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "ASLR",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: kernel.randomize_va_space<2; PASS: 2.",
+      "why": "Incomplete address-space randomization makes process memory locations more predictable. Attackers can use predictable addresses to improve the reliability of memory-corruption exploits and code-reuse attacks.",
+      "test": [
+        {
+          "label": "Read the ASLR mode",
+          "cmd": "sysctl kernel.randomize_va_space"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable full ASLR",
+          "cmd": "echo 'kernel.randomize_va_space = 2' | sudo tee /etc/sysctl.d/60-aslr.conf && sudo sysctl --system"
+        }
+      ],
+      "refs": [
+        "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#randomize-va-space"
+      ]
+    },
+    "LIN-SYSCTL-SUIDDUMP": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "setuid core dumps",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: fs.suid_dumpable!=0; PASS: 0.",
+      "why": "Core dumps from set-user-ID or otherwise privileged programs can contain passwords, keys, tokens, and sensitive process memory. An attacker who can access or influence these dumps may recover secrets or overwrite files through unsafe dump handling.",
+      "test": [
+        {
+          "label": "Read the setuid dump policy",
+          "cmd": "sysctl fs.suid_dumpable"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable privileged-process core dumps",
+          "cmd": "echo 'fs.suid_dumpable = 0' | sudo tee /etc/sysctl.d/60-suid-dump.conf && sudo sysctl --system"
+        }
+      ],
+      "refs": [
+        "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/fs.html#suid-dumpable"
+      ]
+    },
+    "LIN-SYSCTL-PROTLINKS": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "Protected symlinks/hardlinks",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: fs.protected_symlinks or fs.protected_hardlinks =0; PASS: both 1.",
+      "why": "Weak symbolic-link and hard-link protections make shared writable directories more susceptible to link-following attacks. A local attacker can redirect a privileged process toward sensitive files or retain access to files that should no longer be reachable.",
+      "test": [
+        {
+          "label": "Read protected-link settings",
+          "cmd": "sysctl fs.protected_symlinks fs.protected_hardlinks"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable protected links",
+          "cmd": "printf '%s\\n' 'fs.protected_symlinks = 1' 'fs.protected_hardlinks = 1' | sudo tee /etc/sysctl.d/60-protected-links.conf && sudo sysctl --system"
+        }
+      ],
+      "refs": [
+        "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/fs.html#protected-symlinks",
+        "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/fs.html#protected-hardlinks"
+      ]
+    },
+    "LIN-SYSCTL-PERF": {
+      "os": "linux",
+      "scope": "host",
+      "group": "kernel",
+      "category": "linlocal",
+      "title": "perf_event paranoia",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: kernel.perf_event_paranoid<2; PASS: >=2.",
+      "why": "Permissive performance-event access can expose kernel and other-process execution data to unprivileged users. A local attacker can use performance counters for side-channel analysis, reconnaissance, or exploitation of the perf subsystem.",
+      "test": [
+        {
+          "label": "Read the perf-event restriction",
+          "cmd": "sysctl kernel.perf_event_paranoid"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict performance-event access",
+          "cmd": "echo 'kernel.perf_event_paranoid = 2' | sudo tee /etc/sysctl.d/60-perf.conf && sudo sysctl --system"
+        }
+      ],
+      "refs": [
+        "https://docs.kernel.org/admin-guide/perf-security.html"
+      ]
+    },
+    "LIN-SYSCTL-IPFWD": {
+      "os": "linux",
+      "scope": "host",
+      "group": "network",
+      "category": "linlocal",
+      "title": "IPv4 forwarding",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: net.ipv4.ip_forward=1 (host routes traffic; pivot aid); PASS: 0.",
+      "why": "IPv4 forwarding allows the host to route traffic between network interfaces. If an attacker compromises the host, that routing capability can support network pivoting or bypass intended segmentation.",
+      "test": [
+        {
+          "label": "Read the IPv4 forwarding setting",
+          "cmd": "sysctl net.ipv4.ip_forward"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable IPv4 forwarding",
+          "cmd": "echo 'net.ipv4.ip_forward = 0' | sudo tee /etc/sysctl.d/60-ip-forward.conf && sudo sysctl --system"
+        },
+        {
+          "label": "Retain only for approved routers",
+          "text": "If the host is intentionally a router, VPN gateway, or container node, document the exception and enforce forwarding paths with a restrictive firewall policy."
+        }
+      ],
+      "refs": [
+        "https://www.kernel.org/doc/html/latest/networking/ip-sysctl.html#ip-forward"
+      ]
+    },
+    "LIN-LSM-MAC": {
+      "os": "linux",
+      "scope": "host",
+      "group": "access-control",
+      "category": "linlocal",
+      "title": "Mandatory access control",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: SELinux enforcing or AppArmor enabled; WARN: SELinux permissive/disabled and no AppArmor.",
+      "why": "Without an enforcing mandatory-access-control system, a compromised service is constrained mainly by traditional Unix permissions and discretionary access controls. Attackers can more easily access files, capabilities, and processes available to the compromised account.",
+      "test": [
+        {
+          "label": "Check SELinux state",
+          "cmd": "getenforce 2>/dev/null || sestatus 2>/dev/null"
+        },
+        {
+          "label": "Check AppArmor state",
+          "cmd": "aa-status --enabled 2>/dev/null; aa-status 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable an enforcing MAC system",
+          "text": "Enable SELinux in enforcing mode through /etc/selinux/config, or enable AppArmor and load enforcing profiles appropriate to the distribution; test application policy before production rollout."
+        }
+      ],
+      "refs": [
+        "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/changing-selinux-states-and-modes_using-selinux",
+        "https://documentation.ubuntu.com/server/how-to/security/apparmor/"
+      ]
+    },
+    "LIN-FIREWALL": {
+      "os": "linux",
+      "scope": "host",
+      "group": "network",
+      "category": "linlocal",
+      "title": "Host firewall",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: ufw/firewalld/nftables/iptables service active or ufw ENABLED=yes; WARN: none active; ERR: cannot determine.",
+      "why": "Without an active host firewall, every listening service is exposed to any network that can route to the host. Attackers can scan and directly target unnecessary or accidentally exposed services.",
+      "test": [
+        {
+          "label": "Check common firewall services",
+          "cmd": "systemctl is-active ufw firewalld nftables iptables 2>/dev/null"
+        },
+        {
+          "label": "Check UFW enablement",
+          "cmd": "grep -E '^ENABLED=' /etc/ufw/ufw.conf 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable the distribution firewall",
+          "text": "Configure an allowlist for required management and application traffic, then enable the distribution-supported firewall such as ufw, firewalld, or nftables. Confirm remote-management access before enforcing the policy."
+        }
+      ],
+      "refs": [
+        "https://firewalld.org/documentation/",
+        "https://documentation.ubuntu.com/server/how-to/security/firewalls/"
+      ]
+    },
+    "LIN-SSH-ROOTLOGIN": {
+      "os": "linux",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "linlocal",
+      "title": "SSH root login",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: PermitRootLogin yes; PASS: no / prohibit-password / forced-commands-only / default; NA: no sshd_config.",
+      "why": "Direct SSH login as root gives attackers a known privileged username and removes the accountability provided by individual administrator accounts. If root credentials or a root key are compromised, the attacker immediately obtains unrestricted remote access.",
+      "test": [
+        {
+          "label": "Show the effective root-login policy",
+          "cmd": "sudo sshd -T | grep -i '^permitrootlogin '"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable direct root login",
+          "text": "Set PermitRootLogin no in /etc/ssh/sshd_config or a validated file under /etc/ssh/sshd_config.d, verify with sshd -t, and reload the SSH service after confirming sudo-capable administrative access."
+        }
+      ],
+      "refs": [
+        "https://man.openbsd.org/sshd_config#PermitRootLogin"
+      ]
+    },
+    "LIN-SSH-PASSAUTH": {
+      "os": "linux",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "linlocal",
+      "title": "SSH password authentication",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: PasswordAuthentication yes (explicit or default); PASS: no; NA: no sshd_config.",
+      "why": "SSH password authentication permits online password guessing and exposes reused credentials to credential-stuffing attacks. Disabling it forces stronger key-based or centrally managed authentication when those alternatives are properly protected.",
+      "test": [
+        {
+          "label": "Show the effective password-authentication policy",
+          "cmd": "sudo sshd -T | grep -i '^passwordauthentication '"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable SSH password authentication",
+          "text": "Provision and test public-key or approved centralized authentication, set PasswordAuthentication no in /etc/ssh/sshd_config or a validated drop-in, run sshd -t, and reload the SSH service."
+        }
+      ],
+      "refs": [
+        "https://man.openbsd.org/sshd_config#PasswordAuthentication"
+      ]
+    },
+    "LIN-SSH-EMPTYPW": {
+      "os": "linux",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "linlocal",
+      "title": "SSH empty passwords",
+      "sev_fail": "critical",
+      "sev_warn": "",
+      "semantics": "FAIL: PermitEmptyPasswords yes; PASS: no/default; NA: no sshd_config.",
+      "why": "Permitting empty passwords can allow an account with a blank password to authenticate remotely without knowing a secret. Attackers can enumerate accounts and obtain shell access with trivial authentication.",
+      "test": [
+        {
+          "label": "Show the effective empty-password policy",
+          "cmd": "sudo sshd -T | grep -i '^permitemptypasswords '"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Reject empty passwords over SSH",
+          "text": "Set PermitEmptyPasswords no in /etc/ssh/sshd_config or a validated drop-in, run sshd -t, and reload the SSH service."
+        }
+      ],
+      "refs": [
+        "https://man.openbsd.org/sshd_config#PermitEmptyPasswords"
+      ]
+    },
+    "LIN-SSH-X11": {
+      "os": "linux",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "linlocal",
+      "title": "SSH X11 forwarding",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: X11Forwarding yes; PASS: no/default; NA: no sshd_config.",
+      "why": "SSH X11 forwarding extends trust from the server into a client's graphical session and creates additional proxying and authentication-cookie exposure. A compromised server account may use that channel to observe or interact with forwarded X applications.",
+      "test": [
+        {
+          "label": "Show the effective X11-forwarding policy",
+          "cmd": "sudo sshd -T | grep -i '^x11forwarding '"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable SSH X11 forwarding",
+          "text": "Set X11Forwarding no in /etc/ssh/sshd_config or a validated drop-in, run sshd -t, and reload the SSH service unless an approved application requires forwarding."
+        }
+      ],
+      "refs": [
+        "https://man.openbsd.org/sshd_config#X11Forwarding"
+      ]
+    },
+    "LIN-SSH-MAXAUTH": {
+      "os": "linux",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "linlocal",
+      "title": "SSH MaxAuthTries",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: MaxAuthTries >4 (default 6); PASS: <=4; NA: no sshd_config.",
+      "why": "A high MaxAuthTries value gives an attacker more authentication attempts within each SSH connection. Reducing it limits online guessing and excessive key offers, although network-level rate limiting remains important.",
+      "test": [
+        {
+          "label": "Show the effective authentication-attempt limit",
+          "cmd": "sudo sshd -T | grep -i '^maxauthtries '"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Limit SSH authentication attempts",
+          "text": "Set MaxAuthTries 4 or lower in /etc/ssh/sshd_config or a validated drop-in, run sshd -t, and reload the SSH service."
+        }
+      ],
+      "refs": [
+        "https://man.openbsd.org/sshd_config#MaxAuthTries"
+      ]
+    },
+    "LIN-SSH-CIPHERS": {
+      "os": "linux",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "linlocal",
+      "title": "SSH weak ciphers/MACs/KEX",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: configured Ciphers/MACs/KexAlgorithms include cbc, arcfour, 3des, md5, sha1 KEX or group1; PASS: none configured weak (default set); NA: no sshd_config.",
+      "why": "Legacy SSH ciphers, MACs, and key-exchange algorithms can provide weaker confidentiality or integrity than modern alternatives. An attacker positioned on the network may exploit cryptographic weaknesses or force use of an unnecessarily weak configured algorithm.",
+      "test": [
+        {
+          "label": "Show effective SSH algorithms",
+          "cmd": "sudo sshd -T | grep -Ei '^(ciphers|macs|kexalgorithms) '"
+        },
+        {
+          "label": "Highlight configured weak algorithm names",
+          "cmd": "sudo sshd -T | grep -Ei '^(ciphers|macs|kexalgorithms) .*([^a-z]|^)(cbc|arcfour|3des|md5|diffie-hellman-group1-sha1|diffie-hellman-group-exchange-sha1)([^a-z]|$)'"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Remove legacy SSH algorithms",
+          "text": "Remove CBC, arcfour, 3DES, MD5, SHA-1 key exchange, and group1 algorithms from Ciphers, MACs, and KexAlgorithms directives; prefer the current OpenSSH defaults, validate with sshd -t, and reload the service."
+        }
+      ],
+      "refs": [
+        "https://man.openbsd.org/sshd_config#Ciphers",
+        "https://man.openbsd.org/sshd_config#KexAlgorithms"
+      ]
+    },
+    "LIN-SSH-HOSTKEY-PERMS": {
+      "os": "linux",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "linlocal",
+      "title": "SSH host private key permissions",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: an /etc/ssh/ssh_host_*_key is group/world readable or readable by the current non-root user; PASS: otherwise; NA: no host keys.",
+      "why": "An exposed SSH host private key lets an attacker impersonate the server and can undermine clients that trust that key. Write access can also allow key replacement and persistent interception after the host is restored.",
+      "test": [
+        {
+          "label": "Inspect host private-key ownership and modes",
+          "cmd": "stat -c '%A %a %U:%G %n' /etc/ssh/ssh_host_*_key 2>/dev/null"
+        },
+        {
+          "label": "Find group- or world-readable host private keys",
+          "cmd": "find /etc/ssh -maxdepth 1 -type f -name 'ssh_host_*_key' -perm /0044 -print 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict SSH host private keys",
+          "cmd": "sudo chown root:root /etc/ssh/ssh_host_*_key && sudo chmod 600 /etc/ssh/ssh_host_*_key"
+        }
+      ],
+      "refs": [
+        "https://man.openbsd.org/sshd#FILES"
+      ]
+    },
+    "LIN-ACCT-UID0": {
+      "os": "linux",
+      "scope": "host",
+      "group": "accounts",
+      "category": "linlocal",
+      "title": "Extra UID 0 accounts",
+      "sev_fail": "critical",
+      "sev_warn": "",
+      "semantics": "FAIL: any account other than root has UID 0; PASS: only root.",
+      "why": "Every UID 0 account has the same unrestricted kernel identity as root regardless of its username. An attacker who compromises any additional UID 0 account gains full control while making attribution and account governance harder.",
+      "test": [
+        {
+          "label": "List all UID 0 accounts",
+          "cmd": "awk -F: '$3 == 0 {print $1 \":\" $3}' /etc/passwd"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Remove unauthorized UID 0 identities",
+          "text": "Change each non-root UID 0 account to a unique nonzero UID or remove it after reviewing file ownership and service dependencies; retain root as the only UID 0 account."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man5/passwd.5.html",
+        "https://man7.org/linux/man-pages/man8/usermod.8.html"
+      ]
+    },
+    "LIN-ACCT-EMPTYPW": {
+      "os": "linux",
+      "scope": "host",
+      "group": "accounts",
+      "category": "linlocal",
+      "title": "Accounts with empty password",
+      "sev_fail": "critical",
+      "sev_warn": "",
+      "semantics": "FAIL: /etc/shadow has an empty password field; PASS: none; ERR: shadow not readable (needs root).",
+      "why": "An account with an empty password may be accessible without a secret through services or PAM configurations that permit blank passwords. Attackers can target such accounts for immediate local or remote access.",
+      "test": [
+        {
+          "label": "List accounts with empty password fields",
+          "cmd": "sudo awk -F: '$2 == \"\" {print $1}' /etc/shadow"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Lock each empty-password account",
+          "cmd": "sudo passwd -l <user>"
+        },
+        {
+          "label": "Assign credentials where login is required",
+          "text": "For each reported account, either set a strong managed password through the approved identity process or lock the account if interactive login is unnecessary."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man5/shadow.5.html",
+        "https://man7.org/linux/man-pages/man1/passwd.1.html"
+      ]
+    },
+    "LIN-ACCT-NOPASSWD": {
+      "os": "linux",
+      "scope": "host",
+      "group": "accounts",
+      "category": "linlocal",
+      "title": "sudo NOPASSWD rules",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: >=1 NOPASSWD rule in sudoers/sudoers.d; PASS: none; ERR: sudoers unreadable (needs root); NA: sudo absent.",
+      "why": "A sudo NOPASSWD rule allows the authorized command to run without a fresh authentication check. Malware or an attacker controlling that account can immediately exercise the delegated privilege, and broad command rules may lead directly to root access.",
+      "test": [
+        {
+          "label": "Find active NOPASSWD directives",
+          "cmd": "sudo grep -RHE '^[[:space:]]*[^#].*NOPASSWD[[:space:]]*:' /etc/sudoers /etc/sudoers.d 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Remove or narrowly scope passwordless sudo",
+          "text": "Use visudo to remove unnecessary NOPASSWD tags or restrict them to exact non-shell commands with fixed arguments; avoid ALL, interpreters, editors, and commands that can execute arbitrary code."
+        }
+      ],
+      "refs": [
+        "https://www.sudo.ws/docs/man/sudoers.man/"
+      ]
+    },
+    "LIN-ACCT-ADMINS": {
+      "os": "linux",
+      "scope": "host",
+      "group": "accounts",
+      "category": "linlocal",
+      "title": "Administrative group members",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: members of sudo/wheel/admin groups.",
+      "why": "Membership in sudo, wheel, or admin groups identifies accounts that can obtain elevated privileges. An attacker who compromises one of these accounts can often take full control of the host, so the inventory should remain minimal and attributable.",
+      "test": [
+        {
+          "label": "List administrative groups and members",
+          "cmd": "getent group sudo wheel admin 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enforce least privilege",
+          "text": "Review every listed member against current authorization records and remove stale or unnecessary memberships with the distribution's supported account-management process."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man5/group.5.html",
+        "https://man7.org/linux/man-pages/man8/gpasswd.8.html"
+      ]
+    },
+    "LIN-ACCT-UMASK": {
+      "os": "linux",
+      "scope": "host",
+      "group": "accounts",
+      "category": "linlocal",
+      "title": "Default umask",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: login.defs UMASK grants group/other write (e.g. 002, 000); PASS: 022/027/077.",
+      "why": "A permissive default umask can cause newly created files and directories to be writable by other users. A local attacker may alter shared data, startup files, or scripts created with those unsafe defaults.",
+      "test": [
+        {
+          "label": "Read the login.defs UMASK",
+          "cmd": "awk '$1 == \"UMASK\" && $1 !~ /^#/ {print $0}' /etc/login.defs"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Set a restrictive default umask",
+          "text": "Set UMASK 027 in /etc/login.defs, or 077 where users must not share files, and align PAM and shell-profile umask settings so they do not override the policy."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man5/login.defs.5.html",
+        "https://man7.org/linux/man-pages/man2/umask.2.html"
+      ]
+    },
+    "LIN-ACCT-AGING": {
+      "os": "linux",
+      "scope": "host",
+      "group": "accounts",
+      "category": "linlocal",
+      "title": "Password maximum age",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: login.defs PASS_MAX_DAYS unset or >365; PASS: <=365.",
+      "why": "Passwords with no maximum age can remain valid indefinitely after silent disclosure or reuse. An attacker who obtains such a password retains a longer opportunity to authenticate unless another control detects and revokes it.",
+      "test": [
+        {
+          "label": "Read the default maximum password age",
+          "cmd": "awk '$1 == \"PASS_MAX_DAYS\" && $1 !~ /^#/ {print $0}' /etc/login.defs"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Set the default maximum age",
+          "text": "Set PASS_MAX_DAYS to 365 or less in /etc/login.defs and update existing interactive accounts with chage according to the organization's password policy; favor stronger authentication and compromised-password controls where available."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man5/login.defs.5.html",
+        "https://man7.org/linux/man-pages/man1/chage.1.html"
+      ]
+    },
+    "LIN-FILE-SHADOW": {
+      "os": "linux",
+      "scope": "host",
+      "group": "filesystem",
+      "category": "linlocal",
+      "title": "/etc/shadow permissions",
+      "sev_fail": "critical",
+      "sev_warn": "",
+      "semantics": "FAIL: /etc/shadow (or gshadow) world-readable or world-writable; PASS: otherwise.",
+      "why": "World-readable shadow files expose password hashes that attackers can crack offline without triggering authentication controls. World-writable shadow or gshadow files can permit account manipulation and direct privilege escalation.",
+      "test": [
+        {
+          "label": "Inspect shadow-file permissions",
+          "cmd": "stat -c '%A %a %U:%G %n' /etc/shadow /etc/gshadow 2>/dev/null"
+        },
+        {
+          "label": "Find world-readable or world-writable shadow files",
+          "cmd": "find /etc -maxdepth 1 -type f \\( -name shadow -o -name gshadow \\) -perm /0006 -print"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restore restricted shadow-file modes",
+          "text": "Restore the distribution's expected root ownership and shadow-group settings, ensuring neither /etc/shadow nor /etc/gshadow has any permissions for other users; commonly these files use mode 640 or 600."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man5/shadow.5.html",
+        "https://man7.org/linux/man-pages/man5/gshadow.5.html"
+      ]
+    },
+    "LIN-FILE-PASSWD": {
+      "os": "linux",
+      "scope": "host",
+      "group": "filesystem",
+      "category": "linlocal",
+      "title": "/etc/passwd permissions",
+      "sev_fail": "critical",
+      "sev_warn": "",
+      "semantics": "FAIL: /etc/passwd or /etc/group writable by group/other; PASS: otherwise.",
+      "why": "If /etc/passwd or /etc/group is writable by non-privileged groups or other users, an attacker can manipulate account or group definitions. Such changes can create unauthorized identities, alter privilege relationships, or disrupt authentication.",
+      "test": [
+        {
+          "label": "Inspect account-database permissions",
+          "cmd": "stat -c '%A %a %U:%G %n' /etc/passwd /etc/group"
+        },
+        {
+          "label": "Find group- or world-writable account files",
+          "cmd": "find /etc -maxdepth 1 -type f \\( -name passwd -o -name group \\) -perm /0022 -print"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restore account-file ownership and modes",
+          "cmd": "sudo chown root:root /etc/passwd /etc/group && sudo chmod 644 /etc/passwd /etc/group"
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man5/passwd.5.html",
+        "https://man7.org/linux/man-pages/man5/group.5.html"
+      ]
+    },
+    "LIN-MNT-TMP": {
+      "os": "linux",
+      "scope": "host",
+      "group": "filesystem",
+      "category": "linlocal",
+      "title": "/tmp mount options",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: /tmp not a separate mount, or mounted without nosuid/nodev; PASS: separate mount with nosuid,nodev.",
+      "why": "A shared /tmp without a separate mount and nosuid,nodev controls gives temporary files access to the root filesystem's mount behavior. Attackers can abuse device nodes or set-user-ID files where those features are honored, while a separate mount also improves containment of space exhaustion.",
+      "test": [
+        {
+          "label": "Show the /tmp mount source and options",
+          "cmd": "findmnt -no TARGET,SOURCE,FSTYPE,OPTIONS /tmp"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Harden the /tmp mount",
+          "text": "Create a dedicated /tmp mount or systemd mount unit with nosuid,nodev options, preserve mode 1777 on the directory, and validate application compatibility before adding the persistent configuration to /etc/fstab."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man8/mount.8.html",
+        "https://www.freedesktop.org/software/systemd/man/latest/systemd.mount.html"
+      ]
+    },
+    "LIN-MNT-SHM": {
+      "os": "linux",
+      "scope": "host",
+      "group": "filesystem",
+      "category": "linlocal",
+      "title": "/dev/shm mount options",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: /dev/shm mounted without noexec or nosuid; PASS: noexec,nosuid.",
+      "why": "Allowing executable or set-user-ID content on /dev/shm gives attackers a convenient memory-backed location for payload staging. The noexec and nosuid options reduce common execution and privilege-abuse paths without preventing normal shared-memory use.",
+      "test": [
+        {
+          "label": "Show /dev/shm mount options",
+          "cmd": "findmnt -no TARGET,SOURCE,FSTYPE,OPTIONS /dev/shm"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Harden the shared-memory mount",
+          "text": "Configure /dev/shm as tmpfs with noexec,nosuid options in /etc/fstab or the applicable systemd mount unit, then remount it during a controlled change after checking application requirements."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man8/mount.8.html",
+        "https://man7.org/linux/man-pages/man5/tmpfs.5.html"
+      ]
+    },
+    "LIN-PATH-WW": {
+      "os": "linux",
+      "scope": "host",
+      "group": "filesystem",
+      "category": "linlocal",
+      "title": "World-writable directories in PATH",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: a directory on PATH (or /etc/environment PATH) is world-writable without sticky bit; PASS: none.",
+      "why": "A non-sticky world-writable directory in PATH lets any local user replace or plant commands that another user may execute by name. Attackers can exploit command search order to run malicious code under an administrator or service account.",
+      "test": [
+        {
+          "label": "Inspect current PATH directory permissions",
+          "cmd": "printf '%s' \"$PATH\" | tr ':' '\\n' | while IFS= read -r d; do [ -n \"$d\" ] || d=.; stat -Lc '%A %a %U:%G %n' -- \"$d\" 2>/dev/null; done"
+        },
+        {
+          "label": "Inspect the system environment PATH",
+          "cmd": "grep -E '^[[:space:]]*PATH=' /etc/environment 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Remove unsafe PATH directories",
+          "text": "Remove world-writable directories from system and service PATH definitions, or change their ownership and permissions so untrusted users cannot write to them; do not rely on the sticky bit as a substitute for trusted command directories."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man7/environ.7.html",
+        "https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap08.html"
+      ]
+    },
+    "LIN-CRON-PERMS": {
+      "os": "linux",
+      "scope": "host",
+      "group": "filesystem",
+      "category": "linlocal",
+      "title": "Cron configuration permissions",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: /etc/crontab or an /etc/cron.* entry is world-writable; PASS: none.",
+      "why": "A world-writable system cron file or cron directory entry lets an unprivileged attacker alter commands that a privileged scheduler executes. This can provide reliable persistence and privilege escalation, commonly to root.",
+      "test": [
+        {
+          "label": "Find world-writable cron configuration",
+          "cmd": "find /etc/crontab /etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly -xdev -perm /0002 -print 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Remove world-write permission",
+          "text": "Set root ownership and remove other-user write permission from every reported cron file or directory, using the distribution's package metadata or a known-good peer to confirm the intended mode."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man5/crontab.5.html"
+      ]
+    },
+    "LIN-LOG-AUDITD": {
+      "os": "linux",
+      "scope": "host",
+      "group": "logging",
+      "category": "linlocal",
+      "title": "Audit daemon",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: auditd active; WARN: not active.",
+      "why": "Without an active audit daemon, security-sensitive system calls and policy events may not be captured in a durable audit trail. Attackers can operate with less chance that privilege use, account changes, or tampering will be reconstructed.",
+      "test": [
+        {
+          "label": "Check auditd service state",
+          "cmd": "systemctl is-active auditd"
+        },
+        {
+          "label": "Show loaded audit status and rules",
+          "cmd": "sudo auditctl -s; sudo auditctl -l"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable audit logging",
+          "text": "Install and enable auditd, configure rules under /etc/audit/rules.d for the host's security requirements, and protect or forward audit logs to limit attacker tampering."
+        }
+      ],
+      "refs": [
+        "https://man7.org/linux/man-pages/man8/auditd.8.html",
+        "https://man7.org/linux/man-pages/man8/auditctl.8.html"
+      ]
+    },
+    "LIN-LOG-SYSLOG": {
+      "os": "linux",
+      "scope": "host",
+      "group": "logging",
+      "category": "linlocal",
+      "title": "System logging",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "PASS: rsyslog/syslog-ng active or journald persistent storage; WARN: only volatile journal.",
+      "why": "A volatile-only journal loses evidence at reboot and may erase the record of an intrusion or crash. Persistent local logging or forwarding through a syslog daemon improves incident reconstruction, although remote protected storage provides stronger resilience.",
+      "test": [
+        {
+          "label": "Check syslog services",
+          "cmd": "systemctl is-active rsyslog syslog-ng 2>/dev/null"
+        },
+        {
+          "label": "Check journal persistence configuration",
+          "cmd": "grep -RHE '^[[:space:]]*Storage[[:space:]]*=' /etc/systemd/journald.conf /etc/systemd/journald.conf.d 2>/dev/null; test -d /var/log/journal && echo '/var/log/journal exists'"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable persistent journaling",
+          "text": "Set Storage=persistent in /etc/systemd/journald.conf or an approved drop-in and ensure /var/log/journal exists with systemd-managed permissions, or enable a supported rsyslog or syslog-ng service."
+        }
+      ],
+      "refs": [
+        "https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html",
+        "https://www.rsyslog.com/doc/configuration/index.html"
+      ]
+    },
+    "LIN-TIME-SYNC": {
+      "os": "linux",
+      "scope": "host",
+      "group": "logging",
+      "category": "linlocal",
+      "title": "Time synchronization",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "PASS: chronyd/systemd-timesyncd/ntpd active; WARN: none (breaks Kerberos and log correlation).",
+      "why": "Unsynchronized time breaks reliable event ordering, certificate validation, and time-sensitive authentication such as Kerberos. Attackers benefit when defenders cannot accurately correlate activity across hosts or when authentication failures create operational confusion.",
+      "test": [
+        {
+          "label": "Check common time-synchronization services",
+          "cmd": "systemctl is-active chronyd systemd-timesyncd ntp ntpd 2>/dev/null"
+        },
+        {
+          "label": "Show system time synchronization state",
+          "cmd": "timedatectl show -p NTPSynchronized -p NTP -p TimeUSec"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable an approved time service",
+          "text": "Configure and enable chronyd, systemd-timesyncd, or ntpd with approved redundant time sources, then confirm the clock reports synchronized."
+        }
+      ],
+      "refs": [
+        "https://www.freedesktop.org/software/systemd/man/latest/systemd-timesyncd.service.html",
+        "https://chrony-project.org/doc/4.8/chronyd.html"
+      ]
+    },
+    "LIN-BOOT-SECUREBOOT": {
+      "os": "linux",
+      "scope": "host",
+      "group": "boot",
+      "category": "linlocal",
+      "title": "UEFI Secure Boot",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "PASS: Secure Boot enabled; WARN: UEFI with Secure Boot disabled; INFO: legacy BIOS boot.",
+      "why": "UEFI Secure Boot helps prevent untrusted bootloaders and kernels from running before operating-system defenses are active. If it is disabled on a UEFI system, an attacker with administrative or physical write access can establish pre-OS persistence that is difficult to detect.",
+      "test": [
+        {
+          "label": "Determine firmware boot mode",
+          "cmd": "if [ -d /sys/firmware/efi ]; then echo UEFI; else echo legacy-BIOS; fi"
+        },
+        {
+          "label": "Read Secure Boot state",
+          "cmd": "mokutil --sb-state"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable UEFI Secure Boot",
+          "text": "Verify that the bootloader, kernel, and required drivers are signed and compatible, then enable Secure Boot in the system firmware and protect firmware configuration from unauthorized changes."
+        }
+      ],
+      "refs": [
+        "https://uefi.org/specs/UEFI/2.10/32_Secure_Boot_and_Driver_Signing.html",
+        "https://docs.kernel.org/admin-guide/uefi/uefi.html"
+      ]
+    },
+    "LIN-SVC-FAILED": {
+      "os": "linux",
+      "scope": "host",
+      "group": "services",
+      "category": "linlocal",
+      "title": "Failed systemd units",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: count of failed units.",
+      "why": "Failed systemd units can indicate disabled security controls, broken monitoring, incomplete patching, or an unstable service dependency. Attackers may benefit when a firewall, audit agent, authentication service, or other protective component has silently failed.",
+      "test": [
+        {
+          "label": "List failed systemd units",
+          "cmd": "systemctl --failed --no-pager"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Investigate each failed unit",
+          "text": "Review systemctl status and journalctl -u output for every failed unit, repair its configuration or dependency, and only disable the unit if its removal is intentional and documented."
+        }
+      ],
+      "refs": [
+        "https://www.freedesktop.org/software/systemd/man/latest/systemctl.html",
+        "https://www.freedesktop.org/software/systemd/man/latest/journalctl.html"
+      ]
+    },
+    "LIN-CTR-DOCKERSOCK": {
+      "os": "linux",
+      "scope": "host",
+      "group": "services",
+      "category": "linlocal",
+      "title": "Docker socket exposure",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: /var/run/docker.sock world-writable or writable by the current non-root user; PASS: present and restricted; NA: absent.",
+      "why": "Write access to the Docker daemon socket is effectively root-equivalent because the daemon can create privileged containers and mount the host filesystem. An attacker who can write to the socket can escape normal account restrictions and take over the host.",
+      "test": [
+        {
+          "label": "Inspect Docker socket ownership and mode",
+          "cmd": "stat -Lc '%A %a %U:%G %n' /var/run/docker.sock"
+        },
+        {
+          "label": "Test current-user write access",
+          "cmd": "if [ -S /var/run/docker.sock ]; then if [ \"$(id -u)\" -ne 0 ] && [ -w /var/run/docker.sock ]; then echo 'writable by current non-root user'; else echo 'not writable by current non-root user'; fi; else echo 'socket absent'; fi"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict Docker daemon access",
+          "text": "Remove unauthorized users from the docker group, ensure the socket is not world-writable, and grant daemon access only to accounts treated as root-equivalent; consider rootless Docker where operationally suitable."
+        }
+      ],
+      "refs": [
+        "https://docs.docker.com/engine/security/#docker-daemon-attack-surface",
+        "https://docs.docker.com/engine/security/rootless/"
+      ]
+    },
+    "LIN-AD-JOINED": {
+      "os": "linux",
+      "scope": "host",
+      "group": "domain",
+      "category": "ad",
+      "title": "Directory membership",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: realm/sssd/winbind membership and realm name, or not joined.",
+      "why": "Directory-membership inventory identifies whether authentication and authorization depend on an external realm, SSSD, or winbind. Attackers who compromise domain credentials or trust configuration may gain access across multiple joined hosts, while unexpected membership can reveal unauthorized enrollment.",
+      "test": [
+        {
+          "label": "Show realmd membership",
+          "cmd": "realm list"
+        },
+        {
+          "label": "Show configured SSSD or winbind domains",
+          "cmd": "sssctl domain-list 2>/dev/null; wbinfo --own-domain 2>/dev/null"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Validate directory membership",
+          "text": "Confirm every reported realm against the approved asset and identity design; remove obsolete membership through the platform's supported realm-leave process only after arranging replacement authentication and recovery access."
+        }
+      ],
+      "refs": [
+        "https://www.freedesktop.org/software/realmd/docs/realm.html",
+        "https://sssd.io/docs/introduction.html"
+      ]
+    },
+    "LIN-AD-KEYTAB": {
+      "os": "linux",
+      "scope": "host",
+      "group": "domain",
+      "category": "ad",
+      "title": "Host keytab readability",
+      "sev_fail": "critical",
+      "sev_warn": "",
+      "semantics": "FAIL: /etc/krb5.keytab readable by the current non-root user or world-readable; PASS: present and restricted; NA: absent.",
+      "why": "A Kerberos host keytab contains long-term keys used to authenticate the machine or its services. A non-root attacker who can read it may impersonate principals, request tickets, or move laterally within the trusted realm.",
+      "test": [
+        {
+          "label": "Inspect keytab ownership and permissions",
+          "cmd": "stat -Lc '%A %a %U:%G %n' /etc/krb5.keytab"
+        },
+        {
+          "label": "Test non-root readability without displaying keys",
+          "cmd": "if [ ! -e /etc/krb5.keytab ]; then echo 'keytab absent'; elif [ \"$(id -u)\" -eq 0 ]; then echo 'run this readability test as a non-root user'; elif [ -r /etc/krb5.keytab ]; then echo 'readable by current non-root user'; else echo 'not readable by current non-root user'; fi"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict the host keytab",
+          "cmd": "sudo chown root:root /etc/krb5.keytab && sudo chmod 600 /etc/krb5.keytab"
+        },
+        {
+          "label": "Rotate exposed keys",
+          "text": "If unauthorized users could read the keytab, restrict it immediately and rotate the affected Kerberos keys through the domain's supported enrollment process."
+        }
+      ],
+      "refs": [
+        "https://web.mit.edu/kerberos/krb5-latest/doc/basic/keytab_def.html",
+        "https://web.mit.edu/kerberos/krb5-latest/doc/admin/admin_commands/ktutil.html"
+      ]
+    },
+    "WIN-OS-BUILD": {
+      "os": "windows",
+      "scope": "host",
+      "group": "patching",
+      "category": "winlocal",
+      "title": "OS edition and build",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: caption, build.UBR, product type (workstation/server/DC).",
+      "why": "The Windows edition, build, revision, and product type determine which security fixes and hardening features are available. Attackers use obsolete or unsupported builds to target known vulnerabilities with reliable exploits.",
+      "test": [
+        {
+          "label": "Show the operating-system build and product type",
+          "cmd": "Get-CimInstance Win32_OperatingSystem | Select-Object Caption,BuildNumber,ProductType"
+        },
+        {
+          "label": "Show the update build revision",
+          "cmd": "Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion' | Select-Object CurrentBuild,UBR,DisplayVersion"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Move to a supported build",
+          "text": "Apply the current servicing updates through Windows Update, WSUS, Configuration Manager, or your approved patch platform; upgrade the operating system if Microsoft no longer supports the reported release."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information",
+        "https://learn.microsoft.com/en-us/windows-server/get-started/windows-server-release-info"
+      ]
+    },
+    "WIN-PATCH-AGE": {
+      "os": "windows",
+      "scope": "host",
+      "group": "patching",
+      "category": "winlocal",
+      "title": "Last update age",
+      "sev_fail": "high",
+      "sev_warn": "medium",
+      "semantics": "FAIL: newest installed hotfix >90 days old; WARN: 45-90 days; PASS: <45; ERR: no hotfix dates readable.",
+      "why": "Old security updates leave publicly documented vulnerabilities available for exploitation, including flaws used for initial access and privilege escalation. The risk rises as exploit code and attacker tooling mature after disclosure.",
+      "test": [
+        {
+          "label": "Show the newest installed hotfix",
+          "cmd": "Get-HotFix | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 1 HotFixID,InstalledOn,Description"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Install current security updates",
+          "text": "Use Windows Update, WSUS, Configuration Manager, or the organization's approved patch platform to install applicable security and cumulative updates, then verify the newest installed update date."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/deployment/update/windows-update-overview",
+        "https://msrc.microsoft.com/update-guide/"
+      ]
+    },
+    "WIN-FW-DOMAIN": {
+      "os": "windows",
+      "scope": "host",
+      "group": "network",
+      "category": "winlocal",
+      "title": "Firewall - Domain profile",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: profile enabled (policy or local); WARN: disabled.",
+      "why": "A disabled Domain firewall profile exposes listening services whenever the host authenticates to its domain network. An attacker with network access can probe those services and exploit weak authentication, unsafe configuration, or unpatched software.",
+      "test": [
+        {
+          "label": "Inspect the Domain firewall profile",
+          "cmd": "Get-NetFirewallProfile -Profile Domain | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable the Domain profile",
+          "cmd": "Set-NetFirewallProfile -Profile Domain -Enabled True"
+        },
+        {
+          "label": "Enforce with Group Policy",
+          "text": "Configure Computer Configuration > Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security > Windows Defender Firewall Properties > Domain Profile > Firewall state to On."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/"
+      ]
+    },
+    "WIN-FW-PRIVATE": {
+      "os": "windows",
+      "scope": "host",
+      "group": "network",
+      "category": "winlocal",
+      "title": "Firewall - Private profile",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: profile enabled; WARN: disabled.",
+      "why": "A disabled Private firewall profile exposes local services on networks that Windows classifies as trusted. A compromised device on the same network can scan and attack those services or attempt lateral movement.",
+      "test": [
+        {
+          "label": "Inspect the Private firewall profile",
+          "cmd": "Get-NetFirewallProfile -Profile Private | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable the Private profile",
+          "cmd": "Set-NetFirewallProfile -Profile Private -Enabled True"
+        },
+        {
+          "label": "Enforce with Group Policy",
+          "text": "Configure Computer Configuration > Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security > Windows Defender Firewall Properties > Private Profile > Firewall state to On."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/"
+      ]
+    },
+    "WIN-FW-PUBLIC": {
+      "os": "windows",
+      "scope": "host",
+      "group": "network",
+      "category": "winlocal",
+      "title": "Firewall - Public profile",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "PASS: profile enabled; FAIL: disabled.",
+      "why": "A disabled Public firewall profile exposes the host on untrusted networks such as guest Wi-Fi. Nearby attackers can directly probe reachable services and exploit them without first entering the organization's trusted network.",
+      "test": [
+        {
+          "label": "Inspect the Public firewall profile",
+          "cmd": "Get-NetFirewallProfile -Profile Public | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable the Public profile",
+          "cmd": "Set-NetFirewallProfile -Profile Public -Enabled True"
+        },
+        {
+          "label": "Enforce with Group Policy",
+          "text": "Configure Computer Configuration > Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security > Windows Defender Firewall Properties > Public Profile > Firewall state to On."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/"
+      ]
+    },
+    "WIN-DEF-RTP": {
+      "os": "windows",
+      "scope": "host",
+      "group": "endpoint-protection",
+      "category": "winlocal",
+      "title": "Defender real-time protection",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "PASS: real-time protection on; FAIL: off; NA: Defender not present (third-party AV).",
+      "why": "Without real-time antivirus protection, malicious files and processes may execute without being scanned at access or launch time. Attackers can use that gap to establish persistence, steal credentials, or deploy ransomware before a scheduled scan runs.",
+      "test": [
+        {
+          "label": "Inspect Defender real-time protection",
+          "cmd": "Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable real-time monitoring",
+          "cmd": "Set-MpPreference -DisableRealtimeMonitoring $false"
+        },
+        {
+          "label": "Enforce with Group Policy",
+          "text": "Configure Computer Configuration > Administrative Templates > Windows Components > Microsoft Defender Antivirus > Real-time Protection > Turn off real-time protection to Disabled, unless an approved third-party antivirus product replaces Defender."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/defender-endpoint/configure-real-time-protection-microsoft-defender-antivirus",
+        "https://attack.mitre.org/techniques/T1562/001/"
+      ]
+    },
+    "WIN-DEF-TAMPER": {
+      "os": "windows",
+      "scope": "host",
+      "group": "endpoint-protection",
+      "category": "winlocal",
+      "title": "Defender tamper protection",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: tamper protection on; WARN: off; NA: Defender not present.",
+      "why": "Without tamper protection, malware or an intruder with sufficient local privileges can weaken Defender settings and exclusions. Disabling protection helps malicious activity persist and evade later detection.",
+      "test": [
+        {
+          "label": "Inspect Defender tamper protection",
+          "cmd": "Get-MpComputerStatus | Select-Object AMServiceEnabled,IsTamperProtected,TamperProtectionSource"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable tamper protection",
+          "text": "Enable Tamper protection in the Microsoft Defender portal, Microsoft Intune, or Windows Security according to the organization's management model; ordinary registry or PowerShell changes cannot reliably enable the protected setting."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection"
+      ]
+    },
+    "WIN-DEF-SIGAGE": {
+      "os": "windows",
+      "scope": "host",
+      "group": "endpoint-protection",
+      "category": "winlocal",
+      "title": "Defender signature age",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: AV signatures >7 days old; PASS: <=7; NA: Defender not present.",
+      "why": "Stale antivirus intelligence may not recognize recently discovered malware families or updated payloads. Attackers deliberately modify known tools to evade old signatures and gain execution before cloud or behavioral controls intervene.",
+      "test": [
+        {
+          "label": "Show Defender signature age and update time",
+          "cmd": "Get-MpComputerStatus | Select-Object AntivirusEnabled,AntivirusSignatureAge,AntivirusSignatureLastUpdated"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Update Defender security intelligence",
+          "cmd": "Update-MpSignature"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/defender-endpoint/manage-protection-updates-microsoft-defender-antivirus"
+      ]
+    },
+    "WIN-BITLOCKER": {
+      "os": "windows",
+      "scope": "host",
+      "group": "boot",
+      "category": "winlocal",
+      "title": "BitLocker on system drive",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: system drive protection on; WARN: off; ERR: not readable without elevation.",
+      "why": "Without system-drive encryption, anyone who obtains the device or its disk can read files offline and bypass normal Windows access controls. The exposed material may include documents, cached credentials, browser data, and secrets used to reach other systems.",
+      "test": [
+        {
+          "label": "Inspect system-drive BitLocker status",
+          "cmd": "Get-BitLockerVolume -MountPoint $env:SystemDrive | Select-Object MountPoint,VolumeStatus,ProtectionStatus,EncryptionMethod"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable BitLocker with a TPM protector",
+          "cmd": "Enable-BitLocker -MountPoint $env:SystemDrive -EncryptionMethod XtsAes256 -UsedSpaceOnly -TpmProtector"
+        },
+        {
+          "label": "Protect recovery material",
+          "text": "Back up the recovery password to the approved directory or device-management escrow before relying on BitLocker, and test the recovery process."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/security/operating-system-security/data-protection/bitlocker/"
+      ]
+    },
+    "WIN-SECUREBOOT": {
+      "os": "windows",
+      "scope": "host",
+      "group": "boot",
+      "category": "winlocal",
+      "title": "UEFI Secure Boot",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "PASS: UEFISecureBootEnabled=1; WARN: 0; INFO: legacy BIOS / state key absent.",
+      "why": "When Secure Boot is disabled, malicious or unauthorized boot components can execute before Windows security controls start. An attacker with firmware or physical access can use a bootkit to persist stealthily or tamper with the operating system.",
+      "test": [
+        {
+          "label": "Read the Secure Boot state recorded by Windows",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecureBoot\\State\" /v UEFISecureBootEnabled"
+        },
+        {
+          "label": "Confirm Secure Boot through PowerShell",
+          "cmd": "Confirm-SecureBootUEFI"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable UEFI Secure Boot",
+          "text": "Convert from legacy BIOS mode if necessary, enable UEFI and Secure Boot in the device firmware, and use vendor-supported signed boot components; suspend BitLocker and preserve its recovery key before firmware changes."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/oem-secure-boot"
+      ]
+    },
+    "WIN-SMB-V1": {
+      "os": "windows",
+      "scope": "host",
+      "group": "network",
+      "category": "winlocal",
+      "title": "SMBv1 server",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: SMB1 server enabled (LanmanServer SMB1=1 or mrxsmb10 driver enabled); PASS: disabled/absent.",
+      "why": "SMBv1 is an obsolete protocol with serious security weaknesses and a history of remotely exploitable flaws. An attacker can abuse an enabled SMBv1 server for compromise, downgrade opportunities, or rapid lateral propagation.",
+      "test": [
+        {
+          "label": "Inspect the SMB server protocol setting",
+          "cmd": "Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol"
+        },
+        {
+          "label": "Inspect the SMBv1 redirector driver state",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\mrxsmb10\" /v Start"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable SMBv1 server support",
+          "cmd": "Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force"
+        },
+        {
+          "label": "Remove the SMBv1 optional feature",
+          "cmd": "Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -NoRestart"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/storage/file-server/troubleshoot/detect-enable-and-disable-smbv1-v2-v3"
+      ]
+    },
+    "WIN-SMB-SRVSIGN": {
+      "os": "windows",
+      "scope": "host",
+      "group": "relay",
+      "category": "ad",
+      "title": "SMB server signing required",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: LanmanServer RequireSecuritySignature!=1 (relay target); PASS: 1.",
+      "why": "If SMB server signing is not required, an attacker can relay captured authentication to the host and act with the victim's permissions. Signing binds SMB messages to the authenticated session and prevents an unsigned relay target from accepting the traffic.",
+      "test": [
+        {
+          "label": "Read the SMB server signing requirement",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\" /v RequireSecuritySignature"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Require SMB server signing",
+          "cmd": "Set-SmbServerConfiguration -RequireSecuritySignature $true -Force"
+        },
+        {
+          "label": "Enforce with Group Policy",
+          "text": "Configure Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Microsoft network server: Digitally sign communications (always) to Enabled."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-signing-overview",
+        "https://attack.mitre.org/techniques/T1557/001/"
+      ]
+    },
+    "WIN-SMB-CLISIGN": {
+      "os": "windows",
+      "scope": "host",
+      "group": "relay",
+      "category": "ad",
+      "title": "SMB client signing required",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: LanmanWorkstation RequireSecuritySignature!=1; PASS: 1.",
+      "why": "If SMB client signing is not required, an attacker can redirect or relay the client's authentication to an unsigned SMB service. This can expose credentials to relay attacks and allow manipulation of SMB traffic.",
+      "test": [
+        {
+          "label": "Read the SMB client signing requirement",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters\" /v RequireSecuritySignature"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Require SMB client signing",
+          "cmd": "Set-SmbClientConfiguration -RequireSecuritySignature $true -Force"
+        },
+        {
+          "label": "Enforce with Group Policy",
+          "text": "Configure Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Microsoft network client: Digitally sign communications (always) to Enabled."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-signing-overview",
+        "https://attack.mitre.org/techniques/T1557/001/"
+      ]
+    },
+    "WIN-NR-LLMNR": {
+      "os": "windows",
+      "scope": "host",
+      "group": "relay",
+      "category": "ad",
+      "title": "LLMNR",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: LLMNR not disabled by policy (DNSClient EnableMulticast!=0); PASS: 0.",
+      "why": "LLMNR allows local-link name-resolution responses when DNS resolution fails. An attacker on the same network can spoof a response, capture challenge-response credentials, and relay or crack them.",
+      "test": [
+        {
+          "label": "Read the LLMNR policy",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient\" /v EnableMulticast"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable LLMNR by policy",
+          "cmd": "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient\" /v EnableMulticast /t REG_DWORD /d 0 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Computer Configuration > Administrative Templates > Network > DNS Client > Turn off multicast name resolution to Enabled."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-admx-dnsclient",
+        "https://attack.mitre.org/techniques/T1557/001/"
+      ]
+    },
+    "WIN-NR-NBTNS": {
+      "os": "windows",
+      "scope": "host",
+      "group": "relay",
+      "category": "ad",
+      "title": "NetBIOS over TCP/IP",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: >=1 IP-enabled adapter with NetBIOS not disabled (NetbiosOptions!=2); PASS: all disabled.",
+      "why": "NetBIOS name resolution permits unauthenticated local-network responses when modern name resolution does not provide an answer. An attacker can poison those responses to capture or relay Windows authentication.",
+      "test": [
+        {
+          "label": "Inspect NetBIOS settings on active adapters",
+          "cmd": "Get-CimInstance Win32_NetworkAdapterConfiguration -Filter \"IPEnabled=True\" | Select-Object Description,NetbiosOptions"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable NetBIOS over TCP/IP on active adapters",
+          "cmd": "Get-CimInstance Win32_NetworkAdapterConfiguration -Filter \"IPEnabled=True\" | Invoke-CimMethod -MethodName SetTcpipNetbios -Arguments @{TcpipNetbiosOptions=2}"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/settcpipnetbios-method-in-class-win32-networkadapterconfiguration",
+        "https://attack.mitre.org/techniques/T1557/001/"
+      ]
+    },
+    "WIN-NR-WPAD": {
+      "os": "windows",
+      "scope": "host",
+      "group": "relay",
+      "category": "ad",
+      "title": "WPAD auto-proxy discovery",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: WinHttpAutoProxySvc enabled and WPAD not disabled; PASS: service disabled or DisableWpad=1.",
+      "why": "WPAD can cause a host to obtain proxy configuration from an attacker-controlled responder. A malicious proxy can intercept traffic, solicit Windows authentication, or relay captured credentials.",
+      "test": [
+        {
+          "label": "Inspect the WinHTTP auto-proxy service",
+          "cmd": "Get-CimInstance Win32_Service -Filter \"Name='WinHttpAutoProxySvc'\" | Select-Object Name,State,StartMode"
+        },
+        {
+          "label": "Read the WPAD disable setting",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\WinHttp\" /v DisableWpad"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable WPAD discovery",
+          "cmd": "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\WinHttp\" /v DisableWpad /t REG_DWORD /d 1 /f"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/win32/winhttp/autoproxy-issues-in-winhttp",
+        "https://attack.mitre.org/techniques/T1557/001/"
+      ]
+    },
+    "WIN-LDAP-CLISIGN": {
+      "os": "windows",
+      "scope": "host",
+      "group": "relay",
+      "category": "ad",
+      "title": "LDAP client signing",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: LDAPClientIntegrity=2 (require); WARN: 0 (none) or 1 (negotiate, default).",
+      "why": "A client that does not require LDAP signing can establish LDAP sessions whose integrity is not protected. An attacker in a man-in-the-middle position can tamper with traffic or relay authentication to a permissive directory service.",
+      "test": [
+        {
+          "label": "Read the LDAP client-signing policy",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LDAP\" /v LDAPClientIntegrity"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Require LDAP client signing",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LDAP\" /v LDAPClientIntegrity /t REG_DWORD /d 2 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Network security: LDAP client signing requirements to Require signing."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/enable-ldap-signing-in-windows-server"
+      ]
+    },
+    "WIN-ANON-RESTRICT": {
+      "os": "windows",
+      "scope": "host",
+      "group": "accounts",
+      "category": "winlocal",
+      "title": "Anonymous enumeration restrictions",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: RestrictAnonymousSAM=0 or RestrictAnonymous=0 with EveryoneIncludesAnonymous=1; PASS: restricted.",
+      "why": "Weak anonymous-access restrictions can disclose account, group, share, or security-policy information without authentication. Attackers use that reconnaissance to identify privileged targets and prepare password attacks or lateral movement.",
+      "test": [
+        {
+          "label": "Read anonymous-access security options",
+          "cmd": "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' | Select-Object RestrictAnonymousSAM,RestrictAnonymous,EveryoneIncludesAnonymous"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict anonymous enumeration",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v RestrictAnonymousSAM /t REG_DWORD /d 1 /f & reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v RestrictAnonymous /t REG_DWORD /d 1 /f & reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v EveryoneIncludesAnonymous /t REG_DWORD /d 0 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Use Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options to enable Network access: Do not allow anonymous enumeration of SAM accounts and shares and disable Network access: Let Everyone permissions apply to anonymous users."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/network-access-do-not-allow-anonymous-enumeration-of-sam-accounts-and-shares"
+      ]
+    },
+    "WIN-PS-V2": {
+      "os": "windows",
+      "scope": "host",
+      "group": "logging",
+      "category": "winlocal",
+      "title": "PowerShell v2 engine",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: PowerShell 2.0 engine installed (downgrade bypasses logging); PASS: absent.",
+      "why": "PowerShell 2.0 lacks modern script-block logging and other security improvements. An attacker can deliberately invoke the old engine to reduce telemetry and evade controls that depend on newer PowerShell features.",
+      "test": [
+        {
+          "label": "Inspect the PowerShell 2.0 optional feature",
+          "cmd": "dism.exe /Online /Get-FeatureInfo /FeatureName:MicrosoftWindowsPowerShellV2Root"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Remove PowerShell 2.0",
+          "cmd": "Disable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -NoRestart"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/powershell/scripting/windows-powershell/install/disable-windows-powershell-2.0",
+        "https://attack.mitre.org/techniques/T1059/001/"
+      ]
+    },
+    "WIN-PS-SBLOG": {
+      "os": "windows",
+      "scope": "host",
+      "group": "logging",
+      "category": "winlocal",
+      "title": "PowerShell script-block logging",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: EnableScriptBlockLogging=1 by policy; WARN: not enabled.",
+      "why": "Without script-block logging, PowerShell commands and decoded script content may be absent from forensic records. Attackers commonly use PowerShell for in-memory execution and obfuscation, making this telemetry important for detection and investigation.",
+      "test": [
+        {
+          "label": "Read the script-block logging policy",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging\" /v EnableScriptBlockLogging"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable script-block logging",
+          "cmd": "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging\" /v EnableScriptBlockLogging /t REG_DWORD /d 1 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Computer Configuration > Administrative Templates > Windows Components > Windows PowerShell > Turn on PowerShell Script Block Logging to Enabled and forward the resulting event logs to protected storage."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_windows"
+      ]
+    },
+    "WIN-PS-TRANSCRIPT": {
+      "os": "windows",
+      "scope": "host",
+      "group": "logging",
+      "category": "winlocal",
+      "title": "PowerShell transcription",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "PASS: EnableTranscripting=1 by policy; WARN: not enabled.",
+      "why": "Without transcription, interactive PowerShell activity may leave limited human-readable evidence. An attacker can use administrative PowerShell sessions to alter the system while making reconstruction and accountability more difficult.",
+      "test": [
+        {
+          "label": "Read the PowerShell transcription policy",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\Transcription\" /v EnableTranscripting"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Configure PowerShell transcription",
+          "text": "Set Computer Configuration > Administrative Templates > Windows Components > Windows PowerShell > Turn on PowerShell Transcription to Enabled and choose a secured, access-controlled output directory; protect transcripts because they may contain sensitive command output."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_logging_windows"
+      ]
+    },
+    "WIN-PS-LANGMODE": {
+      "os": "windows",
+      "scope": "host",
+      "group": "access-control",
+      "category": "winlocal",
+      "title": "PowerShell language mode",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: current session language mode (FullLanguage / ConstrainedLanguage).",
+      "why": "FullLanguage mode allows the current PowerShell session to access the complete language and .NET surface, while ConstrainedLanguage limits many capabilities when enforced by application control. Attackers who obtain PowerShell execution often prefer FullLanguage because it supports richer in-memory tooling and defense evasion.",
+      "test": [
+        {
+          "label": "Show the current session language mode",
+          "cmd": "$ExecutionContext.SessionState.LanguageMode"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enforce application control where appropriate",
+          "text": "Deploy a tested Windows Defender Application Control or AppLocker policy so untrusted PowerShell sessions enter ConstrainedLanguage mode; do not rely on manually changing the current session value as a security boundary."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_language_modes",
+        "https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/wdac-and-applocker-overview"
+      ]
+    },
+    "WIN-RDP-ENABLED": {
+      "os": "windows",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "winlocal",
+      "title": "Remote Desktop",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: RDP enabled (fDenyTSConnections=0) or disabled.",
+      "why": "An enabled Remote Desktop service adds a remotely reachable authentication and administration surface. Attackers can target it with password attacks, stolen credentials, or vulnerabilities, so its presence should match a documented operational requirement.",
+      "test": [
+        {
+          "label": "Read the Remote Desktop enable setting",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\" /v fDenyTSConnections"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable Remote Desktop when unnecessary",
+          "text": "Set Computer Configuration > Administrative Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Connections > Allow users to connect remotely by using Remote Desktop Services to Disabled; otherwise restrict access with firewall rules, MFA-capable gateways, and authorized groups."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/remote/remote-desktop-services/clients/remote-desktop-allow-access",
+        "https://attack.mitre.org/techniques/T1021/001/"
+      ]
+    },
+    "WIN-RDP-NLA": {
+      "os": "windows",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "winlocal",
+      "title": "RDP Network Level Authentication",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: RDP enabled and UserAuthentication!=1; PASS: NLA required; NA: RDP disabled.",
+      "why": "Without Network Level Authentication, the host creates an RDP session before authenticating the user and exposes more of the service to unauthenticated clients. Attackers can consume resources, reach pre-authentication attack surface, and more easily conduct credential attacks.",
+      "test": [
+        {
+          "label": "Check whether RDP is enabled",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\" /v fDenyTSConnections"
+        },
+        {
+          "label": "Read the NLA requirement",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v UserAuthentication"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Require NLA",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v UserAuthentication /t REG_DWORD /d 1 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Computer Configuration > Administrative Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Security > Require user authentication for remote connections by using Network Level Authentication to Enabled."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/remote/remote-desktop-services/clients/remote-desktop-allow-access"
+      ]
+    },
+    "WIN-CRED-RUNASPPL": {
+      "os": "windows",
+      "scope": "host",
+      "group": "credential-protection",
+      "category": "winlocal",
+      "title": "LSA protection (RunAsPPL)",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: Lsa RunAsPPL 1 or 2; WARN: not set.",
+      "why": "Without LSA protection, a sufficiently privileged malicious process can more easily inject into or read LSASS. Attackers target LSASS to recover reusable passwords, hashes, Kerberos material, and other credentials.",
+      "test": [
+        {
+          "label": "Read the LSA protection setting",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v RunAsPPL"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable LSA protection with UEFI lock",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v RunAsPPL /t REG_DWORD /d 1 /f"
+        },
+        {
+          "label": "Validate compatibility",
+          "text": "Audit LSA plug-ins and drivers for compatibility before broad deployment, then restart during an approved maintenance window and verify that protected-process logging reports no blocked production components."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/security/credentials-protection-and-management/configuring-additional-lsa-protection",
+        "https://attack.mitre.org/techniques/T1003/001/"
+      ]
+    },
+    "WIN-CRED-CREDGUARD": {
+      "os": "windows",
+      "scope": "host",
+      "group": "credential-protection",
+      "category": "winlocal",
+      "title": "Credential Guard",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "PASS: Credential Guard running; WARN: not running; ERR: DeviceGuard WMI unavailable.",
+      "why": "Without Credential Guard, secrets used for domain authentication remain in the normal LSA environment and are more accessible after kernel or administrator-level compromise. Attackers can extract reusable credential material from LSASS and use it for lateral movement.",
+      "test": [
+        {
+          "label": "Inspect Device Guard security services",
+          "cmd": "Get-CimInstance -Namespace root\\Microsoft\\Windows\\DeviceGuard -ClassName Win32_DeviceGuard | Select-Object SecurityServicesConfigured,SecurityServicesRunning,VirtualizationBasedSecurityStatus"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable Credential Guard",
+          "text": "Configure Computer Configuration > Administrative Templates > System > Device Guard > Turn On Virtualization Based Security and enable Credential Guard with the deployment's chosen UEFI-lock setting after validating hardware and application compatibility."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/security/identity-protection/credential-guard/configure"
+      ]
+    },
+    "WIN-CRED-WDIGEST": {
+      "os": "windows",
+      "scope": "host",
+      "group": "credential-protection",
+      "category": "winlocal",
+      "title": "WDigest cleartext credentials",
+      "sev_fail": "critical",
+      "sev_warn": "",
+      "semantics": "FAIL: WDigest UseLogonCredential=1 (cleartext passwords in LSASS); PASS: 0/absent on 8.1+.",
+      "why": "When WDigest credential caching is enabled, users' plaintext-equivalent passwords can remain in LSASS after logon. An attacker who gains sufficient local privileges can dump those credentials and reuse them across the environment.",
+      "test": [
+        {
+          "label": "Read the WDigest credential-caching setting",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest\" /v UseLogonCredential"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable WDigest credential caching",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest\" /v UseLogonCredential /t REG_DWORD /d 0 /f"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/security/credentials-protection-and-management/credentials-processes-in-windows-authentication",
+        "https://attack.mitre.org/techniques/T1003/001/"
+      ]
+    },
+    "WIN-CRED-LMCOMPAT": {
+      "os": "windows",
+      "scope": "host",
+      "group": "credential-protection",
+      "category": "winlocal",
+      "title": "LAN Manager authentication level",
+      "sev_fail": "high",
+      "sev_warn": "medium",
+      "semantics": "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5; ERR: value outside 0..5.",
+      "why": "Allowing LM or NTLMv1 authentication exposes weak challenge-response material that is practical to crack or relay. Attackers can force or capture legacy authentication and recover credentials for lateral movement.",
+      "test": [
+        {
+          "label": "Read the LAN Manager authentication level",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LmCompatibilityLevel"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Require NTLMv2 and refuse LM and NTLM",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LmCompatibilityLevel /t REG_DWORD /d 5 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Network security: LAN Manager authentication level to Send NTLMv2 response only. Refuse LM & NTLM after testing legacy dependencies."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/network-security-lan-manager-authentication-level"
+      ]
+    },
+    "WIN-CRED-NOLMHASH": {
+      "os": "windows",
+      "scope": "host",
+      "group": "credential-protection",
+      "category": "winlocal",
+      "title": "LM hash storage",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: NoLMHash=0; PASS: 1/default.",
+      "why": "Stored LM hashes are derived with obsolete, case-insensitive cryptography and can be cracked rapidly. An attacker who obtains the local account database or domain database can recover passwords more easily when LM hashes are retained.",
+      "test": [
+        {
+          "label": "Read the LM-hash storage policy",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v NoLMHash"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Prevent new LM hashes from being stored",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v NoLMHash /t REG_DWORD /d 1 /f"
+        },
+        {
+          "label": "Replace existing hashes",
+          "text": "After enabling the policy, require affected users to change their passwords because existing LM hashes are not removed until the corresponding password changes."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/troubleshoot/windows-server/windows-security/prevent-windows-store-lm-hash-password"
+      ]
+    },
+    "WIN-CRED-CACHEDLOGONS": {
+      "os": "windows",
+      "scope": "host",
+      "group": "credential-protection",
+      "category": "winlocal",
+      "title": "Cached domain logons",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: CachedLogonsCount >4 (default 10); PASS: <=4; NA: not domain-joined.",
+      "why": "Cached domain logons permit offline access but leave password-derived domain verifiers on the endpoint. An attacker who steals the system data can crack those verifiers offline, and a larger cache exposes more user accounts.",
+      "test": [
+        {
+          "label": "Read the cached-logon count",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v CachedLogonsCount"
+        },
+        {
+          "label": "Confirm domain membership",
+          "cmd": "Get-CimInstance Win32_ComputerSystem | Select-Object PartOfDomain,Domain"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Limit cached domain logons to four",
+          "cmd": "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v CachedLogonsCount /t REG_SZ /d 4 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Interactive logon: Number of previous logons to cache to the lowest value compatible with offline-use requirements."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/interactive-logon-number-of-previous-logons-to-cache-in-case-domain-controller-is-not-available"
+      ]
+    },
+    "WIN-UAC-LUA": {
+      "os": "windows",
+      "scope": "host",
+      "group": "access-control",
+      "category": "winlocal",
+      "title": "UAC enabled",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: EnableLUA=0; PASS: 1.",
+      "why": "Disabling User Account Control causes administrative users and applications to run without normal elevation boundaries. Malware launched by an administrator can then modify protected system resources without an elevation prompt.",
+      "test": [
+        {
+          "label": "Read the UAC enable setting",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v EnableLUA"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Enable UAC",
+          "cmd": "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v EnableLUA /t REG_DWORD /d 1 /f"
+        },
+        {
+          "label": "Schedule the required restart",
+          "text": "Restart Windows during an approved maintenance window after changing EnableLUA, then verify application compatibility and the effective setting."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/"
+      ]
+    },
+    "WIN-UAC-CONSENT": {
+      "os": "windows",
+      "scope": "host",
+      "group": "access-control",
+      "category": "winlocal",
+      "title": "UAC admin consent prompt",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: ConsentPromptBehaviorAdmin=0 (elevate without prompting); PASS: otherwise.",
+      "why": "Elevating administrators without prompting removes an important warning and consent boundary. Code executing in an administrator's session can silently obtain a high-integrity token and make system-wide changes.",
+      "test": [
+        {
+          "label": "Read the administrator consent behavior",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v ConsentPromptBehaviorAdmin"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Prompt administrators for consent",
+          "cmd": "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v ConsentPromptBehaviorAdmin /t REG_DWORD /d 5 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > User Account Control: Behavior of the elevation prompt for administrators in Admin Approval Mode to a prompting option appropriate for the environment."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/settings-and-configuration"
+      ]
+    },
+    "WIN-UAC-LATFP": {
+      "os": "windows",
+      "scope": "host",
+      "group": "access-control",
+      "category": "winlocal",
+      "title": "LocalAccountTokenFilterPolicy",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: LocalAccountTokenFilterPolicy=1 (full admin token for remote local-account logons; pass-the-hash); PASS: 0/absent.",
+      "why": "LocalAccountTokenFilterPolicy=1 grants a full administrator token to remote network logons using local accounts. An attacker who obtains a local administrator hash can use pass-the-hash for unrestricted remote administration and lateral movement.",
+      "test": [
+        {
+          "label": "Read the remote local-account token policy",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v LocalAccountTokenFilterPolicy"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restore remote UAC token filtering",
+          "cmd": "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v LocalAccountTokenFilterPolicy /t REG_DWORD /d 0 /f"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/troubleshoot/windows-server/windows-security/user-account-control-and-remote-restriction",
+        "https://attack.mitre.org/techniques/T1550/002/"
+      ]
+    },
+    "WIN-AIE": {
+      "os": "windows",
+      "scope": "host",
+      "group": "access-control",
+      "category": "winlocal",
+      "title": "AlwaysInstallElevated",
+      "sev_fail": "critical",
+      "sev_warn": "",
+      "semantics": "FAIL: AlwaysInstallElevated=1 in both HKLM and HKCU; PASS: otherwise.",
+      "why": "When AlwaysInstallElevated is enabled for both the computer and current user, that user can install a crafted MSI package with SYSTEM privileges. An attacker who controls a nonadministrative account can use this configuration for immediate local privilege escalation.",
+      "test": [
+        {
+          "label": "Read the machine installer policy",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+        },
+        {
+          "label": "Read the current-user installer policy",
+          "cmd": "reg query \"HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable both AlwaysInstallElevated policies",
+          "cmd": "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated /t REG_DWORD /d 0 /f & reg add \"HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated /t REG_DWORD /d 0 /f"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Always install with elevated privileges to Disabled under both Computer Configuration and User Configuration > Administrative Templates > Windows Components > Windows Installer."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/win32/msi/alwaysinstallelevated",
+        "https://attack.mitre.org/techniques/T1548/002/"
+      ]
+    },
+    "WIN-ACCT-ADMINS": {
+      "os": "windows",
+      "scope": "host",
+      "group": "accounts",
+      "category": "winlocal",
+      "title": "Local Administrators members",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: member count and names of the local Administrators group.",
+      "why": "Every member of the local Administrators group can take full control of the host and access other users' data and credentials. Unexpected or excessive membership expands the set of accounts an attacker can compromise for local privilege escalation.",
+      "test": [
+        {
+          "label": "List local Administrators members",
+          "cmd": "Get-LocalGroupMember -SID 'S-1-5-32-544' | Select-Object Name,ObjectClass,PrincipalSource"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Reduce administrator membership",
+          "text": "Remove unauthorized members, manage approved membership through restricted groups or Group Policy Preferences, and use Windows LAPS for the built-in local administrator rather than shared credentials."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.localaccounts/get-localgroupmember",
+        "https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-overview"
+      ]
+    },
+    "WIN-ACCT-GUEST": {
+      "os": "windows",
+      "scope": "host",
+      "group": "accounts",
+      "category": "winlocal",
+      "title": "Guest account",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: built-in Guest enabled; PASS: disabled.",
+      "why": "An enabled built-in Guest account provides a predictable local identity with deliberately limited authentication expectations. Attackers can use it for unauthorized access, reconnaissance, or interaction with resources that grant permissions to Guest or broad groups.",
+      "test": [
+        {
+          "label": "Inspect the built-in Guest account by SID",
+          "cmd": "Get-LocalUser | Where-Object { $_.SID.Value -match '-501$' } | Select-Object Name,Enabled,SID"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable the built-in Guest account",
+          "cmd": "Get-LocalUser | Where-Object { $_.SID.Value -match '-501$' } | Disable-LocalUser"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Set Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Accounts: Guest account status to Disabled."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/accounts-guest-account-status"
+      ]
+    },
+    "WIN-AUTOLOGON": {
+      "os": "windows",
+      "scope": "host",
+      "group": "credential-protection",
+      "category": "creds",
+      "title": "AutoLogon stored password",
+      "sev_fail": "critical",
+      "sev_warn": "medium",
+      "semantics": "FAIL: Winlogon DefaultPassword present; WARN: AutoAdminLogon=1 without stored password; PASS: neither. Never prints the value.",
+      "why": "A DefaultPassword value stores an interactive logon password in a recoverable registry location, allowing local administrators and some remote management paths to obtain it. Even without a stored password, enabled automatic logon can grant physical users access to the configured account after startup.",
+      "test": [
+        {
+          "label": "Check AutoLogon state and password-value presence without reading the password",
+          "cmd": "$k=Get-Item 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'; [pscustomobject]@{AutoAdminLogon=$k.GetValue('AutoAdminLogon',$null);DefaultPasswordPresent=($k.GetValueNames() -contains 'DefaultPassword')}"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Remove the stored password and disable AutoLogon",
+          "cmd": "Remove-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name DefaultPassword -ErrorAction SilentlyContinue; Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon -Value '0'"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/troubleshoot/windows-server/user-profiles-and-logon/turn-on-automatic-logon"
+      ]
+    },
+    "WIN-LAPS": {
+      "os": "windows",
+      "scope": "host",
+      "group": "accounts",
+      "category": "winlocal",
+      "title": "LAPS client policy",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: Windows LAPS or legacy AdmPwd policy enabled; WARN: no LAPS policy; NA: not domain-joined.",
+      "why": "Without LAPS policy, local administrator passwords are often static or reused across domain computers. Compromise of one password can therefore enable pass-the-hash or password-based lateral movement to many hosts.",
+      "test": [
+        {
+          "label": "Inspect Windows LAPS policy",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS\""
+        },
+        {
+          "label": "Inspect legacy Microsoft LAPS policy",
+          "cmd": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft Services\\AdmPwd\""
+        }
+      ],
+      "fix": [
+        {
+          "label": "Deploy Windows LAPS",
+          "text": "Configure Computer Configuration > Administrative Templates > System > LAPS, set Configure password backup directory to Active Directory or Microsoft Entra ID as appropriate, configure password settings, and delegate retrieval only to approved administrators."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-overview",
+        "https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-management-policy-settings"
+      ]
+    },
+    "WIN-SVC-SPOOLER": {
+      "os": "windows",
+      "scope": "host",
+      "group": "services",
+      "category": "winlocal",
+      "title": "Print Spooler",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: Spooler running on a domain controller (coercion/PrintNightmare surface); INFO: running on a non-DC; PASS: stopped/disabled.",
+      "why": "A running Print Spooler accepts complex print-related operations and has repeatedly exposed remote-code-execution and privilege-escalation paths. On a domain controller it also increases coercion risk because attackers may induce the DC to authenticate to another system.",
+      "test": [
+        {
+          "label": "Inspect the Print Spooler",
+          "cmd": "Get-CimInstance Win32_Service -Filter \"Name='Spooler'\" | Select-Object Name,State,StartMode"
+        },
+        {
+          "label": "Determine whether the host is a domain controller",
+          "cmd": "Get-CimInstance Win32_ComputerSystem | Select-Object Domain,DomainRole"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Stop and disable the Spooler where printing is unnecessary",
+          "cmd": "Stop-Service Spooler -Force; Set-Service Spooler -StartupType Disabled"
+        },
+        {
+          "label": "Enforce with Group Policy",
+          "text": "For domain controllers and other systems that do not print, configure Computer Configuration > Windows Settings > Security Settings > System Services > Print Spooler with Disabled startup and stopped service state."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/defender-for-identity/security-assessment-print-spooler",
+        "https://attack.mitre.org/techniques/T1187/"
+      ]
+    },
+    "WIN-WINRM-HTTP": {
+      "os": "windows",
+      "scope": "host",
+      "group": "remote-access",
+      "category": "winlocal",
+      "title": "WinRM transport",
+      "sev_fail": "high",
+      "sev_warn": "low",
+      "semantics": "FAIL: WinRM AllowUnencrypted=1; WARN: HTTP listener with no HTTPS listener; PASS: HTTPS or HTTP with encryption enforced; NA: WinRM not running.",
+      "why": "AllowUnencrypted permits WinRM messages to be sent without transport-level message encryption when the selected authentication mechanism does not provide it. An HTTP-only listener also lacks TLS server authentication, increasing exposure to interception or impersonation even though normal Kerberos and NTLM sessions encrypt message content.",
+      "test": [
+        {
+          "label": "Inspect the WinRM service",
+          "cmd": "Get-CimInstance Win32_Service -Filter \"Name='WinRM'\" | Select-Object State,StartMode"
+        },
+        {
+          "label": "List WinRM listeners",
+          "cmd": "winrm enumerate winrm/config/listener"
+        },
+        {
+          "label": "Read WinRM service security settings",
+          "cmd": "winrm get winrm/config/service"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disallow unencrypted WinRM traffic",
+          "text": "Set Computer Configuration > Administrative Templates > Windows Components > Windows Remote Management (WinRM) > WinRM Service > Allow unencrypted traffic to Disabled."
+        },
+        {
+          "label": "Deploy HTTPS where transport authentication is required",
+          "text": "Provision a suitable server-authentication certificate and create a WinRM HTTPS listener; remove an unnecessary HTTP listener only after validating management connectivity."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/win32/winrm/installation-and-configuration-for-windows-remote-management",
+        "https://learn.microsoft.com/en-us/windows/win32/winrm/authentication-for-remote-connections"
+      ]
+    },
+    "WIN-DOMAIN-JOINED": {
+      "os": "windows",
+      "scope": "host",
+      "group": "domain",
+      "category": "ad",
+      "title": "Domain membership",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: domain name and role (workgroup / member / DC).",
+      "why": "Domain membership and machine role determine which authentication paths, policies, and trust relationships apply to the host. Attackers value domain members for cached domain credentials and value domain controllers because compromise can expose directory-wide privileges.",
+      "test": [
+        {
+          "label": "Show domain membership and role",
+          "cmd": "Get-CimInstance Win32_ComputerSystem | Select-Object Name,PartOfDomain,Domain,DomainRole"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Validate the intended role",
+          "text": "Remove an unintended domain membership or domain-controller role through the organization's approved demotion or unjoin process; if membership is required, place the computer in the correct organizational unit and apply its security baseline."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-computersystem"
+      ]
+    },
+    "AD-PWPOL-MINLEN": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-policy",
+      "category": "ad",
+      "title": "Domain minimum password length",
+      "sev_fail": "high",
+      "sev_warn": "medium",
+      "semantics": "FAIL: minPwdLength<8; WARN: 8-13; PASS: >=14.",
+      "why": "Short domain passwords have a smaller search space and are easier to guess online or crack after hashes are stolen. Compromising one domain account can provide initial access and a foothold for privilege escalation.",
+      "test": [
+        {
+          "label": "Read the default domain minimum length",
+          "cmd": "Get-ADDefaultDomainPasswordPolicy -Current LoggedOnUser | Select-Object MinPasswordLength"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Set a minimum length of at least 14",
+          "cmd": "Set-ADDefaultDomainPasswordPolicy -Identity (Get-ADDomain).DNSRoot -MinPasswordLength 14"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Edit the domain password policy at Computer Configuration > Policies > Windows Settings > Security Settings > Account Policies > Password Policy > Minimum password length; also assess fine-grained password policies that may override the default for particular users."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/understand-security-password-settings",
+        "https://learn.microsoft.com/en-us/powershell/module/activedirectory/set-addefaultdomainpasswordpolicy"
+      ]
+    },
+    "AD-PWPOL-LOCKOUT": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-policy",
+      "category": "ad",
+      "title": "Domain account lockout threshold",
+      "sev_fail": "high",
+      "sev_warn": "low",
+      "semantics": "FAIL: lockoutThreshold=0 (unlimited guessing); WARN: >10; PASS: 1-10.",
+      "why": "A zero lockout threshold permits unlimited online password guesses, while a very high threshold gives attackers many attempts per account. A measured threshold slows password attacks, though monitoring and protections against lockout denial-of-service remain necessary.",
+      "test": [
+        {
+          "label": "Read the default domain lockout policy",
+          "cmd": "Get-ADDefaultDomainPasswordPolicy -Current LoggedOnUser | Select-Object LockoutThreshold,LockoutDuration,LockoutObservationWindow"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Set the default threshold to ten attempts",
+          "cmd": "Set-ADDefaultDomainPasswordPolicy -Identity (Get-ADDomain).DNSRoot -LockoutThreshold 10"
+        },
+        {
+          "label": "Configure Group Policy",
+          "text": "Edit Computer Configuration > Policies > Windows Settings > Security Settings > Account Policies > Account Lockout Policy and select a threshold from 1 through 10 with suitable duration and reset values; review fine-grained password policies separately."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/account-lockout-threshold",
+        "https://learn.microsoft.com/en-us/powershell/module/activedirectory/set-addefaultdomainpasswordpolicy"
+      ]
+    },
+    "AD-PWPOL-MAXAGE": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-policy",
+      "category": "ad",
+      "title": "Domain maximum password age",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: maxPwdAge in days (0 = never expires).",
+      "why": "Maximum password age describes how long the default domain policy permits a password to remain unchanged, with zero meaning no forced expiration. Excessive rotation can encourage predictable passwords, while non-expiring passwords increase exposure when credentials are compromised and no risk-based reset occurs.",
+      "test": [
+        {
+          "label": "Read the default domain maximum password age",
+          "cmd": "Get-ADDefaultDomainPasswordPolicy -Current LoggedOnUser | Select-Object MaxPasswordAge"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Align expiration with the identity policy",
+          "text": "Set Computer Configuration > Policies > Windows Settings > Security Settings > Account Policies > Password Policy > Maximum password age according to the organization's risk-based standard, and prioritize MFA, compromised-password screening, and immediate resets after suspected compromise."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/understand-security-password-settings",
+        "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/maximum-password-age"
+      ]
+    },
+    "AD-KRBTGT-AGE": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-privilege",
+      "category": "ad",
+      "title": "krbtgt password age",
+      "sev_fail": "high",
+      "sev_warn": "medium",
+      "semantics": "FAIL: krbtgt pwdLastSet >365 days; WARN: 180-365; PASS: <180.",
+      "why": "The krbtgt account protects Kerberos ticket-granting tickets for the domain, so an old password increases the period during which stolen key material may remain useful. An attacker with the krbtgt key can forge Golden Tickets and impersonate highly privileged users.",
+      "test": [
+        {
+          "label": "Show the krbtgt password-set date and age",
+          "cmd": "Get-ADUser krbtgt -Properties pwdLastSet | Select-Object SamAccountName,@{Name='PasswordLastSet';Expression={[datetime]::FromFileTime($_.pwdLastSet)}},@{Name='AgeDays';Expression={((Get-Date)-[datetime]::FromFileTime($_.pwdLastSet)).Days}}"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Rotate krbtgt safely",
+          "text": "Follow Microsoft's krbtgt recovery procedure: verify replication health, reset the password once, allow replication and existing ticket lifetimes to pass, then reset it a second time; coordinate the operation as a domain-wide change."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/forest-recovery-guide/ad-forest-recovery-reset-the-krbtgt-password",
+        "https://attack.mitre.org/techniques/T1558/001/"
+      ]
+    },
+    "AD-KERBEROASTABLE": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-privilege",
+      "category": "ad",
+      "title": "Kerberoastable user accounts",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: >=1 enabled user (not computer) with an SPN; PASS: 0.",
+      "why": "Any authenticated domain user can request a service ticket for an enabled user account that has an SPN. An attacker can extract the ticket's password-derived ciphertext and crack it offline, potentially recovering a service account password with elevated access.",
+      "test": [
+        {
+          "label": "List enabled noncomputer users with SPNs",
+          "cmd": "Get-ADUser -LDAPFilter '(&(objectCategory=person)(objectClass=user)(servicePrincipalName=*)(!(objectCategory=computer))(!(userAccountControl:1.2.840.113556.1.4.803:=2)))' -Properties servicePrincipalName | Select-Object SamAccountName,Enabled,ServicePrincipalName"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Harden SPN-bearing user accounts",
+          "text": "Remove obsolete SPNs and accounts, migrate supported services to group Managed Service Accounts, assign long randomly generated passwords to remaining service users, minimize their privileges, and rotate exposed credentials."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/security/group-managed-service-accounts/group-managed-service-accounts-overview",
+        "https://attack.mitre.org/techniques/T1558/003/"
+      ]
+    },
+    "AD-ASREP": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-privilege",
+      "category": "ad",
+      "title": "AS-REP roastable accounts",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: >=1 enabled account with DONT_REQ_PREAUTH; PASS: 0.",
+      "why": "Accounts that do not require Kerberos preauthentication allow anyone to request password-derived AS-REP material without knowing the password. An attacker can crack that material offline and use the recovered credentials for domain access.",
+      "test": [
+        {
+          "label": "List enabled accounts that do not require preauthentication",
+          "cmd": "Get-ADUser -LDAPFilter '(&(objectCategory=person)(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))' -Properties DoesNotRequirePreAuth | Select-Object SamAccountName,Enabled,DoesNotRequirePreAuth"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Require Kerberos preauthentication",
+          "cmd": "Set-ADAccountControl -Identity <user> -DoesNotRequirePreAuth $false"
+        },
+        {
+          "label": "Rotate exposed credentials",
+          "text": "After reenabling preauthentication, reset the account password to a strong random value and investigate whether the account's AS-REP material was previously collected."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/powershell/module/activedirectory/set-adaccountcontrol",
+        "https://attack.mitre.org/techniques/T1558/004/"
+      ]
+    },
+    "AD-UNCONSTRAINED": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-privilege",
+      "category": "ad",
+      "title": "Unconstrained delegation (non-DC)",
+      "sev_fail": "high",
+      "sev_warn": "",
+      "semantics": "FAIL: >=1 enabled non-DC computer or user with TRUSTED_FOR_DELEGATION; PASS: 0.",
+      "why": "Unconstrained delegation allows delegated accounts or computers to retain users' forwardable Kerberos ticket-granting tickets. An attacker who compromises such a non-DC system can capture privileged tickets and impersonate their owners across the domain.",
+      "test": [
+        {
+          "label": "List enabled non-DC principals trusted for unconstrained delegation",
+          "cmd": "Get-ADObject -LDAPFilter '(&(|(objectCategory=person)(objectCategory=computer))(userAccountControl:1.2.840.113556.1.4.803:=524288)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(!(primaryGroupID=516))(!(primaryGroupID=521)))' -Properties sAMAccountName,objectClass | Select-Object sAMAccountName,objectClass,DistinguishedName"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Remove unconstrained delegation",
+          "cmd": "Set-ADAccountControl -Identity <account> -TrustedForDelegation $false"
+        },
+        {
+          "label": "Use constrained delegation",
+          "text": "Where delegation is required, redesign the service for resource-based constrained delegation or constrained delegation with protocol transition only when necessary, and protect privileged accounts from delegation."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/how-to-configure-protected-accounts",
+        "https://attack.mitre.org/techniques/T1558/003/"
+      ]
+    },
+    "AD-ADMINCOUNT": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-privilege",
+      "category": "ad",
+      "title": "adminCount=1 users",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: count of users with adminCount=1.",
+      "why": "adminCount=1 identifies users that are or were subject to AdminSDHolder protection, including accounts that may once have held privileged group membership. A large or unexpected population can reveal privilege sprawl, stale protected ACLs, and attractive attacker targets.",
+      "test": [
+        {
+          "label": "List users with adminCount set",
+          "cmd": "Get-ADUser -LDAPFilter '(&(objectCategory=person)(objectClass=user)(adminCount=1))' -Properties adminCount,Enabled | Select-Object SamAccountName,Enabled,DistinguishedName"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Review protected-account history",
+          "text": "Confirm each account's current privileged memberships, remove obsolete privilege, and remediate stale adminCount and ACL inheritance only after verifying that the account is no longer protected by AdminSDHolder."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/understand-security-identifiers",
+        "https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/adminsdholder-protected-accounts"
+      ]
+    },
+    "AD-DA-MEMBERS": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-privilege",
+      "category": "ad",
+      "title": "Domain Admins membership",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: >5 distinct (recursive) members; INFO: count otherwise.",
+      "why": "Domain Admins members can control domain controllers, directory policy, and nearly every domain identity. Excessive membership gives attackers more accounts to phish, steal, or misuse for complete domain compromise.",
+      "test": [
+        {
+          "label": "List recursive Domain Admins membership by well-known SID",
+          "cmd": "$d=Get-ADDomain; $g=Get-ADGroup -Identity ($d.DomainSID.Value+'-512'); Get-ADGroupMember -Identity $g -Recursive | Sort-Object DistinguishedName -Unique | Select-Object Name,SamAccountName,ObjectClass"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Reduce Domain Admins membership",
+          "text": "Remove accounts that do not require persistent domain-wide control, use separate privileged identities and time-bound elevation for administrative work, and alert on every membership change."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/best-practices-for-securing-active-directory",
+        "https://attack.mitre.org/techniques/T1098/"
+      ]
+    },
+    "AD-PROTECTED-USERS": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-privilege",
+      "category": "ad",
+      "title": "Protected Users group",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: Protected Users has no members; PASS: >=1.",
+      "why": "Protected Users applies additional credential protections to suitable high-value domain accounts, including restrictions on legacy authentication and credential caching. If the group is empty, no eligible privileged account receives those safeguards against credential theft and reuse.",
+      "test": [
+        {
+          "label": "List Protected Users membership by well-known SID",
+          "cmd": "$d=Get-ADDomain; $g=Get-ADGroup -Identity ($d.DomainSID.Value+'-525'); Get-ADGroupMember -Identity $g | Select-Object Name,SamAccountName,ObjectClass"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Add compatible privileged users",
+          "text": "After testing authentication and delegation dependencies, add suitable human privileged accounts to Protected Users; do not add service accounts or accounts that require NTLM, DES, delegation, or long-lived Kerberos tickets."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/security/credentials-protection-and-management/protected-users-security-group"
+      ]
+    },
+    "AD-MAQ": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-policy",
+      "category": "ad",
+      "title": "Machine account quota",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "WARN: ms-DS-MachineAccountQuota>0 (any user can join computers; RBCD/Certifried aid); PASS: 0.",
+      "why": "A positive machine-account quota lets ordinary authenticated users create computer accounts in the domain. Attackers can abuse those accounts in resource-based constrained delegation, certificate-service attack chains, or other identity-manipulation techniques.",
+      "test": [
+        {
+          "label": "Read the domain machine-account quota",
+          "cmd": "$d=Get-ADDomain; Get-ADObject -Identity $d.DistinguishedName -Properties 'ms-DS-MachineAccountQuota' | Select-Object Name,'ms-DS-MachineAccountQuota'"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Set the machine-account quota to zero",
+          "cmd": "Set-ADDomain -Identity (Get-ADDomain).DistinguishedName -Replace @{'ms-DS-MachineAccountQuota'=0}"
+        },
+        {
+          "label": "Delegate joins explicitly",
+          "text": "Grant computer-creation or domain-join rights only to a controlled provisioning identity or approved administrators in the required organizational units."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/win32/adschema/a-ms-ds-machineaccountquota",
+        "https://attack.mitre.org/techniques/T1136/002/"
+      ]
+    },
+    "AD-FUNC-LEVEL": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-policy",
+      "category": "ad",
+      "title": "Domain/forest functional level",
+      "sev_fail": "",
+      "sev_warn": "low",
+      "semantics": "WARN: domain functional level below 2016 (msDS-Behavior-Version<7); PASS: >=7.",
+      "why": "Older domain functional levels retain compatibility with obsolete domain-controller generations and prevent use of newer directory capabilities. Attackers benefit when legacy protocols, systems, and weaker security assumptions must remain supported.",
+      "test": [
+        {
+          "label": "Read numeric domain and forest behavior versions",
+          "cmd": "$r=Get-ADRootDSE; Get-ADObject $r.defaultNamingContext -Properties 'msDS-Behavior-Version' | Select-Object DistinguishedName,'msDS-Behavior-Version'; Get-ADObject $r.configurationNamingContext -Properties 'msDS-Behavior-Version' | Select-Object DistinguishedName,'msDS-Behavior-Version'"
+        },
+        {
+          "label": "Show friendly functional-level names",
+          "cmd": "Get-ADDomain | Select-Object DNSRoot,DomainMode; Get-ADForest | Select-Object RootDomain,ForestMode"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Raise functional levels after validation",
+          "text": "Remove or upgrade unsupported domain controllers, verify replication and application compatibility, then use Active Directory Domains and Trusts or Set-ADDomainMode and Set-ADForestMode to raise the levels; treat this as a planned, forest-wide change."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/active-directory-functional-levels"
+      ]
+    },
+    "AD-LDAP-SIGNING": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "relay",
+      "category": "ad",
+      "title": "DC LDAP signing / channel binding",
+      "sev_fail": "high",
+      "sev_warn": "medium",
+      "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable or a value outside 0..2 (never a false PASS).",
+      "why": "A domain controller that does not require LDAP signing can accept integrity-unprotected LDAP binds. An attacker can relay authentication to LDAP or alter traffic and then make directory changes with the relayed user's permissions. Signing alone does not stop relay to LDAPS: without channel binding (LdapEnforceChannelBinding=2) a relayed NTLM bind over TLS is still accepted.",
+      "test": [
+        {
+          "label": "Read LDAP signing enforcement locally on each domain controller",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LDAPServerIntegrity"
+        },
+        {
+          "label": "Read LDAP channel-binding enforcement on each domain controller",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LdapEnforceChannelBinding"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Require LDAP server signing",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LDAPServerIntegrity /t REG_DWORD /d 2 /f"
+        },
+        {
+          "label": "Configure the domain-controller GPO",
+          "text": "Set Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Domain controller: LDAP server signing requirements to Require signing, and test legacy LDAP clients before enforcement."
+        },
+        {
+          "label": "Always enforce LDAP channel binding (after auditing clients with event 3039)",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LdapEnforceChannelBinding /t REG_DWORD /d 2 /f"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/enable-ldap-signing-in-windows-server",
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/ldap-signing",
+        "https://support.microsoft.com/help/4520412"
+      ]
+    },
+    "AD-TRUSTS": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-policy",
+      "category": "ad",
+      "title": "Domain trusts",
+      "sev_fail": "",
+      "sev_warn": "",
+      "semantics": "INFO: count and direction of trustedDomain objects.",
+      "why": "Domain and forest trusts extend authentication and authorization paths across security boundaries. An obsolete, overly broad, or poorly monitored trust can let an attacker pivot from a compromised trusted domain or abuse cross-domain identities.",
+      "test": [
+        {
+          "label": "List domain trusts and their direction",
+          "cmd": "Get-ADTrust -Filter * | Select-Object Name,Direction,TrustType,ForestTransitive,SelectiveAuthentication,SIDFilteringForestAware"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Review and constrain trusts",
+          "text": "Remove trusts with no current business owner, prefer one-way direction and selective authentication where feasible, enable appropriate SID filtering, and monitor changes and cross-trust authentication."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/entra/identity/domain-services/concepts-forest-trust",
+        "https://attack.mitre.org/techniques/T1482/"
+      ]
+    },
+    "AD-LAPS-SCHEMA": {
+      "os": "windows",
+      "scope": "domain",
+      "group": "domain-policy",
+      "category": "ad",
+      "title": "LAPS schema present",
+      "sev_fail": "",
+      "sev_warn": "medium",
+      "semantics": "PASS: ms-Mcs-AdmPwd or msLAPS-Password attribute in schema; WARN: neither.",
+      "why": "Without Windows LAPS or legacy Microsoft LAPS schema attributes, Active Directory cannot store the managed local-administrator password data required by those deployments. Organizations may then fall back to static or reused local passwords that enable broad lateral movement after one endpoint is compromised.",
+      "test": [
+        {
+          "label": "Search the schema for Windows or legacy LAPS password attributes",
+          "cmd": "$s=(Get-ADRootDSE).schemaNamingContext; Get-ADObject -SearchBase $s -LDAPFilter '(|(lDAPDisplayName=msLAPS-Password)(lDAPDisplayName=ms-Mcs-AdmPwd))' -Properties lDAPDisplayName | Select-Object Name,lDAPDisplayName"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Extend the schema for Windows LAPS",
+          "cmd": "Update-LapsADSchema"
+        },
+        {
+          "label": "Complete the deployment",
+          "text": "After extending the schema, delegate computer self-update and password-retrieval permissions, configure the Windows LAPS policy, and audit which principals can read password attributes."
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-scenarios-windows-server-active-directory",
+        "https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-management-powershell"
+      ]
+    }
   }
 }

@@ -1,0 +1,346 @@
+{
+ "LIN-OS-RELEASE": {
+  "os": "linux",
+  "scope": "host",
+  "title": "OS release and kernel",
+  "group": "patching",
+  "category": "linlocal",
+  "semantics": "INFO: distro, version, kernel release."
+ },
+ "LIN-PKG-SECUPDATES": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Pending security updates",
+  "group": "patching",
+  "category": "linlocal",
+  "semantics": "FAIL: >=1 pending security update in the package cache; WARN: non-security updates pending only; PASS: none. Reads cache only (apt-get -s / dnf -C), never refreshes."
+ },
+ "LIN-PKG-AUTOUPDATE": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Automatic security updates",
+  "group": "patching",
+  "category": "linlocal",
+  "semantics": "PASS: unattended-upgrades / dnf-automatic enabled; WARN: not configured."
+ },
+ "LIN-REBOOT-REQUIRED": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Reboot pending for updates",
+  "group": "patching",
+  "category": "linlocal",
+  "semantics": "WARN: /var/run/reboot-required present (patched kernel/libs not loaded); PASS: absent."
+ },
+ "LIN-SYSCTL-PTRACE": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Yama ptrace scope",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "WARN: kernel.yama.ptrace_scope=0; PASS: >=1; NA: Yama absent."
+ },
+ "LIN-SYSCTL-KPTR": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Kernel pointer restriction",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "WARN: kernel.kptr_restrict=0; PASS: >=1."
+ },
+ "LIN-SYSCTL-DMESG": {
+  "os": "linux",
+  "scope": "host",
+  "title": "dmesg restriction",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "WARN: kernel.dmesg_restrict=0; PASS: 1."
+ },
+ "LIN-SYSCTL-BPF": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Unprivileged eBPF",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "WARN: kernel.unprivileged_bpf_disabled=0; PASS: 1 or 2."
+ },
+ "LIN-SYSCTL-USERNS": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Unprivileged user namespaces",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "WARN: unprivileged userns creation allowed (unprivileged_userns_clone=1 / max_user_namespaces>0) and not AppArmor-restricted; PASS: disabled or apparmor_restrict_unprivileged_userns=1."
+ },
+ "LIN-SYSCTL-ASLR": {
+  "os": "linux",
+  "scope": "host",
+  "title": "ASLR",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "FAIL: kernel.randomize_va_space<2; PASS: 2."
+ },
+ "LIN-SYSCTL-SUIDDUMP": {
+  "os": "linux",
+  "scope": "host",
+  "title": "setuid core dumps",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "WARN: fs.suid_dumpable!=0; PASS: 0."
+ },
+ "LIN-SYSCTL-PROTLINKS": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Protected symlinks/hardlinks",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "WARN: fs.protected_symlinks or fs.protected_hardlinks =0; PASS: both 1."
+ },
+ "LIN-SYSCTL-PERF": {
+  "os": "linux",
+  "scope": "host",
+  "title": "perf_event paranoia",
+  "group": "kernel",
+  "category": "linlocal",
+  "semantics": "WARN: kernel.perf_event_paranoid<2; PASS: >=2."
+ },
+ "LIN-SYSCTL-IPFWD": {
+  "os": "linux",
+  "scope": "host",
+  "title": "IPv4 forwarding",
+  "group": "network",
+  "category": "linlocal",
+  "semantics": "WARN: net.ipv4.ip_forward=1 (host routes traffic; pivot aid); PASS: 0."
+ },
+ "LIN-LSM-MAC": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Mandatory access control",
+  "group": "access-control",
+  "category": "linlocal",
+  "semantics": "PASS: SELinux enforcing or AppArmor enabled; WARN: SELinux permissive/disabled and no AppArmor."
+ },
+ "LIN-FIREWALL": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Host firewall",
+  "group": "network",
+  "category": "linlocal",
+  "semantics": "PASS: ufw/firewalld/nftables/iptables service active or ufw ENABLED=yes; WARN: none active; ERR: cannot determine."
+ },
+ "LIN-SSH-ROOTLOGIN": {
+  "os": "linux",
+  "scope": "host",
+  "title": "SSH root login",
+  "group": "remote-access",
+  "category": "linlocal",
+  "semantics": "FAIL: PermitRootLogin yes; PASS: no / prohibit-password / forced-commands-only / default; NA: no sshd_config."
+ },
+ "LIN-SSH-PASSAUTH": {
+  "os": "linux",
+  "scope": "host",
+  "title": "SSH password authentication",
+  "group": "remote-access",
+  "category": "linlocal",
+  "semantics": "WARN: PasswordAuthentication yes (explicit or default); PASS: no; NA: no sshd_config."
+ },
+ "LIN-SSH-EMPTYPW": {
+  "os": "linux",
+  "scope": "host",
+  "title": "SSH empty passwords",
+  "group": "remote-access",
+  "category": "linlocal",
+  "semantics": "FAIL: PermitEmptyPasswords yes; PASS: no/default; NA: no sshd_config."
+ },
+ "LIN-SSH-X11": {
+  "os": "linux",
+  "scope": "host",
+  "title": "SSH X11 forwarding",
+  "group": "remote-access",
+  "category": "linlocal",
+  "semantics": "WARN: X11Forwarding yes; PASS: no/default; NA: no sshd_config."
+ },
+ "LIN-SSH-MAXAUTH": {
+  "os": "linux",
+  "scope": "host",
+  "title": "SSH MaxAuthTries",
+  "group": "remote-access",
+  "category": "linlocal",
+  "semantics": "WARN: MaxAuthTries >4 (default 6); PASS: <=4; NA: no sshd_config."
+ },
+ "LIN-SSH-CIPHERS": {
+  "os": "linux",
+  "scope": "host",
+  "title": "SSH weak ciphers/MACs/KEX",
+  "group": "remote-access",
+  "category": "linlocal",
+  "semantics": "WARN: configured Ciphers/MACs/KexAlgorithms include cbc, arcfour, 3des, md5, sha1 KEX or group1; PASS: none configured weak (default set); NA: no sshd_config."
+ },
+ "LIN-SSH-HOSTKEY-PERMS": {
+  "os": "linux",
+  "scope": "host",
+  "title": "SSH host private key permissions",
+  "group": "remote-access",
+  "category": "linlocal",
+  "semantics": "FAIL: an /etc/ssh/ssh_host_*_key is group/world readable or readable by the current non-root user; PASS: otherwise; NA: no host keys."
+ },
+ "LIN-ACCT-UID0": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Extra UID 0 accounts",
+  "group": "accounts",
+  "category": "linlocal",
+  "semantics": "FAIL: any account other than root has UID 0; PASS: only root."
+ },
+ "LIN-ACCT-EMPTYPW": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Accounts with empty password",
+  "group": "accounts",
+  "category": "linlocal",
+  "semantics": "FAIL: /etc/shadow has an empty password field; PASS: none; ERR: shadow not readable (needs root)."
+ },
+ "LIN-ACCT-NOPASSWD": {
+  "os": "linux",
+  "scope": "host",
+  "title": "sudo NOPASSWD rules",
+  "group": "accounts",
+  "category": "linlocal",
+  "semantics": "WARN: >=1 NOPASSWD rule in sudoers/sudoers.d; PASS: none; ERR: sudoers unreadable (needs root); NA: sudo absent."
+ },
+ "LIN-ACCT-ADMINS": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Administrative group members",
+  "group": "accounts",
+  "category": "linlocal",
+  "semantics": "INFO: members of sudo/wheel/admin groups."
+ },
+ "LIN-ACCT-UMASK": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Default umask",
+  "group": "accounts",
+  "category": "linlocal",
+  "semantics": "WARN: login.defs UMASK grants group/other write (e.g. 002, 000); PASS: 022/027/077."
+ },
+ "LIN-ACCT-AGING": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Password maximum age",
+  "group": "accounts",
+  "category": "linlocal",
+  "semantics": "WARN: login.defs PASS_MAX_DAYS unset or >365; PASS: <=365."
+ },
+ "LIN-FILE-SHADOW": {
+  "os": "linux",
+  "scope": "host",
+  "title": "/etc/shadow permissions",
+  "group": "filesystem",
+  "category": "linlocal",
+  "semantics": "FAIL: /etc/shadow (or gshadow) world-readable or world-writable; PASS: otherwise."
+ },
+ "LIN-FILE-PASSWD": {
+  "os": "linux",
+  "scope": "host",
+  "title": "/etc/passwd permissions",
+  "group": "filesystem",
+  "category": "linlocal",
+  "semantics": "FAIL: /etc/passwd or /etc/group writable by group/other; PASS: otherwise."
+ },
+ "LIN-MNT-TMP": {
+  "os": "linux",
+  "scope": "host",
+  "title": "/tmp mount options",
+  "group": "filesystem",
+  "category": "linlocal",
+  "semantics": "WARN: /tmp not a separate mount, or mounted without nosuid/nodev; PASS: separate mount with nosuid,nodev."
+ },
+ "LIN-MNT-SHM": {
+  "os": "linux",
+  "scope": "host",
+  "title": "/dev/shm mount options",
+  "group": "filesystem",
+  "category": "linlocal",
+  "semantics": "WARN: /dev/shm mounted without noexec or nosuid; PASS: noexec,nosuid."
+ },
+ "LIN-PATH-WW": {
+  "os": "linux",
+  "scope": "host",
+  "title": "World-writable directories in PATH",
+  "group": "filesystem",
+  "category": "linlocal",
+  "semantics": "FAIL: a directory on PATH (or /etc/environment PATH) is world-writable without sticky bit; PASS: none."
+ },
+ "LIN-CRON-PERMS": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Cron configuration permissions",
+  "group": "filesystem",
+  "category": "linlocal",
+  "semantics": "FAIL: /etc/crontab or an /etc/cron.* entry is world-writable; PASS: none."
+ },
+ "LIN-LOG-AUDITD": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Audit daemon",
+  "group": "logging",
+  "category": "linlocal",
+  "semantics": "PASS: auditd active; WARN: not active."
+ },
+ "LIN-LOG-SYSLOG": {
+  "os": "linux",
+  "scope": "host",
+  "title": "System logging",
+  "group": "logging",
+  "category": "linlocal",
+  "semantics": "PASS: rsyslog/syslog-ng active or journald persistent storage; WARN: only volatile journal."
+ },
+ "LIN-TIME-SYNC": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Time synchronization",
+  "group": "logging",
+  "category": "linlocal",
+  "semantics": "PASS: chronyd/systemd-timesyncd/ntpd active; WARN: none (breaks Kerberos and log correlation)."
+ },
+ "LIN-BOOT-SECUREBOOT": {
+  "os": "linux",
+  "scope": "host",
+  "title": "UEFI Secure Boot",
+  "group": "boot",
+  "category": "linlocal",
+  "semantics": "PASS: Secure Boot enabled; WARN: UEFI with Secure Boot disabled; INFO: legacy BIOS boot."
+ },
+ "LIN-SVC-FAILED": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Failed systemd units",
+  "group": "services",
+  "category": "linlocal",
+  "semantics": "INFO: count of failed units."
+ },
+ "LIN-CTR-DOCKERSOCK": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Docker socket exposure",
+  "group": "services",
+  "category": "linlocal",
+  "semantics": "FAIL: /var/run/docker.sock world-writable or writable by the current non-root user; PASS: present and restricted; NA: absent."
+ },
+ "LIN-AD-JOINED": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Directory membership",
+  "group": "domain",
+  "category": "ad",
+  "semantics": "INFO: realm/sssd/winbind membership and realm name, or not joined."
+ },
+ "LIN-AD-KEYTAB": {
+  "os": "linux",
+  "scope": "host",
+  "title": "Host keytab readability",
+  "group": "domain",
+  "category": "ad",
+  "semantics": "FAIL: /etc/krb5.keytab readable by the current non-root user or world-readable; PASS: present and restricted; NA: absent."
+ }
+}

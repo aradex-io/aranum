@@ -62,6 +62,7 @@ NAV_ITEMS = [
     ("Guidance",  "guidance.html"),
     ("Hosts",     "hosts.html"),
     ("Active Directory", "ad.html"),
+    ("Posture",   "posture.html"),
     ("Categories", "categories.html"),
     ("Inventory", "inventory.html"),
     ("Services",  "services.html"),
@@ -211,6 +212,26 @@ def safe_name(s: str) -> str:
     """Map an arbitrary string (IP, hostname, service name) to a filesystem-safe
     filename component. Replaces `:`, `/`, `\\`, spaces, brackets."""
     return re.sub(r"[^A-Za-z0-9._-]+", "-", str(s)).strip("-") or "unknown"
+
+
+def target_page(f: dict) -> str:
+    """The page a finding's target links to. A domain-scope (AD posture) finding
+    is keyed by a domain, not a host, and has no host page: it links to that
+    domain's posture section on the AD page."""
+    host = str(f.get("host", ""))
+    if f.get("scope") == "domain":
+        return f"ad.html#domain-{safe_name(host)}"
+    return f"host_{safe_name(host)}.html"
+
+
+def target_link(f: dict, mono: bool = False) -> str:
+    """Scope-aware target cell: host link, or domain link + a "domain" label."""
+    host = str(f.get("host", ""))
+    text = f'<code class="mono">{e(host)}</code>' if mono else e(host)
+    link = f'<a href="{e(target_page(f))}">{text}</a>'
+    if f.get("scope") == "domain":
+        link += ' <span class="chip chip-scope">domain</span>'
+    return link
 
 
 def fmt_time(ts: str | None) -> str:
@@ -471,7 +492,8 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     # Mirror report.py:main — the AD-depth rules (Kerberoast/AS-REP, ESC1,
     # cpassword, LAPS-readable, PwnKit, writable-pipe) are CRITICAL findings.
     rules = rpt._compose_rules(rpt._load_rules(rules_path), rpt._AD_DEPTH_RULES)
-    collection = rpt.collect(out_dir, rules)
+    diagnostics: "list[dict]" = []
+    collection = rpt.collect(out_dir, rules, diagnostics=diagnostics)
     findings = collection.findings
     bulk = collection.mode == "bulk-enum"
 
@@ -482,7 +504,10 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     by_service: dict[str, list[dict]] = defaultdict(list)
     by_severity: dict[str, list[dict]] = defaultdict(list)
     for f in findings:
-        by_host[f["host"]].append(f)
+        # A domain-scope (AD posture) finding is keyed by domain, not a host:
+        # it must not create a host row or a host page.
+        if f.get("scope") != "domain":
+            by_host[f["host"]].append(f)
         by_service[f["service"]].append(f)
         by_severity[f["severity"]].append(f)
 
@@ -511,6 +536,9 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
 
     events = read_run_log(out_dir)
     per_host_verdicts = collection.per_host or {}
+    posture_hosts, domains = _normalize_posture(
+        (collection.posture or {}).get("hosts") if isinstance(collection.posture, dict) else {},
+        collection.domains)
 
     # ----- port discovery (three sources, unioned) -----
     # Map (host, service) -> set[int] of ports observed.
@@ -669,8 +697,11 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
         "inventory_by_host": dict(inventory_by_host),
         "inbox": build_inbox(findings),
         "guidance": read_guidance(out_dir),
-        "run_health": build_run_health(out_dir, rules),
+        "run_health": build_run_health(out_dir, rules) + _posture_quarantine_health(diagnostics),
         "dc_hosts": _dc_hosts(inventory),
+        "posture": posture_hosts,
+        "domains": domains,
+        "domain_membership": _domain_membership(posture_hosts, domains),
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -800,7 +831,7 @@ def render_index(model: dict) -> str:
         <tr>
           <td>{severity_chip(f['severity'])}</td>
           <td><code class="mono">{e(truncate(f['line'], 120))}</code></td>
-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
+          <td>{target_link(f)}</td>
           <td>{e(f['service'])}</td>
         </tr>""")
 
@@ -1116,6 +1147,7 @@ def render_host_detail(model: dict, host: str) -> str:
   </table>
 </section>
 
+{render_host_posture_card(model, host)}
 <section class="card">
   <h2 class="card-title">Quick service jump</h2>
   <p>{svc_chips or '<span class="muted">no services routed to this host</span>'}</p>
@@ -1183,7 +1215,7 @@ def render_service_detail(model: dict, svc: str) -> str:
         <tr data-severity="{e(f['severity'])}" data-host="{e(f['host'])}">
           <td>{severity_chip(f['severity'])}</td>
           <td><code class="mono">{e(truncate(f['line'], 280))}</code></td>
-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
+          <td>{target_link(f)}</td>
           <td><code class="mono small">{e(f['evidence_path'])}</code></td>
         </tr>""")
 
@@ -1318,7 +1350,7 @@ def render_inbox(model: dict) -> str:
           <td class="num priority">{e(f.get('priority', 0))}</td>
           <td>{severity_chip(f.get('severity', 'info'))}</td>
           <td>{e(f.get('confidence', 'medium'))}</td>
-          <td><a href="host_{e(safe_name(host))}.html">{e(host)}</a></td>
+          <td>{target_link(f)}</td>
           <td class="num">{e(f.get('port', '') or '')}</td>
           <td><a href="service_{e(safe_name(svc))}.html">{e(svc)}</a></td>
           <td><strong>{e(f.get('title', 'Finding'))}</strong><br><code class="mono small">{e(truncate(f.get('line', ''), 180))}</code></td>
@@ -1424,7 +1456,7 @@ def render_severity_detail(model: dict, sev: str) -> str:
         rows.append(f"""
         <tr data-host="{e(f['host'])}" data-service="{e(f['service'])}">
           <td><code class="mono">{e(truncate(f['line'], 280))}</code></td>
-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
+          <td>{target_link(f)}</td>
           <td><a href="service_{e(safe_name(f['service']))}.html">{e(f['service'])}</a></td>
           <td><code class="mono small">{e(f['evidence_path'])}</code></td>
         </tr>""")
@@ -1599,7 +1631,7 @@ def export_data_json(model: dict) -> str:
                 "port": f.get("port", ""),
                 "service": f.get("service", ""),
                 "title": f.get("title", ""),
-                "page": f"host_{safe_name(f.get('host', ''))}.html",
+                "page": target_page(f),
             }
             for f in model.get("inbox", [])
         ],
@@ -1818,6 +1850,19 @@ code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; border:
 .chip-low      { background: color-mix(in srgb, var(--sev-low) 22%, transparent);      color: var(--sev-low);      border: 1px solid color-mix(in srgb, var(--sev-low) 40%, transparent); }
 .chip-info     { background: color-mix(in srgb, var(--sev-info) 22%, transparent);     color: var(--sev-info);     border: 1px solid color-mix(in srgb, var(--sev-info) 40%, transparent); }
 .chip-warn     { background: color-mix(in srgb, var(--sev-high) 22%, transparent);     color: var(--sev-high);     border: 1px solid color-mix(in srgb, var(--sev-high) 40%, transparent); }
+/* S3 — posture status chips + host x group matrix */
+.chip-st-fail { background: color-mix(in srgb, var(--sev-high) 22%, transparent); color: var(--sev-high); border: 1px solid color-mix(in srgb, var(--sev-high) 40%, transparent); }
+.chip-st-warn { background: color-mix(in srgb, var(--sev-medium) 22%, transparent); color: var(--sev-medium); border: 1px solid color-mix(in srgb, var(--sev-medium) 40%, transparent); }
+.chip-st-pass { background: color-mix(in srgb, #3fb950 22%, transparent); color: #3fb950; border: 1px solid color-mix(in srgb, #3fb950 40%, transparent); }
+.chip-st-info { background: color-mix(in srgb, var(--sev-low) 18%, transparent); color: var(--sev-low); border: 1px solid color-mix(in srgb, var(--sev-low) 35%, transparent); }
+.chip-st-na   { color: var(--sev-info); border: 1px solid color-mix(in srgb, var(--sev-info) 40%, transparent); }
+.chip-st-err  { color: var(--sev-critical); border: 1px dashed color-mix(in srgb, var(--sev-critical) 55%, transparent); }
+.posture-group th { text-align: left; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; padding-top: 10px; }
+.posture-matrix td.pm { font-family: var(--mono, monospace); font-size: 0.85em; text-align: center; }
+.pm-fail { background: color-mix(in srgb, var(--sev-high) 16%, transparent); }
+.pm-warn { background: color-mix(in srgb, var(--sev-medium) 14%, transparent); }
+.pm-err  { background: color-mix(in srgb, var(--sev-critical) 8%, transparent); }
+.pm-pass { background: color-mix(in srgb, #3fb950 12%, transparent); }
 /* S2 — KB test/remediation guidance + callouts */
 .callout { border-radius: 8px; padding: 10px 14px; margin: 10px 0 16px 0; border: 1px solid var(--border); background: var(--bg-elev-2); font-size: 0.9em; }
 .callout-warn { border-color: color-mix(in srgb, var(--sev-high) 45%, transparent); background: color-mix(in srgb, var(--sev-high) 10%, transparent); }
@@ -1836,6 +1881,7 @@ details.kb-guide > summary { cursor: pointer; color: var(--accent, #6af); font-s
 .kb-refs { font-size: 0.82em; opacity: 0.8; margin-top: 6px; }
 .copybtn { cursor: pointer; border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text); border-radius: 4px; padding: 1px 6px; font-size: 0.9em; line-height: 1.2; }
 .copybtn.copied { color: var(--sev-low); border-color: var(--sev-low); }
+.chip-scope { background: var(--bg-elev-2); color: var(--text-dim); border: 1px solid var(--border); font-size: 0.75em; }
 .chip-svc, .chip-host {
   background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border);
   margin-right: 4px; margin-bottom: 4px; text-decoration: none;
@@ -2293,12 +2339,54 @@ _AD_FAMILIES = [
 ]
 
 
+# A posture finding's family comes from its KB check group, not rule_id text.
+_POSTURE_AD_FAMILY = {"relay": "Relay &amp; coercion", "credential-protection": "Credential exposure"}
+
+
+def _finding_ad_family(f: dict) -> str:
+    if f.get("service") == "posture":
+        group = str(_check_meta(str(f.get("posture_check") or f.get("rule_id", ""))).get("group", ""))
+        return _POSTURE_AD_FAMILY.get(group, "Policy &amp; hygiene")
+    return _ad_family(str(f.get("rule_id", "")))
+
+
 def _ad_family(rule_id: str) -> str:
     for name, subs in _AD_FAMILIES:
         for s in subs:
             if s in rule_id:
                 return name
     return "Policy &amp; hygiene"
+
+
+def _ad_correlation_callout(findings: "list[dict]", membership: "dict[str, dict]") -> str:
+    """Domain correlation for AD signals. A finding is tied to a domain only
+    when host posture from that same host established its membership; every
+    other finding stays an uncorrelated signal."""
+    tied: "dict[str, set[str]]" = defaultdict(set)
+    loose = 0
+    for f in findings:
+        mem = membership.get(str(f.get("host", "")))
+        if mem:
+            tied[mem["domain"]].add(str(f.get("host", "")))
+        else:
+            loose += 1
+    parts = []
+    if tied:
+        doms = "; ".join(f'<code class="mono">{e(d)}</code> ({len(hs)} host{"s" if len(hs) != 1 else ""})'
+                         for d, hs in sorted(tied.items()))
+        parts.append(f"""<div class="callout">
+  <strong>Confirmed domain context.</strong> Host posture established domain membership for the hosts behind
+  {sum(1 for f in findings if membership.get(str(f.get("host", ""))))} AD finding(s): {doms}. Findings sharing a
+  domain below can be read together as one attack surface.
+</div>""")
+    if loose or not findings:
+        parts.append(f"""<div class="callout callout-warn">
+  <strong>Uncorrelated signals.</strong> {f"{loose} finding(s) below come" if findings else "Findings here come"} from hosts with
+  no posture-established domain membership. They are grouped by attack-path family, not by domain, so two findings in
+  different families are <em>not</em> confirmed to share a domain or be chainable. Treat each as an independent signal
+  until confirmed (collect posture with <code class="mono">--with-posture</code>).
+</div>""")
+    return "\n".join(parts)
 
 
 def render_ad(model: dict) -> str:
@@ -2308,7 +2396,10 @@ def render_ad(model: dict) -> str:
     family. Cross-family signals are labelled UNCORRELATED: S2 has no domain
     identity yet, so we cannot claim two findings share a domain. S3's domain
     rollup upgrades these to confirmed, domain-keyed chains."""
-    findings = [f for f in model["findings"] if f.get("category") == "ad"]
+    # Domain-scope posture findings render in the Domain posture table, not as
+    # per-host signals.
+    findings = [f for f in model["findings"] if f.get("category") == "ad" and f.get("scope") != "domain"]
+    membership = model.get("domain_membership", {})
     dcs = model.get("dc_hosts", [])
     dc_html = (", ".join(f'<a href="host_{e(safe_name(h))}.html"><code class="mono">{e(h)}</code></a>'
                          for h in dcs)
@@ -2319,19 +2410,15 @@ def render_ad(model: dict) -> str:
   <p class="card-sub">Hosts exposing Kerberos (88) with LDAP (389) or SMB (445).</p>
   <p>{dc_html}</p>
 </section>
-<div class="callout callout-warn">
-  <strong>Uncorrelated signals.</strong> The findings below are grouped by attack-path
-  family, not by domain. aranum has not yet established domain identity, so two findings in
-  different families are <em>not</em> confirmed to share a domain or be chainable. Treat each as an
-  independent signal until confirmed.
-</div>
+{_ad_correlation_callout(findings, membership)}
 """]
+    body.append(render_domain_posture(model))
     if not findings:
         body.append('<section class="card"><p class="muted">No Active Directory findings.</p></section>')
         return render_page("Active Directory", "".join(body), "Active Directory")
     fam: "dict[str, list[dict]]" = defaultdict(list)
     for f in findings:
-        fam[_ad_family(str(f.get("rule_id", "")))].append(f)
+        fam[_finding_ad_family(f)].append(f)
     for name, _ in _AD_FAMILIES:
         group = fam.get(name)
         if not group:
@@ -2342,17 +2429,22 @@ def render_ad(model: dict) -> str:
                                               str(x.get("host", "")))):
             guide = kb_guidance_html(f)
             host = str(f.get("host", ""))
+            mem = membership.get(host)
+            dom_html = (f'<code class="mono">{e(mem["domain"])}</code>'
+                        f'{" (DC)" if mem["role"] == "dc" else ""}' if mem
+                        else '<span class="muted">unconfirmed</span>')
             rows.append(f"""
             <tr>
               <td>{severity_chip(str(f.get('severity', '')))}</td>
               <td><a href="host_{e(safe_name(host))}.html"><code class="mono">{e(host)}</code></a></td>
+              <td>{dom_html}</td>
               <td><code class="mono">{e(truncate(clean_line(str(f.get('line', ''))), 200))}</code>{guide}</td>
             </tr>""")
         body.append(f"""
 <section class="card">
   <h2 class="card-title">{name} <span class="chip chip-info">{len(group)}</span></h2>
   <table class="data">
-    <thead><tr><th>Sev</th><th>Host</th><th>Signal &amp; guidance</th></tr></thead>
+    <thead><tr><th>Sev</th><th>Host</th><th>Domain</th><th>Signal &amp; guidance</th></tr></thead>
     <tbody>{''.join(rows)}</tbody>
   </table>
 </section>""")
@@ -2386,7 +2478,7 @@ the finding knowledge base (<code class="mono">aranumtoolkit/network/finding-kb.
             rows.append(f"""
             <tr>
               <td>{severity_chip(str(f.get('severity', '')))}</td>
-              <td><a href="host_{e(safe_name(host))}.html"><code class="mono">{e(host)}</code></a></td>
+              <td>{target_link(f, mono=True)}</td>
               <td><code class="mono">{e(truncate(clean_line(str(f.get('line', ''))), 200))}</code>{guide}</td>
             </tr>""")
         body.append(f"""
@@ -2398,6 +2490,307 @@ the finding knowledge base (<code class="mono">aranumtoolkit/network/finding-kb.
   </table>
 </section>""")
     return render_page("Categories", "".join(body), "Categories")
+
+
+# --------------------------------------------------------------- S3 host posture
+_POSTURE_STATUS_ORDER = ("FAIL", "WARN", "ERR", "INFO", "NA", "PASS")
+_POSTURE_GROUP_TITLES = {
+    "patching": "Patching", "kernel": "Kernel", "boot": "Boot", "accounts": "Accounts",
+    "access-control": "Access control", "filesystem": "Filesystem", "remote-access": "Remote access",
+    "network": "Network", "relay": "Relay surface", "credential-protection": "Credential protection",
+    "endpoint-protection": "Endpoint protection", "logging": "Logging", "services": "Services",
+    "domain": "Domain membership", "domain-policy": "Domain policy", "domain-privilege": "Domain privilege",
+}
+_JOIN_RE = re.compile(r"(?:^|\s)(?:domain|realm)=([A-Za-z0-9][A-Za-z0-9.-]*)")
+_ROLE_RE = re.compile(r"(?:^|\s)role=(dc|member)(?:\s|$)")
+
+
+def posture_chip(status: str) -> str:
+    st = status if status in _POSTURE_STATUS_ORDER else "ERR"
+    return f'<span class="chip chip-st-{st.lower()}">{e(st)}</span>'
+
+
+def _check_meta(cid: str) -> dict:
+    meta = _FINDING_KB.get("checks", {}).get(cid)
+    return meta if isinstance(meta, dict) else {}
+
+
+def _check_guidance(cid: str) -> str:
+    """KB test/fix expander for a posture check (checks are projected into the
+    KB classes keyed by id, so the finding-guidance renderer applies)."""
+    return kb_guidance_html({"kb_match": "rule", "kb_id": cid})
+
+
+def _group_title(group: str) -> str:
+    return _POSTURE_GROUP_TITLES.get(group, group or "other")
+
+
+def _norm_posture_status(v) -> str:
+    # An unknown status is undetermined (ERR) -- never promoted to a determined one.
+    return v if isinstance(v, str) and v in _POSTURE_STATUS_ORDER else "ERR"
+
+
+def _norm_posture_check(c, with_observers: bool) -> "dict | None":
+    if not isinstance(c, dict):
+        return None
+    out = {"status": _norm_posture_status(c.get("status")), "detail": str(c.get("detail", ""))}
+    if with_observers:
+        obs = c.get("observed_from")
+        out["observed_from"] = [
+            {"host": str(o.get("host", "")), "status": _norm_posture_status(o.get("status")),
+             "detail": str(o.get("detail", ""))}
+            for o in (obs if isinstance(obs, list) else []) if isinstance(o, dict)]
+    return out
+
+
+def _norm_posture_checks(raw, with_observers: bool) -> dict:
+    out = {}
+    for cid, c in (raw.items() if isinstance(raw, dict) else []):
+        n = _norm_posture_check(c, with_observers)
+        if n is not None:
+            out[str(cid)] = n
+    return out
+
+
+def _normalize_posture(hosts, domains) -> "tuple[dict, dict]":
+    """The model boundary for posture: every renderer below reads only what this
+    returns. Dict-valued records only; malformed host/check/observer records are
+    discarded; keys and details coerced to str; an unknown status becomes ERR.
+    collect() builds a well-formed structure today; this keeps a future producer
+    (or a hand-built Collection) from crashing every posture page."""
+    nh = {}
+    for h, rec in (hosts.items() if isinstance(hosts, dict) else []):
+        if not isinstance(rec, dict):
+            continue
+        nh[str(h)] = {
+            "os": str(rec.get("os", "")), "source": str(rec.get("source", "")),
+            "checks": _norm_posture_checks(rec.get("checks"), False),
+            "domain_observations": _norm_posture_checks(rec.get("domain_observations"), False),
+        }
+    nd = {}
+    for d, rec in (domains.items() if isinstance(domains, dict) else []):
+        if not isinstance(rec, dict):
+            continue
+        nd[str(d)] = {"checks": _norm_posture_checks(rec.get("checks"), True)}
+    return nh, nd
+
+
+def _domain_membership(posture_hosts: dict, domains: dict) -> "dict[str, dict]":
+    """host -> {domain, role} established by host posture: the host's own
+    domain-join check (WIN-DOMAIN-JOINED / LIN-AD-JOINED), else being an
+    observer of a domain's AD checks. Never inferred from the network layer."""
+    out: "dict[str, dict]" = {}
+    for host, rec in posture_hosts.items():
+        checks = rec.get("checks", {}) if isinstance(rec, dict) else {}
+        for cid in ("WIN-DOMAIN-JOINED", "LIN-AD-JOINED"):
+            detail = str(checks.get(cid, {}).get("detail", ""))
+            m = _JOIN_RE.search(detail)
+            if m and "not joined" not in detail and "client only" not in detail:
+                role = _ROLE_RE.search(detail)
+                out[host] = {"domain": m.group(1).lower(), "role": role.group(1) if role else "member"}
+                break
+    for dom, drec in domains.items():
+        for chk in (drec.get("checks", {}) if isinstance(drec, dict) else {}).values():
+            for obs in chk.get("observed_from", []):
+                h = obs.get("host") if isinstance(obs, dict) else None
+                if h and h not in out:
+                    out[h] = {"domain": dom, "role": "member"}
+    return out
+
+
+def _posture_quarantine_health(diags: "list[dict]") -> "list[dict]":
+    """Run-health rows for quarantined posture lines, one per host."""
+    by_host: "dict[str, dict]" = {}
+    for d in diags:
+        if d.get("type") != "posture_quarantine":
+            continue
+        host = str(d.get("host") or "(unknown)")
+        slot = by_host.setdefault(host, {"service": f"posture {host}", "reason": "quarantined",
+                                         "count": 0, "sample": f"{d.get('error', '')}: {d.get('line', '')}"})
+        slot["count"] += 1
+    return [by_host[h] for h in sorted(by_host)]
+
+
+def _host_posture_counts(checks: dict) -> Counter:
+    return Counter(str(v.get("status", "")) for v in checks.values() if isinstance(v, dict))
+
+
+def _posture_score(counts: Counter) -> str:
+    graded = counts.get("PASS", 0) + counts.get("FAIL", 0) + counts.get("WARN", 0)
+    if not graded:
+        return '<span class="muted">—</span>'
+    return f"{round(100 * counts.get('PASS', 0) / graded)}%"
+
+
+def render_host_posture_card(model: dict, host: str) -> str:
+    rec = model.get("posture", {}).get(host)
+    if not isinstance(rec, dict) or not rec.get("checks"):
+        return ""
+    checks = rec["checks"]
+    counts = _host_posture_counts(checks)
+    groups: "dict[str, list[str]]" = defaultdict(list)
+    for cid in checks:
+        groups[str(_check_meta(cid).get("group", ""))].append(cid)
+    sections = []
+    for group in sorted(groups, key=_group_title):
+        rows = []
+        for cid in sorted(groups[group], key=lambda c: (_POSTURE_STATUS_ORDER.index(checks[c].get("status"))
+                                                        if checks[c].get("status") in _POSTURE_STATUS_ORDER
+                                                        else 9, c)):
+            st = str(checks[cid].get("status", ""))
+            guide = _check_guidance(cid) if st in ("FAIL", "WARN") else ""
+            rows.append(f"""
+          <tr>
+            <td>{posture_chip(st)}</td>
+            <td>{e(str(_check_meta(cid).get('title', cid)))}<br><code class="mono small">{e(cid)}</code></td>
+            <td><code class="mono small">{e(truncate(str(checks[cid].get('detail', '')), 200))}</code>{guide}</td>
+          </tr>""")
+        sections.append(f"""
+      <tr class="posture-group"><th colspan="3">{e(_group_title(group))}</th></tr>{''.join(rows)}""")
+    summary = " ".join(f'{posture_chip(s)} {counts[s]}' for s in _POSTURE_STATUS_ORDER if counts.get(s))
+    member = model.get("domain_membership", {}).get(host)
+    member_html = (f' · {"domain controller" if member["role"] == "dc" else "member"} of '
+                   f'<code class="mono">{e(member["domain"])}</code>' if member else "")
+    return f"""
+<section class="card" id="posture">
+  <h2 class="card-title">Posture <span class="chip chip-info">{e(str(rec.get('os', '')))}</span></h2>
+  <p class="card-sub">Read-only host hardening checks ({len(checks)}). Score {_posture_score(counts)}
+  (PASS of PASS+FAIL+WARN){member_html}. {summary}</p>
+  <table class="data posture-host">
+    <thead><tr><th>Status</th><th>Check</th><th>Detail &amp; guidance</th></tr></thead>
+    <tbody>{''.join(sections)}</tbody>
+  </table>
+</section>"""
+
+
+def render_posture(model: dict) -> str:
+    """S3/D3.5 — host posture across the estate: a host x group matrix, then
+    every check across hosts with test/fix guidance."""
+    hosts: dict = model.get("posture", {})
+    if not hosts:
+        body = """
+<section class="card"><p class="muted">No host posture collected. Run the bulk enumerators with
+<code class="mono">--with-posture</code> (or the standalone collectors) to populate this page.</p></section>"""
+        return render_page("Posture", body, "Posture")
+    total: Counter = Counter()
+    groups: "set[str]" = set()
+    per_check: "dict[str, dict[str, list[tuple[str, str]]]]" = defaultdict(lambda: defaultdict(list))
+    for host, rec in hosts.items():
+        for cid, v in (rec.get("checks", {}) if isinstance(rec, dict) else {}).items():
+            st = str(v.get("status", ""))
+            total[st] += 1
+            groups.add(str(_check_meta(cid).get("group", "")))
+            per_check[cid][st].append((host, str(v.get("detail", ""))))
+    gorder = sorted(groups, key=_group_title)
+    tiles = "".join(f"""
+    <div class="tile"><span class="tile-count">{total.get(s, 0)}</span><span class="tile-label">{posture_chip(s)}</span></div>"""
+                    for s in _POSTURE_STATUS_ORDER)
+    head = "".join(f"<th>{e(_group_title(g))}</th>" for g in gorder)
+    mrows = []
+    for host in sorted(hosts):
+        checks = hosts[host].get("checks", {})
+        cells = []
+        for g in gorder:
+            c = Counter(str(v.get("status", "")) for cid, v in checks.items()
+                        if str(_check_meta(cid).get("group", "")) == g)
+            if not c:
+                cells.append('<td class="muted">·</td>')
+                continue
+            worst = next((s for s in _POSTURE_STATUS_ORDER if c.get(s)), "NA")
+            label = " ".join(f"{s[0]}{c[s]}" for s in ("FAIL", "WARN", "PASS") if c.get(s)) or worst
+            cells.append(f'<td class="pm pm-{worst.lower()}" title="{e(dict(c))}">{e(label)}</td>')
+        mrows.append(f'<tr><td><a href="host_{e(safe_name(host))}.html#posture"><code class="mono">{e(host)}</code></a>'
+                     f' <span class="muted small">{e(str(hosts[host].get("os", "")))}</span></td>'
+                     f'<td class="num">{_posture_score(_host_posture_counts(checks))}</td>{"".join(cells)}</tr>')
+
+    def _check_key(cid: str):
+        sts = per_check[cid]
+        sev = str(_check_meta(cid).get("sev_fail") or "low")
+        return (-len(sts.get("FAIL", [])), -len(sts.get("WARN", [])),
+                SEVERITY_ORDER.index(sev) if sev in SEVERITY_ORDER else 9, cid)
+    crows = []
+    for cid in sorted(per_check, key=_check_key):
+        sts = per_check[cid]
+        meta = _check_meta(cid)
+        counts = " ".join(f"{posture_chip(s)} {len(sts[s])}" for s in _POSTURE_STATUS_ORDER if sts.get(s))
+        bad = sts.get("FAIL", []) + sts.get("WARN", [])
+        bad_html = "".join(f'<div><a href="host_{e(safe_name(h))}.html#posture"><code class="mono">{e(h)}</code></a> '
+                           f'<span class="mono small">{e(truncate(d, 120))}</span></div>' for h, d in bad[:12])
+        if len(bad) > 12:
+            bad_html += f'<div class="muted small">+{len(bad) - 12} more</div>'
+        sev = str(meta.get("sev_fail") or "")
+        crows.append(f"""
+      <tr>
+        <td>{e(str(meta.get('title', cid)))}<br><code class="mono small">{e(cid)}</code></td>
+        <td>{e(_group_title(str(meta.get('group', ''))))}</td>
+        <td>{severity_chip(sev) if sev else ''}</td>
+        <td>{counts}</td>
+        <td>{bad_html or '<span class="muted">none</span>'}{_check_guidance(cid) if bad else ''}</td>
+      </tr>""")
+    body = f"""
+<section class="card">
+  <h2 class="card-title">Host posture <span class="chip chip-info">{len(hosts)} host{'s' if len(hosts) != 1 else ''}</span></h2>
+  <p class="card-sub">Check results across every host posture was collected from. FAIL/WARN are also findings at
+  the check's KB severity; PASS/INFO/NA/ERR are recorded in <code class="mono">posture.json</code>. ERR means the
+  check could not be evaluated (e.g. unreadable as non-root) — never a pass.</p>
+  <div class="tiles" style="grid-template-columns: repeat(6, minmax(0, 1fr));">{tiles}</div>
+</section>
+<section class="card">
+  <h2 class="card-title">Host × group</h2>
+  <p class="card-sub">Cell = F(ail)/W(arn)/P(ass) counts, coloured by the worst status. Score = PASS of PASS+FAIL+WARN.</p>
+  <table class="data sortable posture-matrix">
+    <thead><tr><th data-sort="text">Host</th><th class="num" data-sort="num">Score</th>{head}</tr></thead>
+    <tbody>{''.join(mrows)}</tbody>
+  </table>
+</section>
+<section class="card">
+  <h2 class="card-title">Checks across hosts</h2>
+  <table class="data filterable">
+    <thead><tr><th>Check</th><th>Group</th><th>Sev</th><th>Results</th><th>Failing hosts &amp; guidance</th></tr></thead>
+    <tbody>{''.join(crows)}</tbody>
+  </table>
+</section>"""
+    return render_page("Posture", body, "Posture")
+
+
+def render_domain_posture(model: dict) -> str:
+    """The AD page's Domain posture section: one canonical row per
+    (domain, check) with every observer's status kept visible."""
+    domains: dict = model.get("domains", {})
+    if not domains:
+        return ""
+    out = []
+    for dom in sorted(domains):
+        checks = domains[dom].get("checks", {}) if isinstance(domains[dom], dict) else {}
+        rows = []
+        for cid in sorted(checks, key=lambda c: (_POSTURE_STATUS_ORDER.index(checks[c].get("status"))
+                                                 if checks[c].get("status") in _POSTURE_STATUS_ORDER else 9, c)):
+            rec = checks[cid]
+            st = str(rec.get("status", ""))
+            obs = rec.get("observed_from", [])
+            obs_html = " ".join(f'<span title="{e(str(o.get("detail", "")))}"><code class="mono small">'
+                                f'{e(str(o.get("host", "")))}</code>{posture_chip(str(o.get("status", "")))}</span>'
+                                for o in obs if isinstance(o, dict))
+            guide = _check_guidance(cid) if st in ("FAIL", "WARN") else ""
+            rows.append(f"""
+          <tr>
+            <td>{posture_chip(st)}</td>
+            <td>{e(str(_check_meta(cid).get('title', cid)))}<br><code class="mono small">{e(cid)}</code></td>
+            <td><code class="mono small">{e(truncate(str(rec.get('detail', '')), 220))}</code>{guide}</td>
+            <td>{obs_html}</td>
+          </tr>""")
+        out.append(f"""
+<section class="card" id="domain-{e(safe_name(dom))}">
+  <h2 class="card-title">Domain posture · <code class="mono">{e(dom)}</code> <span class="chip chip-info">{len(checks)}</span></h2>
+  <p class="card-sub">Read-only directory checks reported by domain-joined hosts (<code class="mono">-AdChecks</code>).
+  One canonical status per check: any determined result beats ERR/NA, the worst determined result wins, and
+  disagreeing observers are flagged <code class="mono">conflict:</code>.</p>
+  <table class="data">
+    <thead><tr><th>Status</th><th>Check</th><th>Detail &amp; guidance</th><th>Observers</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
+</section>""")
+    return "".join(out)
 
 
 def render_run_health_panel(model: dict) -> str:
@@ -2416,7 +2809,8 @@ def render_run_health_panel(model: dict) -> str:
 <section class="card">
   <h2 class="card-title">Run health <span class="chip chip-warn">{len(rh)}</span></h2>
   <p class="card-sub">Dispatcher <code>[!]</code> warnings no rule graded — coverage gaps
-  (tool missing, refused, timed out, errored), not findings.</p>
+  (tool missing, refused, timed out, errored) — and quarantined <code>POSTURE</code> lines
+  (malformed, unknown check, duplicate, untagged domain check). Not findings.</p>
   <table class="data">
     <thead><tr><th>Service</th><th>Reason</th><th>Count</th><th>Sample</th></tr></thead>
     <tbody>{rows}</tbody>
@@ -2452,6 +2846,7 @@ def main() -> int:
     pages.append(("guidance.html", render_guidance(model)))
     pages.append(("hosts.html", render_hosts(model)))
     pages.append(("ad.html", render_ad(model)))
+    pages.append(("posture.html", render_posture(model)))
     pages.append(("categories.html", render_categories(model)))
     pages.append(("inventory.html", render_inventory(model)))
     pages.append(("services.html", render_services(model)))
@@ -2461,7 +2856,8 @@ def main() -> int:
     pages.append(("timeline.html", render_timeline(model)))
     pages.append(("coverage.html", render_coverage(model)))
 
-    all_hosts = sorted(set(list(model["by_host"].keys()) + list(model["services_per_host"].keys())))
+    all_hosts = sorted(set(list(model["by_host"].keys()) + list(model["services_per_host"].keys())
+                           + list(model["posture"].keys())))
     for host in all_hosts:
         pages.append((f"host_{safe_name(host)}.html", render_host_detail(model, host)))
 

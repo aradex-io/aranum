@@ -1,0 +1,959 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 74ccf4a..6863e95 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -10,11 +10,11 @@ See `CLAUDE.md` §6 for the entry style guide.
+ ## [Unreleased]
+ 
+ ### Added
+-- `network/report-dashboard.py`: a **Posture** page (status tiles, a host × check-group matrix scored PASS/(PASS+FAIL+WARN) with ERR never counted as a pass, and every check across hosts with failing hosts and KB test/fix guidance); a **Posture card** on each host page (checks grouped by area, status chips, domain membership); a **Domain posture** table on the Active Directory page (one canonical status per domain check, the `conflict:` note, and every observer's own status). AD findings now show the domain that host posture established for their host. They sit under a "Confirmed domain context" callout, and only unmapped findings keep the "Uncorrelated signals" caveat. Posture relay and credential findings are filed by their KB check group. Quarantined `POSTURE` lines appear in Run health. Domain-scope findings never create a host row or a host page.
+-- `network/bulk-enum-linux.sh` + `network/bulk-enum-windows.py`: `--with-posture` runs the host-posture collector after the privesc enum in the same session; output stays in `linenum.txt`/`winenum.txt`, and the combined payload is saved as `_payload.sh`/`_payload.ps1` in the output dir. Linux runs the privesc body as `( … ) </dev/null`, so nothing in it can read the rest of the stream and an `exit` cannot skip posture. Windows runs each script as its own base64-carried script block on a single line (5.1-safe `param()`, no reliance on how `powershell -Command -` buffers multi-line input). `bulk-enum-windows.py --ad` (requires `--with-posture`) passes `-AdChecks`. The default payloads are unchanged.
+-- `network/report.py`: **posture ingestion** — `POSTURE|<id>|<status>|<detail>` lines in host enum output are parsed by a strict anchored parser (`split("|", 3)`, so a `|` inside the detail can never add a field) and bypass the regex rules (no double grading). FAIL/WARN become findings at the KB check's `sev_fail`/`sev_warn` with `kb_match="rule"` and full guidance; every status (incl. PASS/NA/ERR) is recorded per host in a new `posture.json` (`schema_version "1"`) and summarised under `summary.posture`. Domain (`AD-*`) checks are aggregated across observers into **one canonical finding per domain** (`scope="domain"`, `observed_from` list) with a determined-beats-undetermined lattice (FAIL>WARN>PASS>INFO, then ERR, then NA) and a `conflict:` note when observers disagree; domain findings never count toward a host verdict. Malformed, unknown-id, duplicate, or untagged domain lines are **quarantined** (`posture_quarantine` in `findings.json`, stderr warning) without marking the report partial. `--redact` scrubs posture details, observers, and domain names.
++- `network/report-dashboard.py`: a **Posture** page (status tiles, a host × check-group matrix scored PASS/(PASS+FAIL+WARN) with ERR never counted as a pass, and every check across hosts with failing hosts and KB test/fix guidance); a **Posture card** on each host page (checks grouped by area, status chips, domain membership); a **Domain posture** table on the Active Directory page (one canonical status per domain check, the `conflict:` note, and every observer's own status). AD findings now show the domain that host posture established for their host. They sit under a "Confirmed domain context" callout, and only unmapped findings keep the "Uncorrelated signals" caveat. Posture relay and credential findings are filed by their KB check group. Quarantined `POSTURE` lines appear in Run health. Domain-scope findings never create a host row or a host page; every finding list labels them `domain` and links them to that domain's posture section on the AD page. Posture structures are normalized where the model is built (malformed records dropped, an unknown status becomes ERR), so no posture page can crash on them.
++- `network/bulk-enum-linux.sh` + `network/bulk-enum-windows.py`: `--with-posture` runs the host-posture collector after the privesc enum in the same session; output stays in `linenum.txt`/`winenum.txt`, and the combined payload is saved as `_payload.sh`/`_payload.ps1` in the output dir. Linux runs the privesc body as `( … ) </dev/null`, so nothing in it can read the rest of the stream and an `exit` cannot skip posture. Windows runs each script as its own literal `& { … }` script block closed by a blank line (no `[scriptblock]::Create`/base64 decode, so it also runs under ConstrainedLanguage; 5.1-safe `param()`). `bulk-enum-windows.py --ad` (requires `--with-posture`) passes `-AdChecks`. The default payloads are unchanged.
++- `network/report.py`: **posture ingestion** — `POSTURE|<id>|<status>|<detail>` lines in host enum output are parsed by a strict anchored parser (`split("|", 3)`, so a `|` inside the detail can never add a field) and bypass the regex rules (no double grading). FAIL/WARN become findings at the KB check's `sev_fail`/`sev_warn` with `kb_match="rule"` and full guidance; every status (incl. PASS/NA/ERR) is recorded per host in a new `posture.json` (`schema_version "1"`) and summarised under `summary.posture`. Domain (`AD-*`) checks are aggregated across observers into **one canonical finding per domain** (`scope="domain"`, `observed_from` list) with a determined-beats-undetermined lattice (FAIL>WARN>PASS>INFO, then ERR, then NA) and a `conflict:` note when observers disagree; domain findings never count toward a host verdict. Malformed, unknown-id, duplicate, or untagged domain lines are **quarantined** (`posture_quarantine` in `findings.json`, stderr warning) without marking the report partial. `--redact` scrubs posture details and every posture identity — domains, observers, Kerberos realms, AD trust partners, in any case — and replaces the text of quarantined lines with a length marker.
+ - `network/finding-kb.json`: new `checks` section — guidance for all 99 posture check ids (43 `LIN-*`, 41 `WIN-*`, 15 `AD-*`): os, scope (`host`|`domain`), group, category, title, FAIL/WARN severities, status semantics, and why / read-only how-to-test / how-to-fix / references. Authored from `docs/review/s3-posture-kb/` (catalog + peer-drafted batches validated for coverage, single-line values and read-only test commands; REVIEW-010).
+-- `standalones/windows/Invoke-HostPosture.ps1`: read-only **Windows host-posture collector** (PowerShell 5.1-safe, pure ASCII) — 41 host checks (patch age, firewall profiles, Defender RTP/tamper/signatures, BitLocker, Secure Boot, SMBv1 and SMB signing, LLMNR/NBT-NS/WPAD, LDAP client signing, anonymous restrictions, PowerShell v2/logging/language mode, RDP+NLA, LSA PPL/Credential Guard/WDigest/LM compat/LM hash/cached logons, UAC, AlwaysInstallElevated, admins/Guest, AutoLogon (value never printed), LAPS, Spooler, WinRM transport, domain join) in the `POSTURE|…` contract. `-AdChecks` opts in to 15 **domain-posture checks** (password/lockout policy, krbtgt age, Kerberoastable/AS-REP/unconstrained-delegation accounts, adminCount, recursive Domain Admins, Protected Users, MachineAccountQuota, functional level, LDAP signing, trusts, LAPS schema) via bounded, paged (1000), time-limited read-only LDAP against the host's own DC; every AD line is tagged `domain=<dns> observer=<host>`. Without `-AdChecks` no directory query is issued (AD-* report `NA`); off Windows every check reports `NA`.
++- `standalones/windows/Invoke-HostPosture.ps1`: read-only **Windows host-posture collector** (PowerShell 5.1-safe, pure ASCII) — 41 host checks (patch age, firewall profiles, Defender RTP/tamper/signatures, BitLocker, Secure Boot, SMBv1 and SMB signing, LLMNR/NBT-NS/WPAD, LDAP client signing, anonymous restrictions, PowerShell v2/logging/language mode, RDP+NLA, LSA PPL/Credential Guard/WDigest/LM compat/LM hash/cached logons, UAC, AlwaysInstallElevated, admins/Guest, AutoLogon (value never printed), LAPS, Spooler, WinRM transport, domain join) in the `POSTURE|…` contract. `-AdChecks` opts in to 15 **domain-posture checks** (password/lockout policy, krbtgt age, Kerberoastable/AS-REP/unconstrained-delegation accounts, adminCount, recursive Domain Admins, Protected Users, MachineAccountQuota, functional level, LDAP signing, trusts, LAPS schema) via bounded, paged (1000), time-limited read-only LDAP against the host's own DC; every AD line is tagged `domain=<dns> observer=<host>`, including the `NA` (ConstrainedLanguage) and `ERR` (RootDSE unreachable) lines, and RootDSE is read through the same time-limited searcher. A registry read that fails (access denied, provider error) reports `ERR` instead of the absent-value default; LDAP signing passes only when signing **and** channel binding are both enforced. Without `-AdChecks` no directory query is issued (AD-* report `NA`); off Windows every check reports `NA`.
+ - `standalones/linux/host-posture.sh`: read-only **Linux host-posture collector** — 43 hardening checks (patching, kernel sysctls, LSM/firewall, sshd effective config incl. `Include` globs, accounts/sudo, sensitive-file modes, mounts, PATH, cron, logging, time sync, Secure Boot, failed units, docker socket, AD-join/keytab) emitted one per line as strict `POSTURE|<check-id>|<PASS|FAIL|WARN|INFO|NA|ERR>|<detail>`; `ERR` (e.g. unreadable as non-root) is never reported as `PASS`. No writes, no network; hermetic test root via `ARANUM_POSTURE_ROOT`. Body runs inside a function with stdin closed, so it is safe to concatenate after another script over SSH.
+ - `network/finding-kb.json`: a **finding knowledge base** keyed by classifier `rule_id` — a remediation entry (category, title, why, read-only *how-to-test* commands, *how-to-fix* steps, references) for every one of the 199 non-low built-in rule_ids. Loaded by `network/report.py` (`_load_finding_kb`, env override `ARANUM_FINDING_KB`); a custom or generic-fallback rule falls back to a service→category map. Guidance commands are templates (`<host>`/`<port>`/`<service>`/…) and never execute; *test* steps are read-only confirmation only.
+ - `network/report.py`: findings now carry additive `category` / `kb_id` / `kb_match` (`"rule"` | `"service-default"` | `""`) attached at finalize time, and reports gain a **"Top risks by category"** section grouping non-low findings by KB category and class with their Why / How-to-test / How-to-fix / References. The smb relay-vs-fileservice split keys a host's category on whether it also exposes Kerberos (88) or LDAP (389).
+@@ -28,6 +28,7 @@ See `CLAUDE.md` §6 for the entry style guide.
+ ### Security
+ - `network/report.py`: `_load_finding_kb()` now normalizes nested KB structure — category values must be dicts, a class must point at a known category and has its `title`/`why`/`test`/`fix`/`refs` coerced to safe types — so a syntactically valid but structurally malformed KB (a null category, `"test": null`, a class with no title) can never reach a renderer and raise. The "Top risks" section flattens newlines and escapes angle brackets in every interpolated title/why/label/fix-text and renders commands in a backtick-safe inline-code span, so an override KB or an engagement-derived finding title cannot forge a report heading, inject raw HTML, or break out of a code span.
+ - `network/report-dashboard.py`: the Active Directory and Categories renderers read finding fields defensively (missing `host`/`line`/`severity` no longer crash rendering), and `_dc_hosts()` coerces numeric string ports so a domain controller is still detected when inventory ports arrive as strings.
++- `network/report.py`: `--redact` matches known hostnames case-insensitively and maps every case variant of a name to one `<TARGET-N>` token (before, `HOST01` survived when the known name was `host01`).
+ 
+ ### Changed
+ - `network/report.py`: findings now carry additive `scope` (`"endpoint"` | `"host"` | `"run"`) and structured `host`/`port`/`protocol` attribution fields; the output schema stays `"2"` (purely additive, no consumer break).
+diff --git a/aranumtoolkit/network/bulk-enum-windows.py b/aranumtoolkit/network/bulk-enum-windows.py
+index 838b1a3..fbd05c9 100755
+--- a/aranumtoolkit/network/bulk-enum-windows.py
++++ b/aranumtoolkit/network/bulk-enum-windows.py
+@@ -621,27 +621,26 @@ class HostResult:
+     fail_reason: str = ""
+ 
+ 
+-def _script_block_line(body: str, args: str = "") -> str:
+-    """One PowerShell line that runs ``body`` as its own script block.
++def _script_block(body: str, args: str = "") -> str:
++    """``body`` as its own literal script block: ``& {`` body ``}`` [args].
+ 
+     Two advanced scripts cannot be concatenated as text: under 5.1 a
+     ``[CmdletBinding()] param()`` must open the script, so the second one
+-    would not parse. As a script block each keeps its own ``param()``. The
+-    body travels base64-encoded on a single line because the ssh transport
+-    feeds ``powershell -Command -``, which reads stdin like a console and
+-    only runs a multi-line block once a blank line follows it. One line
+-    per block needs no such rule. A blank line still follows each.
++    would not parse. As a script block each keeps its own ``param()``. A
++    literal block is used, not ``[scriptblock]::Create(...)``, because
++    ConstrainedLanguage (AppLocker/WDAC) blocks that method call and would
++    stop the whole payload. The ssh transport feeds ``powershell -Command -``,
++    which reads stdin like a console and runs a multi-line block only once a
++    blank line follows it, so each block ends with one.
+     """
+-    enc = base64.b64encode(body.lstrip("\ufeff").encode("utf-8")).decode("ascii")
+-    line = ("& ([scriptblock]::Create([System.Text.Encoding]::UTF8.GetString("
+-            f"[System.Convert]::FromBase64String('{enc}'))))")
+-    return f"{line} {args}".rstrip() + "\n\n"
++    text = body.lstrip("\ufeff").replace("\r\n", "\n").rstrip("\n")
++    return f"& {{\n{text}\n}} {args}".rstrip() + "\n\n"
+ 
+ 
+ def build_posture_payload(script_text: str, posture_text: str, *, ad: bool) -> str:
+     """--with-posture payload: the enum script, then the posture collector."""
+-    return (_script_block_line(script_text)
+-            + _script_block_line(posture_text, "-AdChecks" if ad else ""))
++    return (_script_block(script_text)
++            + _script_block(posture_text, "-AdChecks" if ad else ""))
+ 
+ 
+ def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
+diff --git a/aranumtoolkit/network/finding-kb.json b/aranumtoolkit/network/finding-kb.json
+index 5996b24..36ff19e 100644
+--- a/aranumtoolkit/network/finding-kb.json
++++ b/aranumtoolkit/network/finding-kb.json
+@@ -8029,13 +8029,17 @@
+       "category": "ad",
+       "title": "DC LDAP signing / channel binding",
+       "sev_fail": "high",
+-      "sev_warn": "",
+-      "semantics": "FAIL: DC LDAPServerIntegrity<2 where remotely readable; PASS: 2; NA: not remotely readable (never a false PASS).",
+-      "why": "A domain controller that does not require LDAP signing can accept integrity-unprotected LDAP binds. An attacker can relay authentication to LDAP or alter traffic and then make directory changes with the relayed user's permissions.",
++      "sev_warn": "medium",
++      "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS).",
++      "why": "A domain controller that does not require LDAP signing can accept integrity-unprotected LDAP binds. An attacker can relay authentication to LDAP or alter traffic and then make directory changes with the relayed user's permissions. Signing alone does not stop relay to LDAPS: without channel binding (LdapEnforceChannelBinding=2) a relayed NTLM bind over TLS is still accepted.",
+       "test": [
+         {
+           "label": "Read LDAP signing enforcement locally on each domain controller",
+           "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LDAPServerIntegrity"
++        },
++        {
++          "label": "Read LDAP channel-binding enforcement on each domain controller",
++          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LdapEnforceChannelBinding"
+         }
+       ],
+       "fix": [
+@@ -8046,11 +8050,16 @@
+         {
+           "label": "Configure the domain-controller GPO",
+           "text": "Set Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Domain controller: LDAP server signing requirements to Require signing, and test legacy LDAP clients before enforcement."
++        },
++        {
++          "label": "Always enforce LDAP channel binding (after auditing clients with event 3039)",
++          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LdapEnforceChannelBinding /t REG_DWORD /d 2 /f"
+         }
+       ],
+       "refs": [
+         "https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/enable-ldap-signing-in-windows-server",
+-        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/ldap-signing"
++        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/ldap-signing",
++        "https://support.microsoft.com/help/4520412"
+       ]
+     },
+     "AD-TRUSTS": {
+diff --git a/aranumtoolkit/network/report-dashboard.py b/aranumtoolkit/network/report-dashboard.py
+index 8b71d73..cdbd3e7 100755
+--- a/aranumtoolkit/network/report-dashboard.py
++++ b/aranumtoolkit/network/report-dashboard.py
+@@ -214,6 +214,26 @@ def safe_name(s: str) -> str:
+     return re.sub(r"[^A-Za-z0-9._-]+", "-", str(s)).strip("-") or "unknown"
+ 
+ 
++def target_page(f: dict) -> str:
++    """The page a finding's target links to. A domain-scope (AD posture) finding
++    is keyed by a domain, not a host, and has no host page: it links to that
++    domain's posture section on the AD page."""
++    host = str(f.get("host", ""))
++    if f.get("scope") == "domain":
++        return f"ad.html#domain-{safe_name(host)}"
++    return f"host_{safe_name(host)}.html"
++
++
++def target_link(f: dict, mono: bool = False) -> str:
++    """Scope-aware target cell: host link, or domain link + a "domain" label."""
++    host = str(f.get("host", ""))
++    text = f'<code class="mono">{e(host)}</code>' if mono else e(host)
++    link = f'<a href="{e(target_page(f))}">{text}</a>'
++    if f.get("scope") == "domain":
++        link += ' <span class="chip chip-scope">domain</span>'
++    return link
++
++
+ def fmt_time(ts: str | None) -> str:
+     if not ts:
+         return ""
+@@ -516,8 +536,9 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
+ 
+     events = read_run_log(out_dir)
+     per_host_verdicts = collection.per_host or {}
+-    posture_hosts = (collection.posture or {}).get("hosts", {}) or {}
+-    domains = collection.domains or {}
++    posture_hosts, domains = _normalize_posture(
++        (collection.posture or {}).get("hosts") if isinstance(collection.posture, dict) else {},
++        collection.domains)
+ 
+     # ----- port discovery (three sources, unioned) -----
+     # Map (host, service) -> set[int] of ports observed.
+@@ -810,7 +831,7 @@ def render_index(model: dict) -> str:
+         <tr>
+           <td>{severity_chip(f['severity'])}</td>
+           <td><code class="mono">{e(truncate(f['line'], 120))}</code></td>
+-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
++          <td>{target_link(f)}</td>
+           <td>{e(f['service'])}</td>
+         </tr>""")
+ 
+@@ -1194,7 +1215,7 @@ def render_service_detail(model: dict, svc: str) -> str:
+         <tr data-severity="{e(f['severity'])}" data-host="{e(f['host'])}">
+           <td>{severity_chip(f['severity'])}</td>
+           <td><code class="mono">{e(truncate(f['line'], 280))}</code></td>
+-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
++          <td>{target_link(f)}</td>
+           <td><code class="mono small">{e(f['evidence_path'])}</code></td>
+         </tr>""")
+ 
+@@ -1329,7 +1350,7 @@ def render_inbox(model: dict) -> str:
+           <td class="num priority">{e(f.get('priority', 0))}</td>
+           <td>{severity_chip(f.get('severity', 'info'))}</td>
+           <td>{e(f.get('confidence', 'medium'))}</td>
+-          <td><a href="host_{e(safe_name(host))}.html">{e(host)}</a></td>
++          <td>{target_link(f)}</td>
+           <td class="num">{e(f.get('port', '') or '')}</td>
+           <td><a href="service_{e(safe_name(svc))}.html">{e(svc)}</a></td>
+           <td><strong>{e(f.get('title', 'Finding'))}</strong><br><code class="mono small">{e(truncate(f.get('line', ''), 180))}</code></td>
+@@ -1435,7 +1456,7 @@ def render_severity_detail(model: dict, sev: str) -> str:
+         rows.append(f"""
+         <tr data-host="{e(f['host'])}" data-service="{e(f['service'])}">
+           <td><code class="mono">{e(truncate(f['line'], 280))}</code></td>
+-          <td><a href="host_{e(safe_name(f['host']))}.html">{e(f['host'])}</a></td>
++          <td>{target_link(f)}</td>
+           <td><a href="service_{e(safe_name(f['service']))}.html">{e(f['service'])}</a></td>
+           <td><code class="mono small">{e(f['evidence_path'])}</code></td>
+         </tr>""")
+@@ -1610,7 +1631,7 @@ def export_data_json(model: dict) -> str:
+                 "port": f.get("port", ""),
+                 "service": f.get("service", ""),
+                 "title": f.get("title", ""),
+-                "page": f"host_{safe_name(f.get('host', ''))}.html",
++                "page": target_page(f),
+             }
+             for f in model.get("inbox", [])
+         ],
+@@ -1860,6 +1881,7 @@ details.kb-guide > summary { cursor: pointer; color: var(--accent, #6af); font-s
+ .kb-refs { font-size: 0.82em; opacity: 0.8; margin-top: 6px; }
+ .copybtn { cursor: pointer; border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text); border-radius: 4px; padding: 1px 6px; font-size: 0.9em; line-height: 1.2; }
+ .copybtn.copied { color: var(--sev-low); border-color: var(--sev-low); }
++.chip-scope { background: var(--bg-elev-2); color: var(--text-dim); border: 1px solid var(--border); font-size: 0.75em; }
+ .chip-svc, .chip-host {
+   background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border);
+   margin-right: 4px; margin-bottom: 4px; text-decoration: none;
+@@ -2456,7 +2478,7 @@ the finding knowledge base (<code class="mono">aranumtoolkit/network/finding-kb.
+             rows.append(f"""
+             <tr>
+               <td>{severity_chip(str(f.get('severity', '')))}</td>
+-              <td><a href="host_{e(safe_name(host))}.html"><code class="mono">{e(host)}</code></a></td>
++              <td>{target_link(f, mono=True)}</td>
+               <td><code class="mono">{e(truncate(clean_line(str(f.get('line', ''))), 200))}</code>{guide}</td>
+             </tr>""")
+         body.append(f"""
+@@ -2503,6 +2525,56 @@ def _group_title(group: str) -> str:
+     return _POSTURE_GROUP_TITLES.get(group, group or "other")
+ 
+ 
++def _norm_posture_status(v) -> str:
++    # An unknown status is undetermined (ERR) -- never promoted to a determined one.
++    return v if isinstance(v, str) and v in _POSTURE_STATUS_ORDER else "ERR"
++
++
++def _norm_posture_check(c, with_observers: bool) -> "dict | None":
++    if not isinstance(c, dict):
++        return None
++    out = {"status": _norm_posture_status(c.get("status")), "detail": str(c.get("detail", ""))}
++    if with_observers:
++        obs = c.get("observed_from")
++        out["observed_from"] = [
++            {"host": str(o.get("host", "")), "status": _norm_posture_status(o.get("status")),
++             "detail": str(o.get("detail", ""))}
++            for o in (obs if isinstance(obs, list) else []) if isinstance(o, dict)]
++    return out
++
++
++def _norm_posture_checks(raw, with_observers: bool) -> dict:
++    out = {}
++    for cid, c in (raw.items() if isinstance(raw, dict) else []):
++        n = _norm_posture_check(c, with_observers)
++        if n is not None:
++            out[str(cid)] = n
++    return out
++
++
++def _normalize_posture(hosts, domains) -> "tuple[dict, dict]":
++    """The model boundary for posture: every renderer below reads only what this
++    returns. Dict-valued records only; malformed host/check/observer records are
++    discarded; keys and details coerced to str; an unknown status becomes ERR.
++    collect() builds a well-formed structure today; this keeps a future producer
++    (or a hand-built Collection) from crashing every posture page."""
++    nh = {}
++    for h, rec in (hosts.items() if isinstance(hosts, dict) else []):
++        if not isinstance(rec, dict):
++            continue
++        nh[str(h)] = {
++            "os": str(rec.get("os", "")), "source": str(rec.get("source", "")),
++            "checks": _norm_posture_checks(rec.get("checks"), False),
++            "domain_observations": _norm_posture_checks(rec.get("domain_observations"), False),
++        }
++    nd = {}
++    for d, rec in (domains.items() if isinstance(domains, dict) else []):
++        if not isinstance(rec, dict):
++            continue
++        nd[str(d)] = {"checks": _norm_posture_checks(rec.get("checks"), True)}
++    return nh, nd
++
++
+ def _domain_membership(posture_hosts: dict, domains: dict) -> "dict[str, dict]":
+     """host -> {domain, role} established by host posture: the host's own
+     domain-join check (WIN-DOMAIN-JOINED / LIN-AD-JOINED), else being an
+@@ -2708,7 +2780,7 @@ def render_domain_posture(model: dict) -> str:
+             <td>{obs_html}</td>
+           </tr>""")
+         out.append(f"""
+-<section class="card">
++<section class="card" id="domain-{e(safe_name(dom))}">
+   <h2 class="card-title">Domain posture · <code class="mono">{e(dom)}</code> <span class="chip chip-info">{len(checks)}</span></h2>
+   <p class="card-sub">Read-only directory checks reported by domain-joined hosts (<code class="mono">-AdChecks</code>).
+   One canonical status per check: any determined result beats ERR/NA, the worst determined result wins, and
+diff --git a/aranumtoolkit/network/report.py b/aranumtoolkit/network/report.py
+index cc3c4b5..04e3122 100755
+--- a/aranumtoolkit/network/report.py
++++ b/aranumtoolkit/network/report.py
+@@ -928,15 +928,17 @@ class Redactor:
+         bare_ipv6 = r"(?<![0-9A-Fa-f:.])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,}(?![0-9A-Fa-f:.])"
+         parts = [bracketed_ipv6, bare_ipv6, ipv4]
+         if self._hosts:
+-            parts.append(r"\b(?:" + "|".join(re.escape(h) for h in self._hosts) + r")\b")
++            # Hostnames/domains are case-insensitive (CORP.LOCAL == corp.local).
++            parts.append(r"(?i:\b(?:" + "|".join(re.escape(h) for h in self._hosts) + r")\b)")
+         return re.compile("|".join(parts))
+ 
+     def __call__(self, text: str) -> str:
+         if not self.enable:
+             return text
+-        host_set = set(self._hosts)
++        host_set = {h.lower() for h in self._hosts}
+         def _sub(m):
+-            key = m.group(0)
++            # One token per identity regardless of case (and per IPv6 hex case).
++            key = m.group(0).lower()
+             # A colon-bearing, non-bracketed match is a bare-IPv6 candidate:
+             # redact only if it is a real IP address or a known host, else leave
+             # it (avoids mangling MACs / hex tokens the loose regex catches).
+@@ -2234,6 +2236,44 @@ def _posture_summary(posture: dict) -> "tuple[dict, dict]":
+     return {"hosts": len(hosts), **counts}, {"count": len(domains), "worst_by_check": worst}
+ 
+ 
++_POSTURE_IDENTITY_RE = re.compile(r"(?:^|\s)(?:domain|realm|observer)=([^\s,;|]+)", re.I)
++_POSTURE_TRUSTS_RE = re.compile(r"(?:^|\s)trusts=(\S+)")
++
++
++def _posture_identities(posture: "dict | None", quarantined: "list[dict]") -> "list[str]":
++    """Every host/domain identity posture text can carry, for --redact seeding:
++    the canonical domain keys plus each `domain=` / `realm=` / `observer=` value
++    and each AD-TRUSTS partner name found in any check, observation, observer
++    record, or quarantined line. Metadata hosts alone miss observers (ws01),
++    Kerberos realms, and trust partners."""
++    found: set[str] = set()
++
++    def scan(text: str) -> None:
++        for m in _POSTURE_IDENTITY_RE.finditer(text or ""):
++            if m.group(1).lower() not in ("", "unknown"):
++                found.add(m.group(1))
++        for m in _POSTURE_TRUSTS_RE.finditer(text or ""):
++            for item in m.group(1).split(","):
++                name = item.split(":", 1)[0].strip()
++                if name:
++                    found.add(name)
++
++    posture = posture or {}
++    for rec in (posture.get("hosts") or {}).values():
++        for section in ("checks", "domain_observations"):
++            for c in (rec.get(section) or {}).values():
++                scan(str(c.get("detail", "")))
++    for dom, rec in (posture.get("domains") or {}).items():
++        found.add(dom)
++        for c in (rec.get("checks") or {}).values():
++            scan(str(c.get("detail", "")))
++            for o in c.get("observed_from") or []:
++                scan(str(o.get("detail", "")))
++    for q in quarantined:
++        scan(str(q.get("line", "")))
++    return sorted(found)
++
++
+ def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
+     hosts = {}
+     for h, rec in (posture.get("hosts") or {}).items():
+@@ -2761,7 +2801,7 @@ def main() -> int:
+         # Seed hostname redaction from the discovered scan hosts (pre-redaction),
+         # plus any domain identities the posture rollup established.
+         redactor.set_known_hosts(list(summary.get("hosts", []))
+-                                 + sorted((posture or {}).get("domains", {}) or {}))
++                                 + _posture_identities(posture, quarantined))
+         for f in findings_json["findings"]:
+             f["host"] = redactor(f["host"])
+             f["line"] = redactor(f["line"])
+@@ -2775,8 +2815,11 @@ def main() -> int:
+                                        "detail": redactor(o["detail"])}
+                                       for o in f["observed_from"]]
+         for d in quarantined:
+-            for k in ("host", "path", "line"):
++            for k in ("host", "path"):
+                 d[k] = redactor(str(d.get(k, "")))
++            # A quarantined line failed the contract, so its identities cannot be
++            # located reliably: drop the untrusted text entirely, keep the reason.
++            d["line"] = f"<redacted untrusted line: {len(str(d.get('line', '')))} chars>"
+         if "domains" in findings_json["summary"]:
+             findings_json["summary"]["domains"]["worst_by_check"] = {
+                 redactor(d): v for d, v in findings_json["summary"]["domains"]["worst_by_check"].items()}
+diff --git a/aranumtoolkit/tests/test_dashboard_posture.py b/aranumtoolkit/tests/test_dashboard_posture.py
+index f786016..d4979e3 100644
+--- a/aranumtoolkit/tests/test_dashboard_posture.py
++++ b/aranumtoolkit/tests/test_dashboard_posture.py
+@@ -125,6 +125,19 @@ class TestDashboardPosture(unittest.TestCase):
+         self.assertFalse((self.out / "host_corp.local.html").exists())
+         self.assertNotIn("corp.local", self._read("hosts.html"))
+ 
++    def test_domain_findings_link_to_the_domain_not_a_host_page(self):
++        # R7: a domain-scope finding is labelled "domain" and links to that domain's
++        # posture section on the AD page -- on every page that lists findings.
++        pages = {p.name: p.read_text(encoding="utf-8") for p in self.out.glob("*.html")}
++        pages["data.json"] = (self.out / "data.json").read_text(encoding="utf-8")
++        self.assertFalse([n for n, t in pages.items() if "host_corp.local.html" in t])
++        # The subject exists: the domain findings are still listed, with the new link.
++        for name in ("index.html", "inbox.html", "categories.html", "severity_high.html",
++                     "service_posture.html", "data.json"):
++            self.assertIn("ad.html#domain-corp.local", pages[name], name)
++        self.assertIn('<span class="chip chip-scope">domain</span>', pages["inbox.html"])
++        self.assertIn('id="domain-corp.local"', pages["ad.html"])     # the anchor target exists
++
+     def test_run_health_lists_quarantined_posture_line(self):
+         idx = self._read("index.html")
+         health = _section(idx, "Run health")
+@@ -149,5 +162,91 @@ class TestDashboardWithoutPosture(unittest.TestCase):
+             self.assertNotIn("Domain posture · ", ad)
+ 
+ 
++def _load_dashboard():
++    import importlib.util
++    spec = importlib.util.spec_from_file_location("dash_posture_mod", NET / "report-dashboard.py")
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules["dash_posture_mod"] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++class TestDashboardMalformedPosture(unittest.TestCase):
++    def test_malformed_posture_structures_do_not_crash(self):
++        # R8: non-dict host/check/observer/domain records are discarded at the model
++        # boundary; an unknown status becomes ERR (never PASS); valid siblings render.
++        dash = _load_dashboard()
++        with tempfile.TemporaryDirectory() as tmp:
++            scan = Path(tmp) / "scan" / "win1"
++            scan.mkdir(parents=True)
++            (scan / "_meta.json").write_text(json.dumps({"host": "10.0.0.31", "port": 22, "status": "OK"}))
++            (scan / "winenum.txt").write_text("POSTURE|WIN-SMB-SRVSIGN|FAIL|RequireSecuritySignature=0\n")
++            real = dash.rpt.collect
++
++            def bad_collect(*a, **kw):
++                col = real(*a, **kw)
++                hosts = {"10.0.0.31": {"os": "windows", "checks": {
++                            "LIN-SYSCTL-ASLR": "bad", "WIN-CRED-WDIGEST": {"status": "BOGUS"},
++                            "WIN-SMB-SRVSIGN": {"status": "FAIL", "detail": "RequireSecuritySignature=0"}},
++                            "domain_observations": ["x"]},
++                         "10.0.0.99": "not-a-dict"}
++                domains = {"corp.local": {"checks": {
++                               "AD-MAQ": {"status": "WARN", "detail": "q=10", "observed_from": ["x", 3,
++                                          {"host": "10.0.0.31", "status": "WARN", "detail": "q=10"}]},
++                               "AD-PWPOL-MINLEN": "bad"}},
++                           "bad.example": [1, 2]}
++                return col._replace(posture={"hosts": hosts, "domains": domains}, domains=domains)
++
++            dash.rpt.collect = bad_collect
++            try:
++                model = dash.build_index(Path(tmp) / "scan", True, None)
++                posture = dash.render_posture(model)
++                ad = dash.render_ad(model)
++                host = dash.render_host_detail(model, "10.0.0.31")
++            finally:
++                dash.rpt.collect = real
++        self.assertEqual(set(model["posture"]), {"10.0.0.31"})
++        self.assertEqual(model["posture"]["10.0.0.31"]["checks"]["WIN-CRED-WDIGEST"]["status"], "ERR")
++        self.assertNotIn("LIN-SYSCTL-ASLR", model["posture"]["10.0.0.31"]["checks"])
++        self.assertIn("RequireSecuritySignature=0", posture)          # valid sibling still rendered
++        self.assertIn("WIN-SMB-SRVSIGN", host)
++        maq = re.search(r"AD-MAQ</code></td>.*?</tr>", ad, re.S).group(0)
++        self.assertIn("10.0.0.31", maq)                               # the one valid observer kept
++        self.assertNotIn("AD-PWPOL-MINLEN", ad)
++        self.assertNotIn("bad.example", ad)
++
++
++class TestDashboardHostilePostureText(unittest.TestCase):
++    """R10: posture-derived text (details, domain, observer details, quarantined
++    lines) is escaped in content and in title attributes on every page."""
++    SCRIPT = "<script>alert(1)</script>"
++    ATTR = '"><img src=x onerror=alert(2)>'
++
++    def test_hostile_strings_are_escaped_everywhere(self):
++        win = "".join([
++            f"POSTURE|WIN-SMB-SRVSIGN|FAIL|RequireSecuritySignature=0 {self.SCRIPT}\n",
++            f"POSTURE|WIN-DOMAIN-JOINED|INFO|domain=corp.local role=member{self.SCRIPT}\n",
++            f"POSTURE|AD-MAQ|WARN|domain=corp.local observer=win1 q=10 {self.ATTR}\n",
++            f"POSTURE|AD-PWPOL-MINLEN|FAIL|domain=evil{self.SCRIPT.replace(' ', '')} observer=win1 x\n",
++            f"POSTURE|WIN-BOGUS|FAIL|{self.SCRIPT} {self.ATTR}\n",
++        ])
++        with tempfile.TemporaryDirectory() as tmp:
++            d = Path(tmp) / "scan" / "win1"
++            d.mkdir(parents=True)
++            (d / "_meta.json").write_text(json.dumps({"host": "10.0.0.31", "port": 22, "status": "OK"}))
++            (d / "winenum.txt").write_text(win)
++            out = Path(tmp) / "dash"
++            r = subprocess.run([PY, str(NET / "report-dashboard.py"), str(Path(tmp) / "scan"),
++                                "--output", str(out)], capture_output=True, text=True, timeout=120)
++            self.assertEqual(r.returncode, 0, r.stderr)
++            pages = {p.name: p.read_text(encoding="utf-8") for p in out.glob("*.html")}
++        raw = [n for n, t in pages.items() if "<script>alert(" in t or "<img src=x" in t]
++        self.assertEqual(raw, [])
++        # ...and the hostile text is present in escaped form (not silently dropped).
++        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", pages["posture.html"])
++        self.assertIn("&quot;&gt;&lt;img src=x onerror=alert(2)&gt;", pages["ad.html"])   # observer title attr
++        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", pages["index.html"])       # quarantine in run health
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/aranumtoolkit/tests/test_host_posture.py b/aranumtoolkit/tests/test_host_posture.py
+index 2d10b65..1b21925 100644
+--- a/aranumtoolkit/tests/test_host_posture.py
++++ b/aranumtoolkit/tests/test_host_posture.py
+@@ -314,6 +314,113 @@ Invoke-HostPostureChecks -Context $ctx
+     assert got["WIN-CRED-CREDGUARD"][0] == "ERR"
+ 
+ 
++def test_windows_ldap_signing_grades_both_policies(tmp_path):
++    # R2: signing required alone is not compliant -- channel binding is graded too, and
++    # PASS needs both. An absent CBT value on a DC is "not enforced" (FAIL), not NA.
++    body = _lib(r"""
++foreach ($c in @(@($null,$null), @(2,$null), @(2,0), @(2,1), @(2,2), @(1,2), @(0,$null))) {
++  $r = Resolve-LdapSigningStatus $c[0] $c[1]
++  'ROW|' + [string]$c[0] + '|' + [string]$c[1] + '|' + $r.AranumPostureStatus
++}
++""")
++    proc = _pwsh_file(tmp_path, body)
++    assert proc.returncode == 0, proc.stderr
++    rows = [ln.split("|")[1:] for ln in proc.stdout.splitlines() if ln.startswith("ROW|")]
++    assert rows == [["", "", "NA"], ["2", "", "FAIL"], ["2", "0", "FAIL"], ["2", "1", "WARN"],
++                    ["2", "2", "PASS"], ["1", "2", "FAIL"], ["0", "", "FAIL"]]
++
++
++def test_windows_get_regvalue_separates_absent_from_error(tmp_path):
++    # R4: absent key/value -> $null (documented default applies); any other read failure
++    # throws so the check reports ERR instead of the absent-value default.
++    body = _lib(r"""
++function Get-ItemProperty { param($LiteralPath, $Name, $ErrorAction)
++  if ($LiteralPath -eq 'HKLM:\nokey') { throw (New-Object System.Management.Automation.ItemNotFoundException 'no key') }
++  if ($LiteralPath -eq 'HKLM:\denied') { throw (New-Object System.UnauthorizedAccessException 'Requested registry access is not allowed.') }
++  [pscustomobject]@{ Present = 0 } }
++'MISSINGKEY=' + ($null -eq (Get-RegValue 'HKLM:\nokey' 'X'))
++'MISSINGVAL=' + ($null -eq (Get-RegValue 'HKLM:\k' 'Absent'))
++'PRESENT=' + (Get-RegValue 'HKLM:\k' 'Present')
++try { Get-RegValue 'HKLM:\denied' 'X'; 'DENIED=returned' } catch { 'DENIED=threw' }
++""")
++    proc = _pwsh_file(tmp_path, body)
++    assert proc.returncode == 0, proc.stderr
++    for want in ("MISSINGKEY=True", "MISSINGVAL=True", "PRESENT=0", "DENIED=threw"):
++        assert want in proc.stdout, (want, proc.stdout)
++
++
++def test_windows_registry_access_denied_never_grades_pass(tmp_path):
++    # R4 end-to-end: every registry read is denied. No registry-backed check may PASS --
++    # each one that used to default absent->PASS must now be ERR.
++    body = _lib(r"""
++function Get-ItemProperty { param($LiteralPath, $Name, $ErrorAction)
++  throw (New-Object System.UnauthorizedAccessException 'Requested registry access is not allowed.') }
++function Get-Service { param([string]$Name) [pscustomobject]@{ Name=$Name; Status='Running' } }
++function Get-HotFix { @([pscustomobject]@{ InstalledOn = (Get-Date).AddDays(-3) }) }
++function Get-CimInstance { param($ClassName,$Namespace,$Filter) throw 'no cim' }
++$ctx = @{ ComputerName='WS01'; PartOfDomain=$false; Domain='WORKGROUP'; IsDC=$false; Build=19045; Caption='Windows 10'; ProductType=1 }
++Invoke-HostPostureChecks -Context $ctx
++""")
++    proc = _pwsh_file(tmp_path, body)
++    assert proc.returncode == 0, proc.stderr
++    got = {c: (st, d) for c, st, d in _posture_lines(proc.stdout)}
++    assert len(got) == 41
++    for cid in ("WIN-SMB-V1", "WIN-PS-V2", "WIN-CRED-NOLMHASH", "WIN-UAC-LUA",
++                "WIN-CRED-WDIGEST", "WIN-RDP-ENABLED", "WIN-AUTOLOGON"):
++        assert got[cid][0] == "ERR", (cid, got[cid])
++    passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
++    assert passed == ["WIN-PATCH-AGE"], passed     # the only non-registry PASS in this fixture
++
++
++def test_windows_rootdse_uses_the_bounded_searcher(tmp_path):
++    # R5: RootDSE is read through Invoke-LdapSearch (ClientTimeout/ServerTimeLimit), with
++    # the collector's -TimeoutSeconds threaded through -- not an unbounded DirectoryEntry.
++    body = _lib(r"""
++function Invoke-LdapSearch {
++  param([string]$SearchRoot, [string]$Filter, [string[]]$Properties, [string]$Scope = 'Subtree', [int]$TimeoutSeconds = 30)
++  if ($SearchRoot -eq 'RootDSE') {
++    $script:rdse = 'RDSE|' + $Scope + '|' + $TimeoutSeconds + '|' + $Filter
++    return @{ defaultnamingcontext='DC=corp,DC=local'; schemanamingcontext='CN=Schema,CN=Configuration,DC=corp,DC=local'; dnshostname='dc01.corp.local'; domainfunctionality='7'; forestfunctionality='7' }
++  }
++  throw 'directory unavailable' }
++$ctx = @{ ComputerName='WS01'; PartOfDomain=$true; Domain='corp.local'; IsDC=$false; Build=19045 }
++Invoke-AdPostureChecks -Enabled -Context $ctx -TimeoutSeconds 7
++$script:rdse
++""")
++    proc = _pwsh_file(tmp_path, body)
++    assert proc.returncode == 0, proc.stderr
++    assert "RDSE|Base|7|(objectClass=*)" in proc.stdout
++    got = {c: (st, d) for c, st, d in _posture_lines(proc.stdout)}
++    assert got["AD-FUNC-LEVEL"] == ("PASS", "domain=corp.local observer=ws01 domainFunctionality=7 forestFunctionality=7")
++
++
++@pytest.mark.parametrize("mode", ["clm", "rootdse_err"])
++def test_windows_ad_lines_are_domain_tagged_before_discovery(tmp_path, mode):
++    # R6: once membership is known, the CLM-NA and RootDSE-ERR lines carry the fallback
++    # domain/observer tag, so the parser files an all-ERR/NA domain instead of losing it.
++    # CLM must be in force BEFORE the collector loads: functions defined in FullLanguage
++    # keep running in FullLanguage, so setting it afterwards would not constrain them.
++    run = r"""
++$ctx = @{ ComputerName='WS01'; PartOfDomain=$true; Domain='Corp.Local'; IsDC=$false; Build=19045 }
++Invoke-AdPostureChecks -Enabled -Context $ctx
++"""
++    if mode == "clm":
++        body = "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + _lib(run)
++    else:
++        body = _lib("function Get-RootDse { throw 'server down' }\n" + run)
++    proc = _pwsh_file(tmp_path, body)
++    assert proc.returncode == 0, proc.stderr
++    lines = _posture_lines(proc.stdout)
++    want = "NA" if mode == "clm" else "ERR"
++    assert len(lines) == 15 and all(st == want for _, st, _ in lines)
++    assert all(d.startswith("domain=corp.local observer=ws01 ") for _, _, d in lines)
++    # ... and the parser keeps the domain (canonical status = that ERR/NA).
++    root = _bulk_tree(tmp_path, {"ws01": ("10.0.0.21", "\n".join(
++        f"POSTURE|{c}|{st}|{d}" for c, st, d in lines) + "\n")})
++    col, _ = _collect(root)
++    dom = col.domains["corp.local"]
++    assert len(dom["checks"]) == 15 and all(v["status"] == want for v in dom["checks"].values())
++
+ def test_windows_collector_has_no_ps7_only_syntax(tmp_path):
+     body = r"""
+ $path = $args[0]
+@@ -334,6 +441,49 @@ $t = @($tok | Where-Object { $_.Kind -in @('QuestionQuestion','QuestionDot','Que
+     assert all(b < 0x80 for b in WINPS.read_bytes()), "collector must be pure ASCII"
+ 
+ 
++_PSSA_51 = r"""
++if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { 'PSSA_MISSING'; return }
++$profiles = @('win-48_x64_10.0.17763.0_5.1.17763.316_x64_4.0.30319.42000_framework',
++              'win-8_x64_10.0.14393.0_5.1.14393.2791_x64_4.0.30319.42000_framework')
++$settings = @{
++  IncludeRules = @('PSUseCompatibleSyntax', 'PSUseCompatibleCommands', 'PSUseCompatibleTypes')
++  Rules = @{
++    PSUseCompatibleSyntax   = @{ Enable = $true; TargetVersions = @('5.1') }
++    PSUseCompatibleCommands = @{ Enable = $true; TargetProfiles = $profiles }
++    PSUseCompatibleTypes    = @{ Enable = $true; TargetProfiles = $profiles }
++  }
++}
++foreach ($p in $args) {
++  $r = @(Invoke-ScriptAnalyzer -Path $p -Settings $settings)
++  'PSSA|' + (Split-Path -Leaf $p) + '|' + $r.Count + '|' + (($r | ForEach-Object { $_.RuleName }) -join ',')
++}
++"""
++
++
++def test_windows_collector_and_payload_pass_pssa_51_profiles(tmp_path):
++    # R9: the real Windows PowerShell 5.1 compatibility profiles (Win10 1809 + Server
++    # 2016), not only a PS7-token deny-list. A canary of three PS7-only constructs
++    # must trip all three rules in the same run, so a silent analyzer cannot pass.
++    canary = tmp_path / "canary.ps1"
++    canary.write_text("$b = $null ?? 'x'\n$x = Get-Content -Path 'x' -AsByteStream\n"
++                      "$j = [System.Text.Json.JsonSerializer]::Serialize($b)\n")
++    bw = _load_bulk_win()
++    payload = tmp_path / "payload.ps1"
++    payload.write_text(bw.build_posture_payload(bw.DEFAULT_SCRIPT.read_text(), WINPS.read_text(), ad=True))
++    driver = tmp_path / "pssa.ps1"
++    driver.write_text(_PSSA_51)
++    proc = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-File", str(driver),
++                           str(canary), str(WINPS), str(payload)],
++                          capture_output=True, text=True, timeout=600)
++    if "PSSA_MISSING" in proc.stdout:
++        pytest.skip("PSScriptAnalyzer not installed -- 5.1 profile check inconclusive")
++    assert proc.returncode == 0, proc.stderr
++    rows = {r.split("|")[1]: r.split("|")[2:] for r in proc.stdout.splitlines() if r.startswith("PSSA|")}
++    assert set(rows["canary.ps1"][1].split(",")) == {
++        "PSUseCompatibleSyntax", "PSUseCompatibleCommands", "PSUseCompatibleTypes"}
++    assert rows[WINPS.name] == ["0", ""], rows[WINPS.name]
++    assert rows["payload.ps1"] == ["0", ""], rows["payload.ps1"]
++
+ # ============================================================ report.py parser / model
+ def _bulk_tree(tmp_path: Path, hosts: "dict[str, tuple[str, str]]") -> Path:
+     """hosts: dirname -> (ip, winenum|linenum file content)."""
+@@ -468,6 +618,40 @@ def test_redact_scrubs_posture_json(tmp_path):
+     assert json.loads((out / "posture.json").read_text())["redacted"] is True
+ 
+ 
++def test_redact_covers_every_posture_identity(tmp_path):
++    # R3: identities that never appear in the scan metadata -- an observer (ws01), a
++    # Kerberos realm, an AD trust partner, a differently-cased domain, and a name that
++    # only a quarantined line carries -- are all scrubbed, in every output.
++    win = "\n".join([
++        "POSTURE|AD-PWPOL-MINLEN|FAIL|domain=corp.local observer=ws01 minPwdLength=7",
++        "POSTURE|AD-TRUSTS|INFO|domain=corp.local observer=ws01 count=1 trusts=partner.example:3",
++        "POSTURE|WIN-DOMAIN-JOINED|INFO|domain=CORP.LOCAL role=member",
++        "POSTURE|WIN-BOGUS|FAIL|secret-dc.hidden.lan answered",
++    ]) + "\n"
++    lin = ("POSTURE|LIN-AD-JOINED|INFO|joined realm=CORP.EXAMPLE via=sssd\n"
++           "POSTURE|LIN-SYSCTL-ASLR|FAIL|kernel.randomize_va_space=0 seen by WS01 in corp.example\n")
++    out = _bulk_tree(tmp_path, {"win1": ("10.0.0.31", win), "lin9": ("10.0.0.99", lin)})
++    proc = subprocess.run([sys.executable, str(NET / "report.py"), str(out), "--redact", "--sarif"],
++                          capture_output=True, text=True, timeout=120)
++    assert proc.returncode in (0, 1), proc.stderr
++    leaks = ("10.0.0.", "corp.local", "ws01", "partner.example", "corp.example",
++             "secret-dc", "hidden.lan")
++    for name in ("posture.json", "findings.json", "findings.sarif", "report.md"):
++        text = (out / name).read_text().lower()
++        assert not [t for t in leaks if t in text], (name, [t for t in leaks if t in text])
++        assert "<target-" in text, name                 # redacted, not merely absent
++    fj = json.loads((out / "findings.json").read_text())
++    q = fj["posture_quarantine"]
++    assert len(q) == 1 and q[0]["error"] == "unknown posture check id WIN-BOGUS"
++    assert q[0]["line"].startswith("<redacted untrusted line: ")
++    # Case variants of one identity collapse to one token.
++    pj = json.loads((out / "posture.json").read_text())
++    (dom,) = pj["domains"]
++    joined = pj["hosts"]
++    assert any(c["detail"] == f"domain={dom} role=member"
++               for h in joined.values() for cid, c in h["checks"].items() if cid == "WIN-DOMAIN-JOINED")
++
++
+ # ============================================================ GATE 1 — posture-KB coverage
+ def _collector_ids(text: str) -> "set[str]":
+     return set(ID_QUOTED.findall(text)) | set(ID_EMIT.findall(text))
+@@ -574,18 +758,15 @@ def _load_bulk_win():
+ 
+ 
+ def test_bulk_windows_payload_shape_and_ad_flag():
+-    import base64
+     bw = _load_bulk_win()
+-    priv, post = "﻿[CmdletBinding()]\nparam([switch]$Q)\n\n'p'\n", WINPS.read_text()
++    priv, post = "\ufeff[CmdletBinding()]\r\nparam([switch]$Q)\r\n\r\n'p'\r\n", WINPS.read_text()
+     for ad, tail in ((False, ""), (True, " -AdChecks")):
+         pay = bw.build_posture_payload(priv, post, ad=ad)
+-        lines = pay.split("\n")
+-        assert lines[1] == "" and lines[3] == "" and pay.endswith("\n\n")   # blank line after each
+-        bodies = [re.search(r"FromBase64String\('([A-Za-z0-9+/=]+)'\)", ln).group(1) for ln in lines[0:3:2]]
+-        assert base64.b64decode(bodies[0]).decode() == priv.lstrip("﻿")   # BOM stripped
+-        assert base64.b64decode(bodies[1]).decode() == post
+-        assert not lines[0].endswith("-AdChecks")
+-        assert lines[2].endswith(")))" + tail)
++        # Literal blocks only: ConstrainedLanguage blocks [scriptblock]::Create().
++        assert "[scriptblock]::Create" not in pay and "FromBase64String" not in pay
++        first, second = pay.split("\n}\n\n& {\n", 1)
++        assert first == "& {\n[CmdletBinding()]\nparam([switch]$Q)\n\n'p'"   # BOM + CRLF normalised
++        assert second == post.rstrip("\n") + "\n}" + tail + "\n\n"          # blank line after each
+ 
+ 
+ def test_bulk_windows_ad_requires_with_posture(tmp_path):
+@@ -617,8 +798,15 @@ $t = @($tok | Where-Object { $_.Kind -in @('QuestionQuestion','QuestionDot','Que
+     assert proc.returncode == 0, proc.stderr
+     assert proc.stdout.count("PARSE_ERRORS=0") == 2 and "PS7_NODES=0 PS7_TOKENS=0" in proc.stdout
+     # Ship it the way the ssh transport does: `powershell -Command -` on stdin.
+-    run = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", "-"],
+-                         stdin=pay.open(), capture_output=True, text=True, timeout=180)
+-    assert "PRIV-RAN" in run.stdout
+-    lines = _posture_lines(run.stdout)
+-    assert len(lines) == 56 and sum(1 for c, _, _ in lines if c.startswith("AD-")) == 15
++    # Ship it the way the ssh transport does, in FullLanguage and in
++    # ConstrainedLanguage (AppLocker/WDAC hosts): both blocks must run.
++    clm = tmp_path / "clm.ps1"
++    clm.write_text("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n\n" + pay.read_text())
++    for script in (pay, clm):
++        with script.open() as fh:
++            run = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", "-"],
++                                 stdin=fh, capture_output=True, text=True, timeout=180)
++        assert "PRIV-RAN" in run.stdout, (script.name, run.stdout[-500:])
++        lines = _posture_lines(run.stdout)
++        assert len(lines) == 56, (script.name, len(lines))
++        assert sum(1 for c, _, _ in lines if c.startswith("AD-")) == 15
+diff --git a/docs/review/s3-posture-kb/build_kb.py b/docs/review/s3-posture-kb/build_kb.py
+index 52b793b..5ec417d 100644
+--- a/docs/review/s3-posture-kb/build_kb.py
++++ b/docs/review/s3-posture-kb/build_kb.py
+@@ -15,6 +15,22 @@ HERE = Path("docs/review/s3-posture-kb")
+ KB = Path("aranumtoolkit/network/finding-kb.json")
+ BATCHES = ["P1-linux", "P2-windows-ad"]
+ 
++# Hand-authored additions made after the peer batches (REVIEW-010 R2: the check
++# now grades channel binding too, so its guidance must cover it). Appended to the
++# batch guidance, never replacing it.
++ADDITIONS = {
++    "AD-LDAP-SIGNING": {
++        "why": (" Signing alone does not stop relay to LDAPS: without channel binding"
++                " (LdapEnforceChannelBinding=2) a relayed NTLM bind over TLS is still accepted."),
++        "test": [{"label": "Read LDAP channel-binding enforcement on each domain controller",
++                  "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LdapEnforceChannelBinding"}],
++        "fix": [{"label": "Always enforce LDAP channel binding (after auditing clients with event 3039)",
++                 "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LdapEnforceChannelBinding /t REG_DWORD /d 2 /f"}],
++        "refs": ["https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/enable-ldap-signing-in-windows-server",
++                 "https://support.microsoft.com/help/4520412"],
++    },
++}
++
+ 
+ def main() -> int:
+     catalog = json.loads((HERE / "catalog.json").read_text())
+@@ -39,6 +55,13 @@ def main() -> int:
+             "semantics": row["semantics"],
+             "why": g["why"], "test": g["test"], "fix": g["fix"], "refs": g["refs"],
+         }
++        add = ADDITIONS.get(row["id"])
++        if add:
++            c = checks[row["id"]]
++            c["why"] = c["why"] + add["why"]
++            c["test"] = c["test"] + add["test"]
++            c["fix"] = c["fix"] + add["fix"]
++            c["refs"] = c["refs"] + [r for r in add["refs"] if r not in c["refs"]]
+     if missing:
+         print(f"no guidance for: {missing}", file=sys.stderr)
+         return 1
+diff --git a/docs/review/s3-posture-kb/catalog.json b/docs/review/s3-posture-kb/catalog.json
+index 053b074..4f6fbac 100644
+--- a/docs/review/s3-posture-kb/catalog.json
++++ b/docs/review/s3-posture-kb/catalog.json
+@@ -1063,8 +1063,8 @@
+   "group": "relay",
+   "category": "ad",
+   "sev_fail": "high",
+-  "sev_warn": "",
+-  "semantics": "FAIL: DC LDAPServerIntegrity<2 where remotely readable; PASS: 2; NA: not remotely readable (never a false PASS)."
++  "sev_warn": "medium",
++  "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS)."
+  },
+  {
+   "id": "AD-TRUSTS",
+diff --git a/docs/review/s3-posture-kb/catalog.py b/docs/review/s3-posture-kb/catalog.py
+index 444e9f1..8771b76 100644
+--- a/docs/review/s3-posture-kb/catalog.py
++++ b/docs/review/s3-posture-kb/catalog.py
+@@ -111,7 +111,7 @@ AD = [
+  ("AD-PROTECTED-USERS", "Protected Users group", "domain-privilege", "ad", "", "low", "WARN: Protected Users has no members; PASS: >=1."),
+  ("AD-MAQ", "Machine account quota", "domain-policy", "ad", "", "medium", "WARN: ms-DS-MachineAccountQuota>0 (any user can join computers; RBCD/Certifried aid); PASS: 0."),
+  ("AD-FUNC-LEVEL", "Domain/forest functional level", "domain-policy", "ad", "", "low", "WARN: domain functional level below 2016 (msDS-Behavior-Version<7); PASS: >=7."),
+- ("AD-LDAP-SIGNING", "DC LDAP signing / channel binding", "relay", "ad", "high", "", "FAIL: DC LDAPServerIntegrity<2 where remotely readable; PASS: 2; NA: not remotely readable (never a false PASS)."),
++ ("AD-LDAP-SIGNING", "DC LDAP signing / channel binding", "relay", "ad", "high", "medium", "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS)."),
+  ("AD-TRUSTS", "Domain trusts", "domain-policy", "ad", "", "", "INFO: count and direction of trustedDomain objects."),
+  ("AD-LAPS-SCHEMA", "LAPS schema present", "domain-policy", "ad", "", "medium", "PASS: ms-Mcs-AdmPwd or msLAPS-Password attribute in schema; WARN: neither."),
+ ]
+diff --git a/standalones/windows/Invoke-HostPosture.ps1 b/standalones/windows/Invoke-HostPosture.ps1
+index 3def417..6d68bdd 100644
+--- a/standalones/windows/Invoke-HostPosture.ps1
++++ b/standalones/windows/Invoke-HostPosture.ps1
+@@ -88,13 +88,20 @@ function Test-IsWindowsOS {
+ }
+ 
+ function Get-RegValue {
++    # $null ONLY when the key or the value is genuinely absent, so the caller may apply
++    # the documented default. Any other failure (access denied, provider unavailable)
++    # THROWS, and the enclosing Invoke-PostureCheck reports ERR: a read that failed must
++    # never grade as the absent-value default, which for many checks is PASS.
+     param([string]$Path, [string]$Name)
+     try {
+-        $item = Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction Stop
+-        return $item.$Name
+-    } catch {
++        $item = Get-ItemProperty -LiteralPath $Path -ErrorAction Stop
++    } catch [System.Management.Automation.ItemNotFoundException] {
+         return $null
+     }
++    if ($null -eq $item) { return $null }
++    $p = $item.PSObject.Properties[$Name]
++    if ($null -eq $p) { return $null }
++    return $p.Value
+ }
+ 
+ function Format-RegText {
+@@ -211,17 +218,26 @@ function Measure-DistinctMember {
+ }
+ 
+ function Resolve-LdapSigningStatus {
+-    # $null = not readable from this observer -> NA (never a false PASS).
++    # Both policies are graded; PASS needs signing required (LDAPServerIntegrity=2) AND
++    # channel binding always enforced (LdapEnforceChannelBinding=2). $ServerIntegrity
++    # $null = not a DC observer -> NA (never a false PASS). $ChannelBinding $null = the
++    # value is absent on the DC (an unreadable value throws upstream -> ERR): absent means
++    # not enforced, so LDAPS relay stays open.
+     param($ServerIntegrity, $ChannelBinding)
+-    $cb = 'unknown'
+-    if ($null -ne $ChannelBinding) { $cb = [string]$ChannelBinding }
+     if ($null -eq $ServerIntegrity) {
+         return (New-PostureResult 'NA' 'LDAPServerIntegrity not readable from this observer (run on a DC)')
+     }
+-    if ([int]$ServerIntegrity -ge 2) {
+-        return (New-PostureResult 'PASS' ('LDAPServerIntegrity=' + $ServerIntegrity + ' channel_binding=' + $cb))
++    $cb = 'unset'
++    if ($null -ne $ChannelBinding) { $cb = [string]$ChannelBinding }
++    $detail = 'LDAPServerIntegrity=' + $ServerIntegrity + ' LdapEnforceChannelBinding=' + $cb
++    if ([int]$ServerIntegrity -lt 2) { return (New-PostureResult 'FAIL' $detail) }
++    if ($null -eq $ChannelBinding -or [int]$ChannelBinding -eq 0) {
++        return (New-PostureResult 'FAIL' ($detail + ' (LDAPS relay: channel binding not enforced)'))
++    }
++    if ([int]$ChannelBinding -eq 1) {
++        return (New-PostureResult 'WARN' ($detail + ' (channel binding only when supported)'))
+     }
+-    return (New-PostureResult 'FAIL' ('LDAPServerIntegrity=' + $ServerIntegrity + ' channel_binding=' + $cb))
++    return (New-PostureResult 'PASS' $detail)
+ }
+ 
+ function ConvertTo-DnsDomain {
+@@ -266,17 +282,18 @@ function Invoke-LdapSearch {
+ }
+ 
+ function Get-RootDse {
+-    $r = New-Object System.DirectoryServices.DirectoryEntry('LDAP://RootDSE')
+-    try {
+-        return @{
+-            defaultNamingContext = [string]$r.Properties['defaultNamingContext'].Value
+-            schemaNamingContext  = [string]$r.Properties['schemaNamingContext'].Value
+-            dnsHostName          = [string]$r.Properties['dnsHostName'].Value
+-            domainFunctionality  = [int]([string]$r.Properties['domainFunctionality'].Value)
+-            forestFunctionality  = [int]([string]$r.Properties['forestFunctionality'].Value)
+-        }
+-    } finally {
+-        $r.Dispose()
++    # Through the same bounded DirectorySearcher as every other query (ClientTimeout +
++    # ServerTimeLimit), not a bare DirectoryEntry property read, which has no timeout.
++    param([int]$TimeoutSeconds = 30)
++    $e = @(Invoke-LdapSearch -SearchRoot 'RootDSE' -Filter '(objectClass=*)' -Scope Base -TimeoutSeconds $TimeoutSeconds `
++        -Properties @('defaultNamingContext', 'schemaNamingContext', 'dnsHostName', 'domainFunctionality', 'forestFunctionality'))
++    if ($e.Count -eq 0) { throw 'RootDSE returned no entry' }
++    return @{
++        defaultNamingContext = [string](Get-EntryValue $e[0] 'defaultnamingcontext')
++        schemaNamingContext  = [string](Get-EntryValue $e[0] 'schemanamingcontext')
++        dnsHostName          = [string](Get-EntryValue $e[0] 'dnshostname')
++        domainFunctionality  = [int]([string](Get-EntryValue $e[0] 'domainfunctionality'))
++        forestFunctionality  = [int]([string](Get-EntryValue $e[0] 'forestfunctionality'))
+     }
+ }
+ 
+@@ -467,14 +484,20 @@ function Invoke-HostPostureChecks {
+         New-PostureResult 'INFO' ('LanguageMode=' + [string]$ExecutionContext.SessionState.LanguageMode)
+     }
+ 
+-    $rdpDeny = Get-RegValue $tsPol 'fDenyTSConnections'
+-    if ($null -eq $rdpDeny) { $rdpDeny = Get-RegValue $ts 'fDenyTSConnections' }
++    $rdpDeny = $null
++    $rdpErr = ''
++    try {
++        $rdpDeny = Get-RegValue $tsPol 'fDenyTSConnections'
++        if ($null -eq $rdpDeny) { $rdpDeny = Get-RegValue $ts 'fDenyTSConnections' }
++    } catch { $rdpErr = $_.Exception.Message }
+     $rdpOn = ($null -ne $rdpDeny -and [int]$rdpDeny -eq 0)
+     Invoke-PostureCheck 'WIN-RDP-ENABLED' {
++        if ($rdpErr) { throw ('fDenyTSConnections unreadable: ' + $rdpErr) }
+         if ($rdpOn) { return (New-PostureResult 'INFO' 'RDP enabled (fDenyTSConnections=0)') }
+         New-PostureResult 'INFO' ('RDP disabled (fDenyTSConnections=' + (Format-RegText $rdpDeny) + ')')
+     }
+     Invoke-PostureCheck 'WIN-RDP-NLA' {
++        if ($rdpErr) { throw ('fDenyTSConnections unreadable: ' + $rdpErr) }
+         if (-not $rdpOn) { return (New-PostureResult 'NA' 'RDP disabled') }
+         $v = Get-RegValue $tsPol 'UserAuthentication'
+         if ($null -eq $v) { $v = Get-RegValue ($ts + '\WinStations\RDP-Tcp') 'UserAuthentication' }
+@@ -616,17 +639,22 @@ function Invoke-AdPostureChecks {
+         foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' 'not domain-joined' }
+         return
+     }
++    # Membership is confirmed: from here on every line carries a domain/observer tag so
++    # the parser files it under the domain (an all-ERR/NA domain must still appear). The
++    # fallback tag uses the joined domain; RootDSE's naming context replaces it below.
++    $observer = ' observer=' + $Context.ComputerName.ToLower() + ' '
++    $tag = 'domain=' + $Context.Domain.ToLower() + $observer
+     if ([string]$ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+-        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' 'ConstrainedLanguage: ADSI unavailable' }
++        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' ($tag + 'ConstrainedLanguage: ADSI unavailable') }
+         return
+     }
+     $rootDse = $null
+-    try { $rootDse = Get-RootDse } catch {
+-        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'ERR' ('RootDSE unavailable: ' + $_.Exception.Message) }
++    try { $rootDse = Get-RootDse -TimeoutSeconds $TimeoutSeconds } catch {
++        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'ERR' ($tag + 'RootDSE unavailable: ' + $_.Exception.Message) }
+         return
+     }
+     $dn = $rootDse.defaultNamingContext
+-    $tag = 'domain=' + (ConvertTo-DnsDomain $dn) + ' observer=' + $Context.ComputerName.ToLower() + ' '
++    $tag = 'domain=' + (ConvertTo-DnsDomain $dn) + $observer
+     $t = $TimeoutSeconds
+ 
+     $dom = $null

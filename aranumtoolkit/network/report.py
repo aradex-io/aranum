@@ -38,6 +38,7 @@ import hashlib
 import datetime
 import html
 import ipaddress
+import itertools
 import json
 import os
 import re
@@ -173,7 +174,7 @@ def _load_finding_kb() -> dict:
     path = str(_finding_kb_path())
     if _FINDING_KB_CACHE is not None and _FINDING_KB_CACHE_PATH == path:
         return _FINDING_KB_CACHE
-    empty = {"categories": {}, "classes": {}, "service_categories": {}}
+    empty = {"categories": {}, "classes": {}, "service_categories": {}, "checks": {}}
     try:
         raw = json.loads(Path(path).read_text(errors="replace"))
     except Exception:
@@ -199,24 +200,61 @@ def _load_finding_kb() -> dict:
             cat = c.get("category")
             if not isinstance(cat, str) or cat not in categories:
                 continue
-            classes[rid] = {
-                "category": cat,
-                "title": str(c.get("title") or rid),
-                "why": str(c.get("why") or ""),
-                "test": [t for t in c.get("test", []) if isinstance(t, dict)]
-                        if isinstance(c.get("test"), list) else [],
-                "fix": [x for x in c.get("fix", []) if isinstance(x, dict)]
-                       if isinstance(c.get("fix"), list) else [],
-                "refs": [r for r in c.get("refs", []) if isinstance(r, str)]
-                        if isinstance(c.get("refs"), list) else [],
-            }
+            classes[rid] = _kb_guidance(c, rid, cat)
         raw_svc = raw.get("service_categories") if isinstance(raw.get("service_categories"), dict) else {}
         service_categories = {k: v for k, v in raw_svc.items() if isinstance(v, str) and v}
+        # S3/D3.3 — posture checks keyed by POSTURE check id. Each is also
+        # projected into `classes` (rule ids are lowercase-hash, check ids are
+        # uppercase LIN-/WIN-/AD-, so they cannot collide) so a posture finding
+        # with rule_id=<check id> resolves kb_match="rule" and gets Top-risks
+        # and dashboard guidance through the existing path.
+        raw_checks = raw.get("checks") if isinstance(raw.get("checks"), dict) else {}
+        checks: dict = {}
+        for cid, c in raw_checks.items():
+            if not isinstance(cid, str) or not _CHECK_ID_RE.match(cid) or not isinstance(c, dict):
+                continue
+            cat = c.get("category")
+            if not isinstance(cat, str) or cat not in categories:
+                continue
+            scope = c.get("scope")
+            if scope not in ("host", "domain"):
+                scope = "domain" if cid.startswith("AD-") else "host"
+            check = _kb_guidance(c, cid, cat)
+            check.update({
+                "os": str(c.get("os") or ""),
+                "scope": scope,
+                "group": str(c.get("group") or ""),
+                "semantics": str(c.get("semantics") or ""),
+                "sev_fail": c.get("sev_fail") if c.get("sev_fail") in _KB_SEVERITIES else "",
+                "sev_warn": c.get("sev_warn") if c.get("sev_warn") in _KB_SEVERITIES else "",
+            })
+            checks[cid] = check
+            classes.setdefault(cid, _kb_guidance(c, cid, cat))
         kb = {"categories": categories, "classes": classes,
-              "service_categories": service_categories}
+              "service_categories": service_categories, "checks": checks}
     _FINDING_KB_CACHE = kb
     _FINDING_KB_CACHE_PATH = path
     return kb
+
+
+_KB_SEVERITIES = ("critical", "high", "medium", "low")
+_CHECK_ID_RE = re.compile(r"^(?:LIN|WIN|AD)-[A-Z0-9][A-Z0-9-]*$")
+
+
+def _kb_guidance(c: dict, rid: str, cat: str) -> dict:
+    """The safe-typed guidance fields shared by a KB class and a KB check:
+    missing/wrong-typed fields become empty, never None."""
+    return {
+        "category": cat,
+        "title": str(c.get("title") or rid),
+        "why": str(c.get("why") or ""),
+        "test": [t for t in c.get("test", []) if isinstance(t, dict)]
+                if isinstance(c.get("test"), list) else [],
+        "fix": [x for x in c.get("fix", []) if isinstance(x, dict)]
+               if isinstance(c.get("fix"), list) else [],
+        "refs": [r for r in c.get("refs", []) if isinstance(r, str)]
+                if isinstance(c.get("refs"), list) else [],
+    }
 
 
 def _service_category(service: str, kb: dict, host_ports: "set[str] | None" = None) -> str:
@@ -890,24 +928,27 @@ class Redactor:
         bare_ipv6 = r"(?<![0-9A-Fa-f:.])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,}(?![0-9A-Fa-f:.])"
         parts = [bracketed_ipv6, bare_ipv6, ipv4]
         if self._hosts:
-            parts.append(r"\b(?:" + "|".join(re.escape(h) for h in self._hosts) + r")\b")
+            # Hostnames/domains are case-insensitive (CORP.LOCAL == corp.local).
+            parts.append(r"(?i:\b(?:" + "|".join(re.escape(h) for h in self._hosts) + r")\b)")
         return re.compile("|".join(parts))
 
     def __call__(self, text: str) -> str:
         if not self.enable:
             return text
-        host_set = set(self._hosts)
+        host_set = {h.lower() for h in self._hosts}
         def _sub(m):
-            key = m.group(0)
+            # One token per identity regardless of case (and per IPv6 hex case).
+            raw = m.group(0)
+            key = raw.lower()
             # A colon-bearing, non-bracketed match is a bare-IPv6 candidate:
             # redact only if it is a real IP address or a known host, else leave
-            # it (avoids mangling MACs / hex tokens the loose regex catches).
+            # it verbatim (avoids mangling MACs / hex tokens the loose regex catches).
             if ":" in key and not key.startswith("["):
                 try:
                     ipaddress.ip_address(key)
                 except ValueError:
                     if key not in host_set:
-                        return key
+                        return raw
             if key not in self._map:
                 self._counter += 1
                 self._map[key] = f"<TARGET-{self._counter}>"
@@ -1579,7 +1620,11 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
         endpoint: dict | None = None
         host = str(finding.get("host", ""))
         port = str(finding.get("port", ""))
-        if host == "(dispatcher)":
+        if service == "posture":
+            # S3 — posture is host- or domain-level evidence from a collector,
+            # never an endpoint line; it is not re-attributed.
+            endpoint = None
+        elif host == "(dispatcher)":
             endpoint = _endpoint_in_text(str(finding.get("line", "")), endpoints, service)
         else:
             possible = [e for e in endpoints if e["service"] == service and e["host"] == host
@@ -1603,7 +1648,11 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
         # into an Unattributed panel and excludes them from host tables and
         # severity KPIs. An attributed line is endpoint-scoped when it carries a
         # port, host-scoped when only the host is known.
-        if finding.get("host") == "(dispatcher)":
+        if finding.get("posture_scope") == "domain":
+            # S3/D3.3 — one canonical finding per (domain, check); host is the
+            # domain identity, so it is kept out of per-host tables.
+            finding["scope"] = "domain"
+        elif finding.get("host") == "(dispatcher)":
             finding["scope"] = "run"
         elif finding.get("port"):
             finding["scope"] = "endpoint"
@@ -1917,15 +1966,24 @@ def walk_findings_bulk(
     extra_rules,
     service_metadata: dict | None = None,
     diagnostics: list[dict] | None = None,
+    posture: dict | None = None,
 ) -> Iterable[dict]:
     """Walk a bulk-enum output tree. Each top-level subdir is one host. The
     host's output file selects the rule set + service label:
         linenum.txt  -> _BULK_RULES     + service='linenum'  (Linux, J)
         winenum.txt  -> _BULK_RULES_WIN + service='winenum'  (Windows, K)
     A single $OUT can hold both — report.py rolls them up into ONE per-host
-    verdict table so a mixed-OS engagement gets one prioritized view."""
+    verdict table so a mixed-OS engagement gets one prioritized view.
+
+    S3/D3.3: `POSTURE|…` lines bypass the regex rules entirely and go to the
+    strict posture parser; host FAIL/WARN become findings here, everything
+    else (and every domain-scope observation) lands in the `posture` sink
+    (see _new_posture_sink)."""
     if service_metadata is None:
         service_metadata = _load_service_metadata(out_dir)
+    if posture is None:
+        posture = _new_posture_sink()
+    kb = _load_finding_kb()
     extras = list(extra_rules or [])
     # Fold in the AD-depth / CVE-signal rules so bulk (winenum/linenum) findings —
     # LAPS, ADCS/ESC, PrintNightmare, writable pipes, coercion primitives — actually
@@ -1992,7 +2050,14 @@ def walk_findings_bulk(
                 text = evidence.read_text(errors="replace")
             except Exception:
                 continue
+            rel = str(evidence.relative_to(out_dir))
             for line in text.splitlines():
+                if "POSTURE|" in line[:16]:
+                    pf = _ingest_posture_line(line, identity["host"], svc, rel, posture,
+                                              diagnostics, service_metadata, kb)
+                    if pf is not None:
+                        yield _with_bulk_identity(pf, identity)
+                    continue
                 matched = _classify_line(line, rules)
                 if matched is None:
                     continue
@@ -2009,6 +2074,229 @@ def walk_findings_bulk(
                 ), identity)
 
 
+# ---------------------------------------------------- host posture (S3/D3.3)
+# Strict, anchored framing (D3.1): id and status are [A-Z0-9-]; the parser
+# splits on the first three `|` only, so a `|` surviving inside the detail
+# stays in the detail and can never inject a field.
+_POSTURE_RE = re.compile(r"^POSTURE\|[A-Z0-9-]+\|(PASS|FAIL|WARN|INFO|NA|ERR)\|")
+_POSTURE_STATUSES = ("PASS", "FAIL", "WARN", "INFO", "NA", "ERR")
+# Determined statuses, worst first; ERR/NA are undetermined and never outrank one.
+_POSTURE_DETERMINED_RANK = {"FAIL": 0, "WARN": 1, "PASS": 2, "INFO": 3}
+_POSTURE_DOMAIN_TAG = re.compile(r"^domain=([a-z0-9][a-z0-9.-]*)(?:\s|$)")
+_POSTURE_DETAIL_MAX = 400
+_POSTURE_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _new_posture_sink() -> dict:
+    """Mutable accumulator the bulk walker fills:
+    hosts       {host: {os, source, checks: {id: {status, detail}},
+                        domain_observations: {id: {status, detail}}}}
+    domain_obs  {domain: {id: [{host, status, detail, evidence_path}]}}
+    domains     filled by _posture_domain_findings once the walk is consumed."""
+    return {"hosts": {}, "domain_obs": {}, "domains": {}}
+
+
+def _parse_posture_line(line: str) -> "tuple[str, str, str] | None":
+    """(check_id, status, detail) for a well-formed POSTURE line, else None."""
+    line = _clean_line(line).rstrip("\r\n").lstrip("\ufeff")
+    if not _POSTURE_RE.match(line):
+        return None
+    _, check_id, status, detail = line.split("|", 3)
+    detail = _POSTURE_CTRL_RE.sub(" ", detail).strip()[:_POSTURE_DETAIL_MAX]
+    return check_id, status, detail
+
+
+def _posture_severity(check: dict, status: str) -> str:
+    sev = check.get("sev_fail") if status == "FAIL" else check.get("sev_warn")
+    if sev in _KB_SEVERITIES:
+        return str(sev)
+    return "medium" if status == "FAIL" else "low"
+
+
+def _posture_finding(host: str, check_id: str, status: str, detail: str, check: dict,
+                     scope: str, evidence_path: str, service_metadata: dict) -> dict:
+    line = f"POSTURE|{check_id}|{status}|{detail}"
+    f = _structured_finding(host, "", "posture", _posture_severity(check, status), line,
+                            evidence_path, service_metadata, "", rule_id=check_id)
+    title = str(check.get("title") or check_id)
+    f["title"] = f"{title}: {detail}"[:200] if detail else title
+    f.update({
+        "posture_check": check_id,
+        "posture_status": status,
+        "posture_detail": detail,
+        "posture_scope": scope,
+        "posture_os": str(check.get("os", "")),
+        "posture_group": str(check.get("group", "")),
+    })
+    return f
+
+
+def _ingest_posture_line(line: str, host: str, svc: str, evidence_path: str, sink: dict,
+                         diagnostics: "list[dict] | None", service_metadata: dict,
+                         kb: dict) -> "dict | None":
+    """Parse one POSTURE line into the sink. Returns a host-scope finding for
+    FAIL/WARN, else None. A malformed line, an unknown id, a repeated id on
+    the same host, or a determined domain check without a `domain=` tag is
+    quarantined as a `posture_quarantine` diagnostic — never a finding, never
+    dropped silently."""
+    def _quarantine(reason: str) -> None:
+        if diagnostics is not None:
+            diagnostics.append({
+                "type": "posture_quarantine",
+                "host": host,
+                "path": evidence_path,
+                "error": reason,
+                "line": _POSTURE_CTRL_RE.sub(" ", _clean_line(line)).strip()[:200],
+            })
+        return None
+
+    parsed = _parse_posture_line(line)
+    if parsed is None:
+        return _quarantine("malformed POSTURE line (fails the strict anchor)")
+    check_id, status, detail = parsed
+    check = kb.get("checks", {}).get(check_id)
+    if not isinstance(check, dict):
+        return _quarantine(f"unknown posture check id {check_id}")
+    rec = sink["hosts"].setdefault(host, {
+        "os": "linux" if svc == "linenum" else "windows",
+        "source": evidence_path, "checks": {}, "domain_observations": {}})
+    if check_id in rec["checks"] or check_id in rec["domain_observations"]:
+        return _quarantine(f"duplicate posture check id {check_id} for host")
+    if check.get("scope") == "domain":
+        m = _POSTURE_DOMAIN_TAG.match(detail)
+        if not m and status in _POSTURE_DETERMINED_RANK:
+            return _quarantine(f"domain check {check_id} {status} without a domain= tag")
+        rec["domain_observations"][check_id] = {"status": status, "detail": detail}
+        if m:
+            sink["domain_obs"].setdefault(m.group(1), {}).setdefault(check_id, []).append(
+                {"host": host, "status": status, "detail": detail,
+                 "evidence_path": evidence_path})
+        return None
+    rec["checks"][check_id] = {"status": status, "detail": detail}
+    if status not in ("FAIL", "WARN"):
+        return None
+    return _posture_finding(host, check_id, status, detail, check, "host",
+                            evidence_path, service_metadata)
+
+
+def _posture_canonical(observations: "list[dict]") -> "tuple[str, str, dict]":
+    """Total status lattice for one (domain, check) across observers (D3.3):
+    the worst determined status (FAIL > WARN > PASS > INFO) if any observer
+    determined it, else ERR if any observer errored, else NA. Disagreement
+    among determined statuses is recorded as a `conflict:` prefix."""
+    determined = [o for o in observations if o["status"] in _POSTURE_DETERMINED_RANK]
+    if determined:
+        worst = min(determined, key=lambda o: _POSTURE_DETERMINED_RANK[o["status"]])
+        detail = worst["detail"]
+        if len({o["status"] for o in determined}) > 1:
+            pairs = " ".join(f"{o['host']}={o['status']}" for o in determined)
+            detail = f"conflict: {pairs}; {detail}"
+        return worst["status"], detail, worst
+    status = "ERR" if any(o["status"] == "ERR" for o in observations) else "NA"
+    worst = next(o for o in observations if o["status"] == status) \
+        if any(o["status"] == status for o in observations) else observations[0]
+    return status, worst["detail"], worst
+
+
+def _posture_domain_findings(sink: dict, kb: dict, service_metadata: dict) -> Iterable[dict]:
+    """Roll domain observations up into `sink["domains"]` and yield one
+    canonical finding per FAIL/WARN (domain, check). A generator, so chaining
+    it after the walker runs it only once every host has been read."""
+    checks = kb.get("checks", {})
+    domains: dict = {}
+    for domain in sorted(sink["domain_obs"]):
+        dchecks: dict = {}
+        for check_id in sorted(sink["domain_obs"][domain]):
+            obs = sink["domain_obs"][domain][check_id]
+            status, detail, worst = _posture_canonical(obs)
+            observed = [{"host": o["host"], "status": o["status"], "detail": o["detail"]}
+                        for o in obs]
+            dchecks[check_id] = {"status": status, "detail": detail, "observed_from": observed}
+            if status in ("FAIL", "WARN") and isinstance(checks.get(check_id), dict):
+                f = _posture_finding(domain, check_id, status, detail, checks[check_id],
+                                     "domain", worst["evidence_path"], service_metadata)
+                f["evidence_paths"] = sorted({o["evidence_path"] for o in obs if o["evidence_path"]})
+                f["observed_from"] = observed
+                f.update({"user": "", "key": "", "artifact_id": ""})
+                yield f
+        domains[domain] = {"checks": dchecks}
+    sink["domains"] = domains
+
+
+def _posture_summary(posture: dict) -> "tuple[dict, dict]":
+    """(summary.posture, summary.domains). Host counts cover host-scope checks
+    only; domain checks are counted once per domain in summary.domains."""
+    hosts = posture.get("hosts", {}) or {}
+    counts = {s.lower(): 0 for s in _POSTURE_STATUSES}
+    for rec in hosts.values():
+        for c in rec.get("checks", {}).values():
+            counts[c["status"].lower()] += 1
+    domains = posture.get("domains", {}) or {}
+    worst = {d: {cid: c["status"] for cid, c in v.get("checks", {}).items()}
+             for d, v in domains.items()}
+    return {"hosts": len(hosts), **counts}, {"count": len(domains), "worst_by_check": worst}
+
+
+_POSTURE_IDENTITY_RE = re.compile(r"(?:^|\s)(?:domain|realm|observer)=([^\s,;|]+)", re.I)
+_POSTURE_TRUSTS_RE = re.compile(r"(?:^|\s)trusts=(\S+)")
+
+
+def _posture_identities(posture: "dict | None", quarantined: "list[dict]") -> "list[str]":
+    """Every host/domain identity posture text can carry, for --redact seeding:
+    the canonical domain keys plus each `domain=` / `realm=` / `observer=` value
+    and each AD-TRUSTS partner name found in any check, observation, observer
+    record, or quarantined line. Metadata hosts alone miss observers (ws01),
+    Kerberos realms, and trust partners."""
+    found: set[str] = set()
+
+    def scan(text: str) -> None:
+        for m in _POSTURE_IDENTITY_RE.finditer(text or ""):
+            if m.group(1).lower() not in ("", "unknown"):
+                found.add(m.group(1))
+        for m in _POSTURE_TRUSTS_RE.finditer(text or ""):
+            for item in m.group(1).split(","):
+                name = item.split(":", 1)[0].strip()
+                if name:
+                    found.add(name)
+
+    posture = posture or {}
+    for rec in (posture.get("hosts") or {}).values():
+        for section in ("checks", "domain_observations"):
+            for c in (rec.get(section) or {}).values():
+                scan(str(c.get("detail", "")))
+    for dom, rec in (posture.get("domains") or {}).items():
+        found.add(dom)
+        for c in (rec.get("checks") or {}).values():
+            scan(str(c.get("detail", "")))
+            for o in c.get("observed_from") or []:
+                scan(str(o.get("detail", "")))
+    for q in quarantined:
+        scan(str(q.get("line", "")))
+    return sorted(found)
+
+
+def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
+    hosts = {}
+    for h, rec in (posture.get("hosts") or {}).items():
+        hosts[redactor(h)] = {
+            "os": rec.get("os", ""),
+            "source": redactor(rec.get("source", "")),
+            "checks": {cid: {"status": c["status"], "detail": redactor(c["detail"])}
+                       for cid, c in rec.get("checks", {}).items()},
+            "domain_observations": {cid: {"status": c["status"], "detail": redactor(c["detail"])}
+                                    for cid, c in rec.get("domain_observations", {}).items()},
+        }
+    domains = {}
+    for d, v in (posture.get("domains") or {}).items():
+        domains[redactor(d)] = {"checks": {
+            cid: {"status": c["status"], "detail": redactor(c["detail"]),
+                  "observed_from": [{"host": redactor(o["host"]), "status": o["status"],
+                                     "detail": redactor(o["detail"])}
+                                    for o in c.get("observed_from", [])]}
+            for cid, c in v.get("checks", {}).items()}}
+    return {"hosts": hosts, "domains": domains}
+
+
 # ---------------------------------------------------- renderers
 _SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
@@ -2020,7 +2308,15 @@ def _per_host_verdicts(findings: list[dict]) -> dict[str, dict]:
     {host: {verdict, n_critical, n_high, n_medium, n_low, os}}."""
     per: dict[str, dict] = {}
     for f in findings:
-        if f["service"] not in ("linenum", "winenum"):
+        if f["service"] == "posture":
+            # S3 — host-scope posture counts toward the host's verdict; a
+            # domain-scope canonical finding (host = domain name) does not.
+            if f.get("posture_scope") != "host":
+                continue
+            new_os = str(f.get("posture_os") or "")
+        elif f["service"] in ("linenum", "winenum"):
+            new_os = "linux" if f["service"] == "linenum" else "windows"
+        else:
             continue
         h = f["host"]
         if h not in per:
@@ -2030,7 +2326,8 @@ def _per_host_verdicts(findings: list[dict]) -> dict[str, dict]:
         if _SEV_ORDER[f["severity"]] < _SEV_ORDER[per[h]["verdict"]]:
             per[h]["verdict"] = f["severity"]
         # Track OS — if both surfaces produced findings, label "mixed"
-        new_os = "linux" if f["service"] == "linenum" else "windows"
+        if not new_os:
+            continue
         if not per[h]["os"]:
             per[h]["os"] = new_os
         elif per[h]["os"] != new_os:
@@ -2046,7 +2343,7 @@ def _summary(findings: list[dict], out_dir: Path | None = None) -> dict:
     for f in findings:
         counts[f["severity"]] += 1
         by_service[f["service"]][f["severity"]] += 1
-        if f["host"] != "(dispatcher)":
+        if f["host"] != "(dispatcher)" and f.get("scope") != "domain":
             hosts.add(f["host"])
         services.add(f["service"])
     hosts_with_findings = set(hosts)
@@ -2404,10 +2701,16 @@ def collect(out_dir: Path, rules, service_metadata: "dict | None" = None,
     if service_metadata is None:
         service_metadata = _load_service_metadata(out_dir)
     if _is_bulk_enum_dir(out_dir):
-        findings = finalize_findings(
-            out_dir, walk_findings_bulk(out_dir, rules, service_metadata, diags))
+        sink = _new_posture_sink()
+        walked = walk_findings_bulk(out_dir, rules, service_metadata, diags, posture=sink)
+        # The domain generator runs only after the walk is exhausted (chain is
+        # lazy), so every host's observations are in the sink before rollup.
+        domain_findings = _posture_domain_findings(sink, _load_finding_kb(), service_metadata)
+        findings = finalize_findings(out_dir, itertools.chain(walked, domain_findings))
+        posture = {"hosts": sink["hosts"], "domains": sink["domains"]} if sink["hosts"] else None
         return Collection(findings=findings, per_host=_per_host_verdicts(findings),
-                          mode="bulk-enum", diagnostics=diags)
+                          mode="bulk-enum", posture=posture,
+                          domains=sink["domains"] or None, diagnostics=diags)
     findings = finalize_findings(out_dir, walk_findings(out_dir, rules, service_metadata))
     return Collection(findings=findings, per_host=None, mode="auto-enum", diagnostics=diags)
 
@@ -2452,6 +2755,16 @@ def main() -> int:
         print(_c("[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
 
     summary = _summary(findings, out_dir)
+    posture = collection.posture
+    if posture:
+        summary["posture"], summary["domains"] = _posture_summary(posture)
+        # A host that reported only PASS/INFO posture was still assessed; it
+        # must be a known host (it also seeds --redact for posture.json).
+        summary["hosts"] = sorted(set(summary["hosts"]) | set(posture["hosts"]))
+    # S3 — a quarantined POSTURE line is a data-quality diagnostic, not a
+    # failed collection: it is reported but does not mark the run partial.
+    partial_diagnostics = [d for d in report_diagnostics if d.get("type") != "posture_quarantine"]
+    quarantined = [d for d in report_diagnostics if d.get("type") == "posture_quarantine"]
 
     # Always emit findings.json (machine-readable)
     findings_json = {
@@ -2463,10 +2776,15 @@ def main() -> int:
         "summary":       summary,
         "findings":      findings,
     }
-    if report_diagnostics:
+    if quarantined:
+        findings_json["posture_quarantine"] = quarantined
+        for diagnostic in quarantined:
+            print(_c(f"[!] posture line quarantined: {diagnostic['path']}: {diagnostic['error']}",
+                     "Y"), file=sys.stderr)
+    if partial_diagnostics:
         findings_json["partial"] = True
-        findings_json["errors"] = report_diagnostics
-        for diagnostic in report_diagnostics:
+        findings_json["errors"] = partial_diagnostics
+        for diagnostic in partial_diagnostics:
             print(
                 _c(
                     f"[!] partial report: {diagnostic['path']}: {diagnostic['error']}",
@@ -2481,14 +2799,31 @@ def main() -> int:
                                     key=lambda kv: (_SEV_ORDER[kv[1]["verdict"]], kv[0]))
         }
     if args.redact:
-        # Seed hostname redaction from the discovered scan hosts (pre-redaction).
-        redactor.set_known_hosts(summary.get("hosts", []))
+        # Seed hostname redaction from the discovered scan hosts (pre-redaction),
+        # plus any domain identities the posture rollup established.
+        redactor.set_known_hosts(list(summary.get("hosts", []))
+                                 + _posture_identities(posture, quarantined))
         for f in findings_json["findings"]:
             f["host"] = redactor(f["host"])
             f["line"] = redactor(f["line"])
             f["evidence_path"] = redactor(f["evidence_path"])
             f["evidence_paths"] = [redactor(p) for p in f.get("evidence_paths", [])]
             f["title"] = redactor(f["title"])
+            if "posture_detail" in f:
+                f["posture_detail"] = redactor(f["posture_detail"])
+            if "observed_from" in f:
+                f["observed_from"] = [{"host": redactor(o["host"]), "status": o["status"],
+                                       "detail": redactor(o["detail"])}
+                                      for o in f["observed_from"]]
+        for d in quarantined:
+            for k in ("host", "path"):
+                d[k] = redactor(str(d.get(k, "")))
+            # A quarantined line failed the contract, so its identities cannot be
+            # located reliably: drop the untrusted text entirely, keep the reason.
+            d["line"] = f"<redacted untrusted line: {len(str(d.get('line', '')))} chars>"
+        if "domains" in findings_json["summary"]:
+            findings_json["summary"]["domains"]["worst_by_check"] = {
+                redactor(d): v for d, v in findings_json["summary"]["domains"]["worst_by_check"].items()}
         for field in ("hosts", "hosts_assessed", "hosts_with_findings"):
             findings_json["summary"][field] = [redactor(h) for h in summary.get(field, [])]
         for record in findings_json["summary"].get("coverage", []):
@@ -2497,13 +2832,26 @@ def main() -> int:
             findings_json["per_host"] = {redactor(h): v for h, v in findings_json["per_host"].items()}
     (out_dir / "findings.json").write_text(json.dumps(findings_json, indent=2))
     print(_c(f"[+] findings.json written ({len(findings)} findings)", "G"))
+    if posture:
+        posture_out = _redact_posture(posture, redactor) if args.redact else {
+            "hosts": posture["hosts"], "domains": posture["domains"]}
+        posture_json = {
+            "schema_version": "1",
+            "label": label,
+            "generated_utc": findings_json["generated_utc"],
+            "redacted": args.redact,
+            **posture_out,
+        }
+        (out_dir / "posture.json").write_text(json.dumps(posture_json, indent=2))
+        print(_c(f"[+] posture.json written ({len(posture['hosts'])} hosts, "
+                 f"{len(posture['domains'])} domains)", "G"))
 
     if args.sarif:
         (out_dir / "findings.sarif").write_text(
             json.dumps(_to_sarif(findings_json["findings"], label), indent=2))
         print(_c("[+] findings.sarif written (SARIF 2.1.0)", "G"))
 
-    result_rc = 1 if report_diagnostics else 0
+    result_rc = 1 if partial_diagnostics else 0
     if args.findings_only:
         return result_rc
 

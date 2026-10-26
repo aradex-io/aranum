@@ -1,0 +1,51 @@
+You are authoring remediation knowledge-base entries for an AUTHORIZED-penetration-testing
+/ defensive-posture toolkit (aranum). Each entry describes ONE host-hardening posture CHECK
+that a read-only collector script runs ON THE HOST ITSELF (Linux bash or Windows PowerShell
+5.1) and reports as PASS/FAIL/WARN/INFO/NA/ERR. The dashboard shows "why it matters",
+"how to verify it yourself", and "how to fix it" for each check.
+
+INPUT: read the JSON file at the path given below. It maps each check id to
+{os, scope, title, group, category, semantics}. `semantics` states EXACTLY what the collector
+measures and what PASS/WARN/FAIL mean. `scope` is "host" (a local setting on that machine)
+or "domain" (an Active Directory domain-wide setting read over read-only LDAP from a
+domain-joined Windows host). Do not change the meaning of any check.
+
+OUTPUT: write ONLY a single JSON object (no prose, no markdown code fences) mapping each input
+check id to an object with EXACTLY these keys:
+  "why":  2-3 sentences: what the weak setting exposes and how an attacker uses it.
+  "test": array of 1-3 objects {"label":"...","cmd":"..."} — LOCAL, READ-ONLY commands an
+          operator or admin runs ON THAT HOST (or, for scope=domain, from a domain-joined host
+          with read-only directory queries) to confirm the setting. Linux: sysctl, grep, stat,
+          sshd -T, systemctl is-active, findmnt, etc. Windows: reg query, Get-ItemProperty,
+          Get-MpComputerStatus, Get-CimInstance, Get-NetFirewallProfile, net, ([adsisearcher]...)
+          or Get-ADUser/Get-ADDefaultDomainPasswordPolicy (RSAT). Use <domain>, <user>
+          placeholders only where needed.
+  "fix":  array of 1-3 objects. Each is either {"label":"...","text":"..."} (config / GPO /
+          process remediation, name the GPO path where one exists) or {"label":"...","cmd":"..."}
+          (a concrete hardening command, e.g. a sysctl drop-in, sshd_config line + reload,
+          reg add, Set-MpPreference, Set-ADDefaultDomainPasswordPolicy).
+  "refs": array of 1-2 authoritative URLs (CIS benchmark pages are not linkable — prefer vendor
+          docs: man7.org, kernel.org docs, Microsoft Learn, MITRE ATT&CK technique pages).
+
+HARD RULES:
+  * `test` commands are READ-ONLY. Never write, change config, restart services, or contact a
+    host other than the local machine / its own domain controller via read-only LDAP.
+  * Never print secrets: for the AutoLogon check, test for PRESENCE of DefaultPassword without
+    echoing its value.
+  * Do not invent tool names, cmdlets or flags. PowerShell must work on Windows PowerShell 5.1.
+  * Keep every string on one line (no newline characters inside values).
+
+QUALITY ANCHOR (format/depth):
+{
+ "LIN-SYSCTL-PTRACE": {
+  "why": "With kernel.yama.ptrace_scope=0 any process can ptrace any other process of the same user, so a compromised low-value process can inject into an SSH agent, browser or sudo session and steal credentials or tokens.",
+  "test": [{"label":"Read the current value","cmd":"sysctl kernel.yama.ptrace_scope"}],
+  "fix": [{"label":"Restrict ptrace to descendants","cmd":"echo 'kernel.yama.ptrace_scope = 1' | sudo tee /etc/sysctl.d/60-ptrace.conf && sudo sysctl --system"}],
+  "refs": ["https://www.kernel.org/doc/html/latest/admin-guide/LSM/Yama.html"]
+ }
+}
+
+Emit an object for EVERY check id in the input file — no omissions. Begin your final message
+with { and end with } and nothing else.
+
+INPUT FILE: /srv/share/dev/aranum/docs/review/s3-posture-kb/batches/P1-linux.input.json

@@ -51,6 +51,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LINENUM="$PROJECT_ROOT/standalones/linux/linenum-fast.sh"
+POSTURE="$PROJECT_ROOT/standalones/linux/host-posture.sh"
 
 # Source shared helpers (curl_ua, throttle_*, etc. — J.4 only needs throttle_*).
 # shellcheck source=_lib.sh
@@ -79,6 +80,7 @@ RETRY_BACKOFF=2
 # ssh ServerAlive only catches DEAD connections, not slow-but-alive ones.
 # 0 = unlimited (legacy behaviour). Requires coreutils `timeout`.
 HOST_TIMEOUT=600
+WITH_POSTURE=0
 
 usage() {
     cat <<EOF
@@ -124,6 +126,10 @@ Tuning:
                          to protect operator's local-side resource limits)
   --throttle             gentle mode: collapses to -P 1 + ENUM_THROTTLE_DELAY
                          seconds between hosts. Operator -P wins over default.
+  --with-posture         also run standalones/linux/host-posture.sh (read-only
+                         POSTURE|<check>|<status>|<detail> lines) after
+                         linenum-fast.sh in the same session; output stays in
+                         linenum.txt. The combined payload is $OUTDIR/_payload.sh.
   --dry-run              print plan + effective env, don't connect
   --resume               skip hosts that have a .done marker from a prior run
 
@@ -168,6 +174,7 @@ while [ $# -gt 0 ]; do
         --host-timeout)    HOST_TIMEOUT="$2"; shift 2 ;;
         -P|--parallel)     PARALLEL="$2"; THROTTLE_EXPLICIT_PARALLEL=1; shift 2 ;;
         --throttle)        THROTTLE=1; shift ;;
+        --with-posture)    WITH_POSTURE=1; shift ;;
         --dry-run)         DRY_RUN=1; shift ;;
         --resume)          RESUME=1; shift ;;
         -h|--help)         usage; exit 0 ;;
@@ -184,6 +191,7 @@ fi
 [ -n "$TARGETS" ] && [ ! -f "$TARGETS" ] && { err "targets file not found: $TARGETS"; exit 2; }
 [ -n "$AUTHORIZED_PAIRS" ] && [ ! -f "$AUTHORIZED_PAIRS" ] && { err "authorized-pairs file not found: $AUTHORIZED_PAIRS"; exit 2; }
 [ ! -r "$LINENUM" ] && { err "linenum-fast.sh missing or unreadable: $LINENUM"; exit 2; }
+[ "$WITH_POSTURE" = 1 ] && [ ! -r "$POSTURE" ] && { err "host-posture.sh missing or unreadable: $POSTURE"; exit 2; }
 have python3 || { err "python3 is required for safe metadata serialization"; exit 2; }
 
 # Resource-cap parallelism — protects local fd limits / process table at scale.
@@ -292,6 +300,23 @@ run_log "=== bulk-enum-linux run started ==="
 run_log "input=${AUTHORIZED_PAIRS:-$TARGETS} outdir=$OUTDIR parallel=$PARALLEL resume=$RESUME throttle=$THROTTLE retries=$RETRIES preflight=$PREFLIGHT"
 run_log "user=${SSH_USER:-<bare/agent>} key=${SSH_KEY:-<none>} pass=${SSH_PASS:+<set>}"
 run_log "linenum=$LINENUM ($(wc -l < "$LINENUM") lines)"
+
+# ---------- payload ----------
+# Default: linenum-fast.sh is shipped byte-for-byte. With --with-posture the
+# privesc body runs in a subshell with stdin closed, so bash reads the whole
+# block before running it: no command inside can consume the rest of the
+# stream, and an exit inside it cannot skip the posture collector after it.
+PAYLOAD="$LINENUM"
+if [ "$WITH_POSTURE" = 1 ]; then
+    PAYLOAD="$OUTDIR/_payload.sh"
+    {
+        printf '(\n'
+        cat -- "$LINENUM"
+        printf '\n) </dev/null\n'
+        cat -- "$POSTURE"
+    } > "$PAYLOAD" || { err "cannot write payload: $PAYLOAD"; exit 2; }
+    run_log "with-posture: payload=$PAYLOAD ($(wc -l < "$PAYLOAD") lines)"
+fi
 
 # Copy the input list to the output dir for audit
 if [ -n "$AUTHORIZED_PAIRS" ]; then
@@ -610,10 +635,10 @@ run_one_host() {
         run_log "begin: $user@$host:$port (mode=$mode attempt=$attempt/$RETRIES)"
         if [ -n "$SSH_PASS" ]; then
             SSHPASS="$SSH_PASS" "${to_cmd[@]}" sshpass -e ssh "${ssh_args[@]}" 'bash -s -- -v' \
-                < "$LINENUM" > "$hdir/linenum.txt" 2> "$hdir/linenum.err"
+                < "$PAYLOAD" > "$hdir/linenum.txt" 2> "$hdir/linenum.err"
         else
             "${to_cmd[@]}" ssh "${ssh_args[@]}" 'bash -s -- -v' \
-                < "$LINENUM" > "$hdir/linenum.txt" 2> "$hdir/linenum.err"
+                < "$PAYLOAD" > "$hdir/linenum.txt" 2> "$hdir/linenum.err"
         fi
         rc=$?
         IFS=$'\t' read -r status fail < <(classify_status "$rc" "$hdir/linenum.err")
@@ -661,7 +686,7 @@ run_one_host() {
 # above and read on demand inside ssh_base_args.
 export -f run_one_host parse_spec safe_component endpoint_key ssh_base_args auth_mode classify_status write_meta_json run_log
 export -f have log hit miss err
-export RUN_LOG OUTDIR LINENUM RESUME DRY_RUN SSH_USER SSH_KEY SSH_PASS SSH_PORT
+export RUN_LOG OUTDIR LINENUM PAYLOAD RESUME DRY_RUN SSH_USER SSH_KEY SSH_PASS SSH_PORT
 export CONNECT_TIMEOUT KNOWN_HOSTS SSH_EXTRA_FILE ENUM_THROTTLE ENUM_THROTTLE_DELAY
 export RETRIES RETRY_BACKOFF HOST_TIMEOUT
 

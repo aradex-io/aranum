@@ -1,0 +1,2500 @@
+diff --git a/aranumtoolkit/network/bulk-enum-linux.sh b/aranumtoolkit/network/bulk-enum-linux.sh
+index 84f4c2e..057b854 100755
+--- a/aranumtoolkit/network/bulk-enum-linux.sh
++++ b/aranumtoolkit/network/bulk-enum-linux.sh
+@@ -51,6 +51,7 @@ set -uo pipefail
+ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ LINENUM="$PROJECT_ROOT/standalones/linux/linenum-fast.sh"
++POSTURE="$PROJECT_ROOT/standalones/linux/host-posture.sh"
+ 
+ # Source shared helpers (curl_ua, throttle_*, etc. — J.4 only needs throttle_*).
+ # shellcheck source=_lib.sh
+@@ -79,6 +80,7 @@ RETRY_BACKOFF=2
+ # ssh ServerAlive only catches DEAD connections, not slow-but-alive ones.
+ # 0 = unlimited (legacy behaviour). Requires coreutils `timeout`.
+ HOST_TIMEOUT=600
++WITH_POSTURE=0
+ 
+ usage() {
+     cat <<EOF
+@@ -124,6 +126,10 @@ Tuning:
+                          to protect operator's local-side resource limits)
+   --throttle             gentle mode: collapses to -P 1 + ENUM_THROTTLE_DELAY
+                          seconds between hosts. Operator -P wins over default.
++  --with-posture         also run standalones/linux/host-posture.sh (read-only
++                         POSTURE|<check>|<status>|<detail> lines) after
++                         linenum-fast.sh in the same session; output stays in
++                         linenum.txt. The combined payload is $OUTDIR/_payload.sh.
+   --dry-run              print plan + effective env, don't connect
+   --resume               skip hosts that have a .done marker from a prior run
+ 
+@@ -168,6 +174,7 @@ while [ $# -gt 0 ]; do
+         --host-timeout)    HOST_TIMEOUT="$2"; shift 2 ;;
+         -P|--parallel)     PARALLEL="$2"; THROTTLE_EXPLICIT_PARALLEL=1; shift 2 ;;
+         --throttle)        THROTTLE=1; shift ;;
++        --with-posture)    WITH_POSTURE=1; shift ;;
+         --dry-run)         DRY_RUN=1; shift ;;
+         --resume)          RESUME=1; shift ;;
+         -h|--help)         usage; exit 0 ;;
+@@ -184,6 +191,7 @@ fi
+ [ -n "$TARGETS" ] && [ ! -f "$TARGETS" ] && { err "targets file not found: $TARGETS"; exit 2; }
+ [ -n "$AUTHORIZED_PAIRS" ] && [ ! -f "$AUTHORIZED_PAIRS" ] && { err "authorized-pairs file not found: $AUTHORIZED_PAIRS"; exit 2; }
+ [ ! -r "$LINENUM" ] && { err "linenum-fast.sh missing or unreadable: $LINENUM"; exit 2; }
++[ "$WITH_POSTURE" = 1 ] && [ ! -r "$POSTURE" ] && { err "host-posture.sh missing or unreadable: $POSTURE"; exit 2; }
+ have python3 || { err "python3 is required for safe metadata serialization"; exit 2; }
+ 
+ # Resource-cap parallelism — protects local fd limits / process table at scale.
+@@ -293,6 +301,23 @@ run_log "input=${AUTHORIZED_PAIRS:-$TARGETS} outdir=$OUTDIR parallel=$PARALLEL r
+ run_log "user=${SSH_USER:-<bare/agent>} key=${SSH_KEY:-<none>} pass=${SSH_PASS:+<set>}"
+ run_log "linenum=$LINENUM ($(wc -l < "$LINENUM") lines)"
+ 
++# ---------- payload ----------
++# Default: linenum-fast.sh is shipped byte-for-byte. With --with-posture the
++# privesc body runs in a subshell with stdin closed, so bash reads the whole
++# block before running it: no command inside can consume the rest of the
++# stream, and an exit inside it cannot skip the posture collector after it.
++PAYLOAD="$LINENUM"
++if [ "$WITH_POSTURE" = 1 ]; then
++    PAYLOAD="$OUTDIR/_payload.sh"
++    {
++        printf '(\n'
++        cat -- "$LINENUM"
++        printf '\n) </dev/null\n'
++        cat -- "$POSTURE"
++    } > "$PAYLOAD" || { err "cannot write payload: $PAYLOAD"; exit 2; }
++    run_log "with-posture: payload=$PAYLOAD ($(wc -l < "$PAYLOAD") lines)"
++fi
++
+ # Copy the input list to the output dir for audit
+ if [ -n "$AUTHORIZED_PAIRS" ]; then
+     cp -- "$AUTHORIZED_PAIRS" "$OUTDIR/authorized-pairs.jsonl"
+@@ -610,10 +635,10 @@ run_one_host() {
+         run_log "begin: $user@$host:$port (mode=$mode attempt=$attempt/$RETRIES)"
+         if [ -n "$SSH_PASS" ]; then
+             SSHPASS="$SSH_PASS" "${to_cmd[@]}" sshpass -e ssh "${ssh_args[@]}" 'bash -s -- -v' \
+-                < "$LINENUM" > "$hdir/linenum.txt" 2> "$hdir/linenum.err"
++                < "$PAYLOAD" > "$hdir/linenum.txt" 2> "$hdir/linenum.err"
+         else
+             "${to_cmd[@]}" ssh "${ssh_args[@]}" 'bash -s -- -v' \
+-                < "$LINENUM" > "$hdir/linenum.txt" 2> "$hdir/linenum.err"
++                < "$PAYLOAD" > "$hdir/linenum.txt" 2> "$hdir/linenum.err"
+         fi
+         rc=$?
+         IFS=$'\t' read -r status fail < <(classify_status "$rc" "$hdir/linenum.err")
+@@ -661,7 +686,7 @@ run_one_host() {
+ # above and read on demand inside ssh_base_args.
+ export -f run_one_host parse_spec safe_component endpoint_key ssh_base_args auth_mode classify_status write_meta_json run_log
+ export -f have log hit miss err
+-export RUN_LOG OUTDIR LINENUM RESUME DRY_RUN SSH_USER SSH_KEY SSH_PASS SSH_PORT
++export RUN_LOG OUTDIR LINENUM PAYLOAD RESUME DRY_RUN SSH_USER SSH_KEY SSH_PASS SSH_PORT
+ export CONNECT_TIMEOUT KNOWN_HOSTS SSH_EXTRA_FILE ENUM_THROTTLE ENUM_THROTTLE_DELAY
+ export RETRIES RETRY_BACKOFF HOST_TIMEOUT
+ 
+diff --git a/aranumtoolkit/network/bulk-enum-windows.py b/aranumtoolkit/network/bulk-enum-windows.py
+index a86ae82..838b1a3 100755
+--- a/aranumtoolkit/network/bulk-enum-windows.py
++++ b/aranumtoolkit/network/bulk-enum-windows.py
+@@ -16,6 +16,11 @@ knows the other:
+     --ssh-port N            default 22 — ssh transport port
+     --tls                  use HTTPS:5986 for winrm (defaults to insecure cert mode)
+     --script PATH          script to ship (default: standalones/windows/Invoke-PrivEscEnum.ps1)
++    --with-posture         also run standalones/windows/Invoke-HostPosture.ps1 (read-only
++                           POSTURE lines) after --script in the same session; output
++                           stays in winenum.txt. The payload is $OUT/_payload.ps1.
++    --ad                   with --with-posture: pass -AdChecks (read-only, paged,
++                           time-limited LDAP against the host's own DC). Never implied.
+     --use-smb-admin        REQUIRED explicit consent to use the smb transport at all
+                            (admin-only; see ADR-003 D2 / ADR-006 SMB caveat below).
+     -o, --output DIR       results dir
+@@ -114,6 +119,7 @@ except ImportError:
+ 
+ PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ DEFAULT_SCRIPT = PROJECT_ROOT / "standalones" / "windows" / "Invoke-PrivEscEnum.ps1"
++POSTURE_SCRIPT = PROJECT_ROOT / "standalones" / "windows" / "Invoke-HostPosture.ps1"
+ PARALLEL_CAP = 16
+ TRANSPORT_NAMES = ("winrm", "ssh", "smb")
+ 
+@@ -615,6 +621,29 @@ class HostResult:
+     fail_reason: str = ""
+ 
+ 
++def _script_block_line(body: str, args: str = "") -> str:
++    """One PowerShell line that runs ``body`` as its own script block.
++
++    Two advanced scripts cannot be concatenated as text: under 5.1 a
++    ``[CmdletBinding()] param()`` must open the script, so the second one
++    would not parse. As a script block each keeps its own ``param()``. The
++    body travels base64-encoded on a single line because the ssh transport
++    feeds ``powershell -Command -``, which reads stdin like a console and
++    only runs a multi-line block once a blank line follows it. One line
++    per block needs no such rule. A blank line still follows each.
++    """
++    enc = base64.b64encode(body.lstrip("\ufeff").encode("utf-8")).decode("ascii")
++    line = ("& ([scriptblock]::Create([System.Text.Encoding]::UTF8.GetString("
++            f"[System.Convert]::FromBase64String('{enc}'))))")
++    return f"{line} {args}".rstrip() + "\n\n"
++
++
++def build_posture_payload(script_text: str, posture_text: str, *, ad: bool) -> str:
++    """--with-posture payload: the enum script, then the posture collector."""
++    return (_script_block_line(script_text)
++            + _script_block_line(posture_text, "-AdChecks" if ad else ""))
++
++
+ def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
+                  out_dir: Path, usable_order: list[str]) -> HostResult:
+     # Sanitise host into a single safe path component for the OUTPUT dir only —
+@@ -765,6 +794,10 @@ def main() -> int:
+                     help=f"parallel workers (default 4, capped at {PARALLEL_CAP})")
+     ap.add_argument("--throttle", action="store_true",
+                     help="gentle mode: -P 1 + ENUM_THROTTLE_DELAY between hosts")
++    ap.add_argument("--with-posture", action="store_true",
++                    help="also run Invoke-HostPosture.ps1 after --script (read-only)")
++    ap.add_argument("--ad", action="store_true",
++                    help="with --with-posture: opt in to the read-only AD domain checks")
+     ap.add_argument("--dry-run", action="store_true",
+                     help="print plan, no connections")
+     ap.add_argument("--resume", action="store_true",
+@@ -772,6 +805,12 @@ def main() -> int:
+     args = ap.parse_args()
+ 
+     # --- arg validation ---
++    if args.ad and not args.with_posture:
++        err("--ad only applies with --with-posture")
++        return 2
++    if args.with_posture and not POSTURE_SCRIPT.is_file():
++        err(f"posture collector not found: {POSTURE_SCRIPT}")
++        return 2
+     targets_path = Path(args.targets)
+     if not targets_path.is_file():
+         err(f"targets file not found: {targets_path}"); return 2
+@@ -923,6 +962,11 @@ def main() -> int:
+     _run_log(out_dir, f"dispatch: {len(targets)} hosts, parallel={args.parallel}")
+ 
+     script_text = script_path.read_text()
++    if args.with_posture:
++        script_text = build_posture_payload(
++            script_text, POSTURE_SCRIPT.read_text(encoding="utf-8"), ad=args.ad)
++        (out_dir / "_payload.ps1").write_text(script_text)
++        _run_log(out_dir, f"with-posture: ad={int(args.ad)} payload={len(script_text)} chars")
+ 
+     # --- dispatch ---
+     results: list[HostResult] = []
+diff --git a/aranumtoolkit/network/report-dashboard.py b/aranumtoolkit/network/report-dashboard.py
+index f8b3556..8b71d73 100755
+--- a/aranumtoolkit/network/report-dashboard.py
++++ b/aranumtoolkit/network/report-dashboard.py
+@@ -62,6 +62,7 @@ NAV_ITEMS = [
+     ("Guidance",  "guidance.html"),
+     ("Hosts",     "hosts.html"),
+     ("Active Directory", "ad.html"),
++    ("Posture",   "posture.html"),
+     ("Categories", "categories.html"),
+     ("Inventory", "inventory.html"),
+     ("Services",  "services.html"),
+@@ -471,7 +472,8 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
+     # Mirror report.py:main — the AD-depth rules (Kerberoast/AS-REP, ESC1,
+     # cpassword, LAPS-readable, PwnKit, writable-pipe) are CRITICAL findings.
+     rules = rpt._compose_rules(rpt._load_rules(rules_path), rpt._AD_DEPTH_RULES)
+-    collection = rpt.collect(out_dir, rules)
++    diagnostics: "list[dict]" = []
++    collection = rpt.collect(out_dir, rules, diagnostics=diagnostics)
+     findings = collection.findings
+     bulk = collection.mode == "bulk-enum"
+ 
+@@ -482,7 +484,10 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
+     by_service: dict[str, list[dict]] = defaultdict(list)
+     by_severity: dict[str, list[dict]] = defaultdict(list)
+     for f in findings:
+-        by_host[f["host"]].append(f)
++        # A domain-scope (AD posture) finding is keyed by domain, not a host:
++        # it must not create a host row or a host page.
++        if f.get("scope") != "domain":
++            by_host[f["host"]].append(f)
+         by_service[f["service"]].append(f)
+         by_severity[f["severity"]].append(f)
+ 
+@@ -511,6 +516,8 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
+ 
+     events = read_run_log(out_dir)
+     per_host_verdicts = collection.per_host or {}
++    posture_hosts = (collection.posture or {}).get("hosts", {}) or {}
++    domains = collection.domains or {}
+ 
+     # ----- port discovery (three sources, unioned) -----
+     # Map (host, service) -> set[int] of ports observed.
+@@ -669,8 +676,11 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
+         "inventory_by_host": dict(inventory_by_host),
+         "inbox": build_inbox(findings),
+         "guidance": read_guidance(out_dir),
+-        "run_health": build_run_health(out_dir, rules),
++        "run_health": build_run_health(out_dir, rules) + _posture_quarantine_health(diagnostics),
+         "dc_hosts": _dc_hosts(inventory),
++        "posture": posture_hosts,
++        "domains": domains,
++        "domain_membership": _domain_membership(posture_hosts, domains),
+         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+     }
+ 
+@@ -1116,6 +1126,7 @@ def render_host_detail(model: dict, host: str) -> str:
+   </table>
+ </section>
+ 
++{render_host_posture_card(model, host)}
+ <section class="card">
+   <h2 class="card-title">Quick service jump</h2>
+   <p>{svc_chips or '<span class="muted">no services routed to this host</span>'}</p>
+@@ -1818,6 +1829,19 @@ code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; border:
+ .chip-low      { background: color-mix(in srgb, var(--sev-low) 22%, transparent);      color: var(--sev-low);      border: 1px solid color-mix(in srgb, var(--sev-low) 40%, transparent); }
+ .chip-info     { background: color-mix(in srgb, var(--sev-info) 22%, transparent);     color: var(--sev-info);     border: 1px solid color-mix(in srgb, var(--sev-info) 40%, transparent); }
+ .chip-warn     { background: color-mix(in srgb, var(--sev-high) 22%, transparent);     color: var(--sev-high);     border: 1px solid color-mix(in srgb, var(--sev-high) 40%, transparent); }
++/* S3 — posture status chips + host x group matrix */
++.chip-st-fail { background: color-mix(in srgb, var(--sev-high) 22%, transparent); color: var(--sev-high); border: 1px solid color-mix(in srgb, var(--sev-high) 40%, transparent); }
++.chip-st-warn { background: color-mix(in srgb, var(--sev-medium) 22%, transparent); color: var(--sev-medium); border: 1px solid color-mix(in srgb, var(--sev-medium) 40%, transparent); }
++.chip-st-pass { background: color-mix(in srgb, #3fb950 22%, transparent); color: #3fb950; border: 1px solid color-mix(in srgb, #3fb950 40%, transparent); }
++.chip-st-info { background: color-mix(in srgb, var(--sev-low) 18%, transparent); color: var(--sev-low); border: 1px solid color-mix(in srgb, var(--sev-low) 35%, transparent); }
++.chip-st-na   { color: var(--sev-info); border: 1px solid color-mix(in srgb, var(--sev-info) 40%, transparent); }
++.chip-st-err  { color: var(--sev-critical); border: 1px dashed color-mix(in srgb, var(--sev-critical) 55%, transparent); }
++.posture-group th { text-align: left; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; padding-top: 10px; }
++.posture-matrix td.pm { font-family: var(--mono, monospace); font-size: 0.85em; text-align: center; }
++.pm-fail { background: color-mix(in srgb, var(--sev-high) 16%, transparent); }
++.pm-warn { background: color-mix(in srgb, var(--sev-medium) 14%, transparent); }
++.pm-err  { background: color-mix(in srgb, var(--sev-critical) 8%, transparent); }
++.pm-pass { background: color-mix(in srgb, #3fb950 12%, transparent); }
+ /* S2 — KB test/remediation guidance + callouts */
+ .callout { border-radius: 8px; padding: 10px 14px; margin: 10px 0 16px 0; border: 1px solid var(--border); background: var(--bg-elev-2); font-size: 0.9em; }
+ .callout-warn { border-color: color-mix(in srgb, var(--sev-high) 45%, transparent); background: color-mix(in srgb, var(--sev-high) 10%, transparent); }
+@@ -2293,6 +2317,17 @@ _AD_FAMILIES = [
+ ]
+ 
+ 
++# A posture finding's family comes from its KB check group, not rule_id text.
++_POSTURE_AD_FAMILY = {"relay": "Relay &amp; coercion", "credential-protection": "Credential exposure"}
++
++
++def _finding_ad_family(f: dict) -> str:
++    if f.get("service") == "posture":
++        group = str(_check_meta(str(f.get("posture_check") or f.get("rule_id", ""))).get("group", ""))
++        return _POSTURE_AD_FAMILY.get(group, "Policy &amp; hygiene")
++    return _ad_family(str(f.get("rule_id", "")))
++
++
+ def _ad_family(rule_id: str) -> str:
+     for name, subs in _AD_FAMILIES:
+         for s in subs:
+@@ -2301,6 +2336,37 @@ def _ad_family(rule_id: str) -> str:
+     return "Policy &amp; hygiene"
+ 
+ 
++def _ad_correlation_callout(findings: "list[dict]", membership: "dict[str, dict]") -> str:
++    """Domain correlation for AD signals. A finding is tied to a domain only
++    when host posture from that same host established its membership; every
++    other finding stays an uncorrelated signal."""
++    tied: "dict[str, set[str]]" = defaultdict(set)
++    loose = 0
++    for f in findings:
++        mem = membership.get(str(f.get("host", "")))
++        if mem:
++            tied[mem["domain"]].add(str(f.get("host", "")))
++        else:
++            loose += 1
++    parts = []
++    if tied:
++        doms = "; ".join(f'<code class="mono">{e(d)}</code> ({len(hs)} host{"s" if len(hs) != 1 else ""})'
++                         for d, hs in sorted(tied.items()))
++        parts.append(f"""<div class="callout">
++  <strong>Confirmed domain context.</strong> Host posture established domain membership for the hosts behind
++  {sum(1 for f in findings if membership.get(str(f.get("host", ""))))} AD finding(s): {doms}. Findings sharing a
++  domain below can be read together as one attack surface.
++</div>""")
++    if loose or not findings:
++        parts.append(f"""<div class="callout callout-warn">
++  <strong>Uncorrelated signals.</strong> {f"{loose} finding(s) below come" if findings else "Findings here come"} from hosts with
++  no posture-established domain membership. They are grouped by attack-path family, not by domain, so two findings in
++  different families are <em>not</em> confirmed to share a domain or be chainable. Treat each as an independent signal
++  until confirmed (collect posture with <code class="mono">--with-posture</code>).
++</div>""")
++    return "\n".join(parts)
++
++
+ def render_ad(model: dict) -> str:
+     """S2/D2.2 — Active Directory attack-surface page.
+ 
+@@ -2308,7 +2374,10 @@ def render_ad(model: dict) -> str:
+     family. Cross-family signals are labelled UNCORRELATED: S2 has no domain
+     identity yet, so we cannot claim two findings share a domain. S3's domain
+     rollup upgrades these to confirmed, domain-keyed chains."""
+-    findings = [f for f in model["findings"] if f.get("category") == "ad"]
++    # Domain-scope posture findings render in the Domain posture table, not as
++    # per-host signals.
++    findings = [f for f in model["findings"] if f.get("category") == "ad" and f.get("scope") != "domain"]
++    membership = model.get("domain_membership", {})
+     dcs = model.get("dc_hosts", [])
+     dc_html = (", ".join(f'<a href="host_{e(safe_name(h))}.html"><code class="mono">{e(h)}</code></a>'
+                          for h in dcs)
+@@ -2319,19 +2388,15 @@ def render_ad(model: dict) -> str:
+   <p class="card-sub">Hosts exposing Kerberos (88) with LDAP (389) or SMB (445).</p>
+   <p>{dc_html}</p>
+ </section>
+-<div class="callout callout-warn">
+-  <strong>Uncorrelated signals.</strong> The findings below are grouped by attack-path
+-  family, not by domain. aranum has not yet established domain identity, so two findings in
+-  different families are <em>not</em> confirmed to share a domain or be chainable. Treat each as an
+-  independent signal until confirmed.
+-</div>
++{_ad_correlation_callout(findings, membership)}
+ """]
++    body.append(render_domain_posture(model))
+     if not findings:
+         body.append('<section class="card"><p class="muted">No Active Directory findings.</p></section>')
+         return render_page("Active Directory", "".join(body), "Active Directory")
+     fam: "dict[str, list[dict]]" = defaultdict(list)
+     for f in findings:
+-        fam[_ad_family(str(f.get("rule_id", "")))].append(f)
++        fam[_finding_ad_family(f)].append(f)
+     for name, _ in _AD_FAMILIES:
+         group = fam.get(name)
+         if not group:
+@@ -2342,17 +2407,22 @@ def render_ad(model: dict) -> str:
+                                               str(x.get("host", "")))):
+             guide = kb_guidance_html(f)
+             host = str(f.get("host", ""))
++            mem = membership.get(host)
++            dom_html = (f'<code class="mono">{e(mem["domain"])}</code>'
++                        f'{" (DC)" if mem["role"] == "dc" else ""}' if mem
++                        else '<span class="muted">unconfirmed</span>')
+             rows.append(f"""
+             <tr>
+               <td>{severity_chip(str(f.get('severity', '')))}</td>
+               <td><a href="host_{e(safe_name(host))}.html"><code class="mono">{e(host)}</code></a></td>
++              <td>{dom_html}</td>
+               <td><code class="mono">{e(truncate(clean_line(str(f.get('line', ''))), 200))}</code>{guide}</td>
+             </tr>""")
+         body.append(f"""
+ <section class="card">
+   <h2 class="card-title">{name} <span class="chip chip-info">{len(group)}</span></h2>
+   <table class="data">
+-    <thead><tr><th>Sev</th><th>Host</th><th>Signal &amp; guidance</th></tr></thead>
++    <thead><tr><th>Sev</th><th>Host</th><th>Domain</th><th>Signal &amp; guidance</th></tr></thead>
+     <tbody>{''.join(rows)}</tbody>
+   </table>
+ </section>""")
+@@ -2400,6 +2470,257 @@ the finding knowledge base (<code class="mono">aranumtoolkit/network/finding-kb.
+     return render_page("Categories", "".join(body), "Categories")
+ 
+ 
++# --------------------------------------------------------------- S3 host posture
++_POSTURE_STATUS_ORDER = ("FAIL", "WARN", "ERR", "INFO", "NA", "PASS")
++_POSTURE_GROUP_TITLES = {
++    "patching": "Patching", "kernel": "Kernel", "boot": "Boot", "accounts": "Accounts",
++    "access-control": "Access control", "filesystem": "Filesystem", "remote-access": "Remote access",
++    "network": "Network", "relay": "Relay surface", "credential-protection": "Credential protection",
++    "endpoint-protection": "Endpoint protection", "logging": "Logging", "services": "Services",
++    "domain": "Domain membership", "domain-policy": "Domain policy", "domain-privilege": "Domain privilege",
++}
++_JOIN_RE = re.compile(r"(?:^|\s)(?:domain|realm)=([A-Za-z0-9][A-Za-z0-9.-]*)")
++_ROLE_RE = re.compile(r"(?:^|\s)role=(dc|member)(?:\s|$)")
++
++
++def posture_chip(status: str) -> str:
++    st = status if status in _POSTURE_STATUS_ORDER else "ERR"
++    return f'<span class="chip chip-st-{st.lower()}">{e(st)}</span>'
++
++
++def _check_meta(cid: str) -> dict:
++    meta = _FINDING_KB.get("checks", {}).get(cid)
++    return meta if isinstance(meta, dict) else {}
++
++
++def _check_guidance(cid: str) -> str:
++    """KB test/fix expander for a posture check (checks are projected into the
++    KB classes keyed by id, so the finding-guidance renderer applies)."""
++    return kb_guidance_html({"kb_match": "rule", "kb_id": cid})
++
++
++def _group_title(group: str) -> str:
++    return _POSTURE_GROUP_TITLES.get(group, group or "other")
++
++
++def _domain_membership(posture_hosts: dict, domains: dict) -> "dict[str, dict]":
++    """host -> {domain, role} established by host posture: the host's own
++    domain-join check (WIN-DOMAIN-JOINED / LIN-AD-JOINED), else being an
++    observer of a domain's AD checks. Never inferred from the network layer."""
++    out: "dict[str, dict]" = {}
++    for host, rec in posture_hosts.items():
++        checks = rec.get("checks", {}) if isinstance(rec, dict) else {}
++        for cid in ("WIN-DOMAIN-JOINED", "LIN-AD-JOINED"):
++            detail = str(checks.get(cid, {}).get("detail", ""))
++            m = _JOIN_RE.search(detail)
++            if m and "not joined" not in detail and "client only" not in detail:
++                role = _ROLE_RE.search(detail)
++                out[host] = {"domain": m.group(1).lower(), "role": role.group(1) if role else "member"}
++                break
++    for dom, drec in domains.items():
++        for chk in (drec.get("checks", {}) if isinstance(drec, dict) else {}).values():
++            for obs in chk.get("observed_from", []):
++                h = obs.get("host") if isinstance(obs, dict) else None
++                if h and h not in out:
++                    out[h] = {"domain": dom, "role": "member"}
++    return out
++
++
++def _posture_quarantine_health(diags: "list[dict]") -> "list[dict]":
++    """Run-health rows for quarantined posture lines, one per host."""
++    by_host: "dict[str, dict]" = {}
++    for d in diags:
++        if d.get("type") != "posture_quarantine":
++            continue
++        host = str(d.get("host") or "(unknown)")
++        slot = by_host.setdefault(host, {"service": f"posture {host}", "reason": "quarantined",
++                                         "count": 0, "sample": f"{d.get('error', '')}: {d.get('line', '')}"})
++        slot["count"] += 1
++    return [by_host[h] for h in sorted(by_host)]
++
++
++def _host_posture_counts(checks: dict) -> Counter:
++    return Counter(str(v.get("status", "")) for v in checks.values() if isinstance(v, dict))
++
++
++def _posture_score(counts: Counter) -> str:
++    graded = counts.get("PASS", 0) + counts.get("FAIL", 0) + counts.get("WARN", 0)
++    if not graded:
++        return '<span class="muted">—</span>'
++    return f"{round(100 * counts.get('PASS', 0) / graded)}%"
++
++
++def render_host_posture_card(model: dict, host: str) -> str:
++    rec = model.get("posture", {}).get(host)
++    if not isinstance(rec, dict) or not rec.get("checks"):
++        return ""
++    checks = rec["checks"]
++    counts = _host_posture_counts(checks)
++    groups: "dict[str, list[str]]" = defaultdict(list)
++    for cid in checks:
++        groups[str(_check_meta(cid).get("group", ""))].append(cid)
++    sections = []
++    for group in sorted(groups, key=_group_title):
++        rows = []
++        for cid in sorted(groups[group], key=lambda c: (_POSTURE_STATUS_ORDER.index(checks[c].get("status"))
++                                                        if checks[c].get("status") in _POSTURE_STATUS_ORDER
++                                                        else 9, c)):
++            st = str(checks[cid].get("status", ""))
++            guide = _check_guidance(cid) if st in ("FAIL", "WARN") else ""
++            rows.append(f"""
++          <tr>
++            <td>{posture_chip(st)}</td>
++            <td>{e(str(_check_meta(cid).get('title', cid)))}<br><code class="mono small">{e(cid)}</code></td>
++            <td><code class="mono small">{e(truncate(str(checks[cid].get('detail', '')), 200))}</code>{guide}</td>
++          </tr>""")
++        sections.append(f"""
++      <tr class="posture-group"><th colspan="3">{e(_group_title(group))}</th></tr>{''.join(rows)}""")
++    summary = " ".join(f'{posture_chip(s)} {counts[s]}' for s in _POSTURE_STATUS_ORDER if counts.get(s))
++    member = model.get("domain_membership", {}).get(host)
++    member_html = (f' · {"domain controller" if member["role"] == "dc" else "member"} of '
++                   f'<code class="mono">{e(member["domain"])}</code>' if member else "")
++    return f"""
++<section class="card" id="posture">
++  <h2 class="card-title">Posture <span class="chip chip-info">{e(str(rec.get('os', '')))}</span></h2>
++  <p class="card-sub">Read-only host hardening checks ({len(checks)}). Score {_posture_score(counts)}
++  (PASS of PASS+FAIL+WARN){member_html}. {summary}</p>
++  <table class="data posture-host">
++    <thead><tr><th>Status</th><th>Check</th><th>Detail &amp; guidance</th></tr></thead>
++    <tbody>{''.join(sections)}</tbody>
++  </table>
++</section>"""
++
++
++def render_posture(model: dict) -> str:
++    """S3/D3.5 — host posture across the estate: a host x group matrix, then
++    every check across hosts with test/fix guidance."""
++    hosts: dict = model.get("posture", {})
++    if not hosts:
++        body = """
++<section class="card"><p class="muted">No host posture collected. Run the bulk enumerators with
++<code class="mono">--with-posture</code> (or the standalone collectors) to populate this page.</p></section>"""
++        return render_page("Posture", body, "Posture")
++    total: Counter = Counter()
++    groups: "set[str]" = set()
++    per_check: "dict[str, dict[str, list[tuple[str, str]]]]" = defaultdict(lambda: defaultdict(list))
++    for host, rec in hosts.items():
++        for cid, v in (rec.get("checks", {}) if isinstance(rec, dict) else {}).items():
++            st = str(v.get("status", ""))
++            total[st] += 1
++            groups.add(str(_check_meta(cid).get("group", "")))
++            per_check[cid][st].append((host, str(v.get("detail", ""))))
++    gorder = sorted(groups, key=_group_title)
++    tiles = "".join(f"""
++    <div class="tile"><span class="tile-count">{total.get(s, 0)}</span><span class="tile-label">{posture_chip(s)}</span></div>"""
++                    for s in _POSTURE_STATUS_ORDER)
++    head = "".join(f"<th>{e(_group_title(g))}</th>" for g in gorder)
++    mrows = []
++    for host in sorted(hosts):
++        checks = hosts[host].get("checks", {})
++        cells = []
++        for g in gorder:
++            c = Counter(str(v.get("status", "")) for cid, v in checks.items()
++                        if str(_check_meta(cid).get("group", "")) == g)
++            if not c:
++                cells.append('<td class="muted">·</td>')
++                continue
++            worst = next((s for s in _POSTURE_STATUS_ORDER if c.get(s)), "NA")
++            label = " ".join(f"{s[0]}{c[s]}" for s in ("FAIL", "WARN", "PASS") if c.get(s)) or worst
++            cells.append(f'<td class="pm pm-{worst.lower()}" title="{e(dict(c))}">{e(label)}</td>')
++        mrows.append(f'<tr><td><a href="host_{e(safe_name(host))}.html#posture"><code class="mono">{e(host)}</code></a>'
++                     f' <span class="muted small">{e(str(hosts[host].get("os", "")))}</span></td>'
++                     f'<td class="num">{_posture_score(_host_posture_counts(checks))}</td>{"".join(cells)}</tr>')
++
++    def _check_key(cid: str):
++        sts = per_check[cid]
++        sev = str(_check_meta(cid).get("sev_fail") or "low")
++        return (-len(sts.get("FAIL", [])), -len(sts.get("WARN", [])),
++                SEVERITY_ORDER.index(sev) if sev in SEVERITY_ORDER else 9, cid)
++    crows = []
++    for cid in sorted(per_check, key=_check_key):
++        sts = per_check[cid]
++        meta = _check_meta(cid)
++        counts = " ".join(f"{posture_chip(s)} {len(sts[s])}" for s in _POSTURE_STATUS_ORDER if sts.get(s))
++        bad = sts.get("FAIL", []) + sts.get("WARN", [])
++        bad_html = "".join(f'<div><a href="host_{e(safe_name(h))}.html#posture"><code class="mono">{e(h)}</code></a> '
++                           f'<span class="mono small">{e(truncate(d, 120))}</span></div>' for h, d in bad[:12])
++        if len(bad) > 12:
++            bad_html += f'<div class="muted small">+{len(bad) - 12} more</div>'
++        sev = str(meta.get("sev_fail") or "")
++        crows.append(f"""
++      <tr>
++        <td>{e(str(meta.get('title', cid)))}<br><code class="mono small">{e(cid)}</code></td>
++        <td>{e(_group_title(str(meta.get('group', ''))))}</td>
++        <td>{severity_chip(sev) if sev else ''}</td>
++        <td>{counts}</td>
++        <td>{bad_html or '<span class="muted">none</span>'}{_check_guidance(cid) if bad else ''}</td>
++      </tr>""")
++    body = f"""
++<section class="card">
++  <h2 class="card-title">Host posture <span class="chip chip-info">{len(hosts)} host{'s' if len(hosts) != 1 else ''}</span></h2>
++  <p class="card-sub">Check results across every host posture was collected from. FAIL/WARN are also findings at
++  the check's KB severity; PASS/INFO/NA/ERR are recorded in <code class="mono">posture.json</code>. ERR means the
++  check could not be evaluated (e.g. unreadable as non-root) — never a pass.</p>
++  <div class="tiles" style="grid-template-columns: repeat(6, minmax(0, 1fr));">{tiles}</div>
++</section>
++<section class="card">
++  <h2 class="card-title">Host × group</h2>
++  <p class="card-sub">Cell = F(ail)/W(arn)/P(ass) counts, coloured by the worst status. Score = PASS of PASS+FAIL+WARN.</p>
++  <table class="data sortable posture-matrix">
++    <thead><tr><th data-sort="text">Host</th><th class="num" data-sort="num">Score</th>{head}</tr></thead>
++    <tbody>{''.join(mrows)}</tbody>
++  </table>
++</section>
++<section class="card">
++  <h2 class="card-title">Checks across hosts</h2>
++  <table class="data filterable">
++    <thead><tr><th>Check</th><th>Group</th><th>Sev</th><th>Results</th><th>Failing hosts &amp; guidance</th></tr></thead>
++    <tbody>{''.join(crows)}</tbody>
++  </table>
++</section>"""
++    return render_page("Posture", body, "Posture")
++
++
++def render_domain_posture(model: dict) -> str:
++    """The AD page's Domain posture section: one canonical row per
++    (domain, check) with every observer's status kept visible."""
++    domains: dict = model.get("domains", {})
++    if not domains:
++        return ""
++    out = []
++    for dom in sorted(domains):
++        checks = domains[dom].get("checks", {}) if isinstance(domains[dom], dict) else {}
++        rows = []
++        for cid in sorted(checks, key=lambda c: (_POSTURE_STATUS_ORDER.index(checks[c].get("status"))
++                                                 if checks[c].get("status") in _POSTURE_STATUS_ORDER else 9, c)):
++            rec = checks[cid]
++            st = str(rec.get("status", ""))
++            obs = rec.get("observed_from", [])
++            obs_html = " ".join(f'<span title="{e(str(o.get("detail", "")))}"><code class="mono small">'
++                                f'{e(str(o.get("host", "")))}</code>{posture_chip(str(o.get("status", "")))}</span>'
++                                for o in obs if isinstance(o, dict))
++            guide = _check_guidance(cid) if st in ("FAIL", "WARN") else ""
++            rows.append(f"""
++          <tr>
++            <td>{posture_chip(st)}</td>
++            <td>{e(str(_check_meta(cid).get('title', cid)))}<br><code class="mono small">{e(cid)}</code></td>
++            <td><code class="mono small">{e(truncate(str(rec.get('detail', '')), 220))}</code>{guide}</td>
++            <td>{obs_html}</td>
++          </tr>""")
++        out.append(f"""
++<section class="card">
++  <h2 class="card-title">Domain posture · <code class="mono">{e(dom)}</code> <span class="chip chip-info">{len(checks)}</span></h2>
++  <p class="card-sub">Read-only directory checks reported by domain-joined hosts (<code class="mono">-AdChecks</code>).
++  One canonical status per check: any determined result beats ERR/NA, the worst determined result wins, and
++  disagreeing observers are flagged <code class="mono">conflict:</code>.</p>
++  <table class="data">
++    <thead><tr><th>Status</th><th>Check</th><th>Detail &amp; guidance</th><th>Observers</th></tr></thead>
++    <tbody>{''.join(rows)}</tbody>
++  </table>
++</section>""")
++    return "".join(out)
++
++
+ def render_run_health_panel(model: dict) -> str:
+     """A panel (used on the index) listing dispatcher coverage gaps (G10)."""
+     rh = model.get("run_health", [])
+@@ -2416,7 +2737,8 @@ def render_run_health_panel(model: dict) -> str:
+ <section class="card">
+   <h2 class="card-title">Run health <span class="chip chip-warn">{len(rh)}</span></h2>
+   <p class="card-sub">Dispatcher <code>[!]</code> warnings no rule graded — coverage gaps
+-  (tool missing, refused, timed out, errored), not findings.</p>
++  (tool missing, refused, timed out, errored) — and quarantined <code>POSTURE</code> lines
++  (malformed, unknown check, duplicate, untagged domain check). Not findings.</p>
+   <table class="data">
+     <thead><tr><th>Service</th><th>Reason</th><th>Count</th><th>Sample</th></tr></thead>
+     <tbody>{rows}</tbody>
+@@ -2452,6 +2774,7 @@ def main() -> int:
+     pages.append(("guidance.html", render_guidance(model)))
+     pages.append(("hosts.html", render_hosts(model)))
+     pages.append(("ad.html", render_ad(model)))
++    pages.append(("posture.html", render_posture(model)))
+     pages.append(("categories.html", render_categories(model)))
+     pages.append(("inventory.html", render_inventory(model)))
+     pages.append(("services.html", render_services(model)))
+@@ -2461,7 +2784,8 @@ def main() -> int:
+     pages.append(("timeline.html", render_timeline(model)))
+     pages.append(("coverage.html", render_coverage(model)))
+ 
+-    all_hosts = sorted(set(list(model["by_host"].keys()) + list(model["services_per_host"].keys())))
++    all_hosts = sorted(set(list(model["by_host"].keys()) + list(model["services_per_host"].keys())
++                           + list(model["posture"].keys())))
+     for host in all_hosts:
+         pages.append((f"host_{safe_name(host)}.html", render_host_detail(model, host)))
+ 
+diff --git a/aranumtoolkit/network/report.py b/aranumtoolkit/network/report.py
+index 87c8515..cc3c4b5 100755
+--- a/aranumtoolkit/network/report.py
++++ b/aranumtoolkit/network/report.py
+@@ -38,6 +38,7 @@ import hashlib
+ import datetime
+ import html
+ import ipaddress
++import itertools
+ import json
+ import os
+ import re
+@@ -173,7 +174,7 @@ def _load_finding_kb() -> dict:
+     path = str(_finding_kb_path())
+     if _FINDING_KB_CACHE is not None and _FINDING_KB_CACHE_PATH == path:
+         return _FINDING_KB_CACHE
+-    empty = {"categories": {}, "classes": {}, "service_categories": {}}
++    empty = {"categories": {}, "classes": {}, "service_categories": {}, "checks": {}}
+     try:
+         raw = json.loads(Path(path).read_text(errors="replace"))
+     except Exception:
+@@ -199,26 +200,63 @@ def _load_finding_kb() -> dict:
+             cat = c.get("category")
+             if not isinstance(cat, str) or cat not in categories:
+                 continue
+-            classes[rid] = {
+-                "category": cat,
+-                "title": str(c.get("title") or rid),
+-                "why": str(c.get("why") or ""),
+-                "test": [t for t in c.get("test", []) if isinstance(t, dict)]
+-                        if isinstance(c.get("test"), list) else [],
+-                "fix": [x for x in c.get("fix", []) if isinstance(x, dict)]
+-                       if isinstance(c.get("fix"), list) else [],
+-                "refs": [r for r in c.get("refs", []) if isinstance(r, str)]
+-                        if isinstance(c.get("refs"), list) else [],
+-            }
++            classes[rid] = _kb_guidance(c, rid, cat)
+         raw_svc = raw.get("service_categories") if isinstance(raw.get("service_categories"), dict) else {}
+         service_categories = {k: v for k, v in raw_svc.items() if isinstance(v, str) and v}
++        # S3/D3.3 — posture checks keyed by POSTURE check id. Each is also
++        # projected into `classes` (rule ids are lowercase-hash, check ids are
++        # uppercase LIN-/WIN-/AD-, so they cannot collide) so a posture finding
++        # with rule_id=<check id> resolves kb_match="rule" and gets Top-risks
++        # and dashboard guidance through the existing path.
++        raw_checks = raw.get("checks") if isinstance(raw.get("checks"), dict) else {}
++        checks: dict = {}
++        for cid, c in raw_checks.items():
++            if not isinstance(cid, str) or not _CHECK_ID_RE.match(cid) or not isinstance(c, dict):
++                continue
++            cat = c.get("category")
++            if not isinstance(cat, str) or cat not in categories:
++                continue
++            scope = c.get("scope")
++            if scope not in ("host", "domain"):
++                scope = "domain" if cid.startswith("AD-") else "host"
++            check = _kb_guidance(c, cid, cat)
++            check.update({
++                "os": str(c.get("os") or ""),
++                "scope": scope,
++                "group": str(c.get("group") or ""),
++                "semantics": str(c.get("semantics") or ""),
++                "sev_fail": c.get("sev_fail") if c.get("sev_fail") in _KB_SEVERITIES else "",
++                "sev_warn": c.get("sev_warn") if c.get("sev_warn") in _KB_SEVERITIES else "",
++            })
++            checks[cid] = check
++            classes.setdefault(cid, _kb_guidance(c, cid, cat))
+         kb = {"categories": categories, "classes": classes,
+-              "service_categories": service_categories}
++              "service_categories": service_categories, "checks": checks}
+     _FINDING_KB_CACHE = kb
+     _FINDING_KB_CACHE_PATH = path
+     return kb
+ 
+ 
++_KB_SEVERITIES = ("critical", "high", "medium", "low")
++_CHECK_ID_RE = re.compile(r"^(?:LIN|WIN|AD)-[A-Z0-9][A-Z0-9-]*$")
++
++
++def _kb_guidance(c: dict, rid: str, cat: str) -> dict:
++    """The safe-typed guidance fields shared by a KB class and a KB check:
++    missing/wrong-typed fields become empty, never None."""
++    return {
++        "category": cat,
++        "title": str(c.get("title") or rid),
++        "why": str(c.get("why") or ""),
++        "test": [t for t in c.get("test", []) if isinstance(t, dict)]
++                if isinstance(c.get("test"), list) else [],
++        "fix": [x for x in c.get("fix", []) if isinstance(x, dict)]
++               if isinstance(c.get("fix"), list) else [],
++        "refs": [r for r in c.get("refs", []) if isinstance(r, str)]
++                if isinstance(c.get("refs"), list) else [],
++    }
++
++
+ def _service_category(service: str, kb: dict, host_ports: "set[str] | None" = None) -> str:
+     """Map a service to a KB category when no rule class matched. The `smb`
+     special case (relay vs plain file service) needs the host's other open
+@@ -1579,7 +1617,11 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
+         endpoint: dict | None = None
+         host = str(finding.get("host", ""))
+         port = str(finding.get("port", ""))
+-        if host == "(dispatcher)":
++        if service == "posture":
++            # S3 — posture is host- or domain-level evidence from a collector,
++            # never an endpoint line; it is not re-attributed.
++            endpoint = None
++        elif host == "(dispatcher)":
+             endpoint = _endpoint_in_text(str(finding.get("line", "")), endpoints, service)
+         else:
+             possible = [e for e in endpoints if e["service"] == service and e["host"] == host
+@@ -1603,7 +1645,11 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
+         # into an Unattributed panel and excludes them from host tables and
+         # severity KPIs. An attributed line is endpoint-scoped when it carries a
+         # port, host-scoped when only the host is known.
+-        if finding.get("host") == "(dispatcher)":
++        if finding.get("posture_scope") == "domain":
++            # S3/D3.3 — one canonical finding per (domain, check); host is the
++            # domain identity, so it is kept out of per-host tables.
++            finding["scope"] = "domain"
++        elif finding.get("host") == "(dispatcher)":
+             finding["scope"] = "run"
+         elif finding.get("port"):
+             finding["scope"] = "endpoint"
+@@ -1917,15 +1963,24 @@ def walk_findings_bulk(
+     extra_rules,
+     service_metadata: dict | None = None,
+     diagnostics: list[dict] | None = None,
++    posture: dict | None = None,
+ ) -> Iterable[dict]:
+     """Walk a bulk-enum output tree. Each top-level subdir is one host. The
+     host's output file selects the rule set + service label:
+         linenum.txt  -> _BULK_RULES     + service='linenum'  (Linux, J)
+         winenum.txt  -> _BULK_RULES_WIN + service='winenum'  (Windows, K)
+     A single $OUT can hold both — report.py rolls them up into ONE per-host
+-    verdict table so a mixed-OS engagement gets one prioritized view."""
++    verdict table so a mixed-OS engagement gets one prioritized view.
++
++    S3/D3.3: `POSTURE|…` lines bypass the regex rules entirely and go to the
++    strict posture parser; host FAIL/WARN become findings here, everything
++    else (and every domain-scope observation) lands in the `posture` sink
++    (see _new_posture_sink)."""
+     if service_metadata is None:
+         service_metadata = _load_service_metadata(out_dir)
++    if posture is None:
++        posture = _new_posture_sink()
++    kb = _load_finding_kb()
+     extras = list(extra_rules or [])
+     # Fold in the AD-depth / CVE-signal rules so bulk (winenum/linenum) findings —
+     # LAPS, ADCS/ESC, PrintNightmare, writable pipes, coercion primitives — actually
+@@ -1992,7 +2047,14 @@ def walk_findings_bulk(
+                 text = evidence.read_text(errors="replace")
+             except Exception:
+                 continue
++            rel = str(evidence.relative_to(out_dir))
+             for line in text.splitlines():
++                if "POSTURE|" in line[:16]:
++                    pf = _ingest_posture_line(line, identity["host"], svc, rel, posture,
++                                              diagnostics, service_metadata, kb)
++                    if pf is not None:
++                        yield _with_bulk_identity(pf, identity)
++                    continue
+                 matched = _classify_line(line, rules)
+                 if matched is None:
+                     continue
+@@ -2009,6 +2071,191 @@ def walk_findings_bulk(
+                 ), identity)
+ 
+ 
++# ---------------------------------------------------- host posture (S3/D3.3)
++# Strict, anchored framing (D3.1): id and status are [A-Z0-9-]; the parser
++# splits on the first three `|` only, so a `|` surviving inside the detail
++# stays in the detail and can never inject a field.
++_POSTURE_RE = re.compile(r"^POSTURE\|[A-Z0-9-]+\|(PASS|FAIL|WARN|INFO|NA|ERR)\|")
++_POSTURE_STATUSES = ("PASS", "FAIL", "WARN", "INFO", "NA", "ERR")
++# Determined statuses, worst first; ERR/NA are undetermined and never outrank one.
++_POSTURE_DETERMINED_RANK = {"FAIL": 0, "WARN": 1, "PASS": 2, "INFO": 3}
++_POSTURE_DOMAIN_TAG = re.compile(r"^domain=([a-z0-9][a-z0-9.-]*)(?:\s|$)")
++_POSTURE_DETAIL_MAX = 400
++_POSTURE_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
++
++
++def _new_posture_sink() -> dict:
++    """Mutable accumulator the bulk walker fills:
++    hosts       {host: {os, source, checks: {id: {status, detail}},
++                        domain_observations: {id: {status, detail}}}}
++    domain_obs  {domain: {id: [{host, status, detail, evidence_path}]}}
++    domains     filled by _posture_domain_findings once the walk is consumed."""
++    return {"hosts": {}, "domain_obs": {}, "domains": {}}
++
++
++def _parse_posture_line(line: str) -> "tuple[str, str, str] | None":
++    """(check_id, status, detail) for a well-formed POSTURE line, else None."""
++    line = _clean_line(line).rstrip("\r\n").lstrip("\ufeff")
++    if not _POSTURE_RE.match(line):
++        return None
++    _, check_id, status, detail = line.split("|", 3)
++    detail = _POSTURE_CTRL_RE.sub(" ", detail).strip()[:_POSTURE_DETAIL_MAX]
++    return check_id, status, detail
++
++
++def _posture_severity(check: dict, status: str) -> str:
++    sev = check.get("sev_fail") if status == "FAIL" else check.get("sev_warn")
++    if sev in _KB_SEVERITIES:
++        return str(sev)
++    return "medium" if status == "FAIL" else "low"
++
++
++def _posture_finding(host: str, check_id: str, status: str, detail: str, check: dict,
++                     scope: str, evidence_path: str, service_metadata: dict) -> dict:
++    line = f"POSTURE|{check_id}|{status}|{detail}"
++    f = _structured_finding(host, "", "posture", _posture_severity(check, status), line,
++                            evidence_path, service_metadata, "", rule_id=check_id)
++    title = str(check.get("title") or check_id)
++    f["title"] = f"{title}: {detail}"[:200] if detail else title
++    f.update({
++        "posture_check": check_id,
++        "posture_status": status,
++        "posture_detail": detail,
++        "posture_scope": scope,
++        "posture_os": str(check.get("os", "")),
++        "posture_group": str(check.get("group", "")),
++    })
++    return f
++
++
++def _ingest_posture_line(line: str, host: str, svc: str, evidence_path: str, sink: dict,
++                         diagnostics: "list[dict] | None", service_metadata: dict,
++                         kb: dict) -> "dict | None":
++    """Parse one POSTURE line into the sink. Returns a host-scope finding for
++    FAIL/WARN, else None. A malformed line, an unknown id, a repeated id on
++    the same host, or a determined domain check without a `domain=` tag is
++    quarantined as a `posture_quarantine` diagnostic — never a finding, never
++    dropped silently."""
++    def _quarantine(reason: str) -> None:
++        if diagnostics is not None:
++            diagnostics.append({
++                "type": "posture_quarantine",
++                "host": host,
++                "path": evidence_path,
++                "error": reason,
++                "line": _POSTURE_CTRL_RE.sub(" ", _clean_line(line)).strip()[:200],
++            })
++        return None
++
++    parsed = _parse_posture_line(line)
++    if parsed is None:
++        return _quarantine("malformed POSTURE line (fails the strict anchor)")
++    check_id, status, detail = parsed
++    check = kb.get("checks", {}).get(check_id)
++    if not isinstance(check, dict):
++        return _quarantine(f"unknown posture check id {check_id}")
++    rec = sink["hosts"].setdefault(host, {
++        "os": "linux" if svc == "linenum" else "windows",
++        "source": evidence_path, "checks": {}, "domain_observations": {}})
++    if check_id in rec["checks"] or check_id in rec["domain_observations"]:
++        return _quarantine(f"duplicate posture check id {check_id} for host")
++    if check.get("scope") == "domain":
++        m = _POSTURE_DOMAIN_TAG.match(detail)
++        if not m and status in _POSTURE_DETERMINED_RANK:
++            return _quarantine(f"domain check {check_id} {status} without a domain= tag")
++        rec["domain_observations"][check_id] = {"status": status, "detail": detail}
++        if m:
++            sink["domain_obs"].setdefault(m.group(1), {}).setdefault(check_id, []).append(
++                {"host": host, "status": status, "detail": detail,
++                 "evidence_path": evidence_path})
++        return None
++    rec["checks"][check_id] = {"status": status, "detail": detail}
++    if status not in ("FAIL", "WARN"):
++        return None
++    return _posture_finding(host, check_id, status, detail, check, "host",
++                            evidence_path, service_metadata)
++
++
++def _posture_canonical(observations: "list[dict]") -> "tuple[str, str, dict]":
++    """Total status lattice for one (domain, check) across observers (D3.3):
++    the worst determined status (FAIL > WARN > PASS > INFO) if any observer
++    determined it, else ERR if any observer errored, else NA. Disagreement
++    among determined statuses is recorded as a `conflict:` prefix."""
++    determined = [o for o in observations if o["status"] in _POSTURE_DETERMINED_RANK]
++    if determined:
++        worst = min(determined, key=lambda o: _POSTURE_DETERMINED_RANK[o["status"]])
++        detail = worst["detail"]
++        if len({o["status"] for o in determined}) > 1:
++            pairs = " ".join(f"{o['host']}={o['status']}" for o in determined)
++            detail = f"conflict: {pairs}; {detail}"
++        return worst["status"], detail, worst
++    status = "ERR" if any(o["status"] == "ERR" for o in observations) else "NA"
++    worst = next(o for o in observations if o["status"] == status) \
++        if any(o["status"] == status for o in observations) else observations[0]
++    return status, worst["detail"], worst
++
++
++def _posture_domain_findings(sink: dict, kb: dict, service_metadata: dict) -> Iterable[dict]:
++    """Roll domain observations up into `sink["domains"]` and yield one
++    canonical finding per FAIL/WARN (domain, check). A generator, so chaining
++    it after the walker runs it only once every host has been read."""
++    checks = kb.get("checks", {})
++    domains: dict = {}
++    for domain in sorted(sink["domain_obs"]):
++        dchecks: dict = {}
++        for check_id in sorted(sink["domain_obs"][domain]):
++            obs = sink["domain_obs"][domain][check_id]
++            status, detail, worst = _posture_canonical(obs)
++            observed = [{"host": o["host"], "status": o["status"], "detail": o["detail"]}
++                        for o in obs]
++            dchecks[check_id] = {"status": status, "detail": detail, "observed_from": observed}
++            if status in ("FAIL", "WARN") and isinstance(checks.get(check_id), dict):
++                f = _posture_finding(domain, check_id, status, detail, checks[check_id],
++                                     "domain", worst["evidence_path"], service_metadata)
++                f["evidence_paths"] = sorted({o["evidence_path"] for o in obs if o["evidence_path"]})
++                f["observed_from"] = observed
++                f.update({"user": "", "key": "", "artifact_id": ""})
++                yield f
++        domains[domain] = {"checks": dchecks}
++    sink["domains"] = domains
++
++
++def _posture_summary(posture: dict) -> "tuple[dict, dict]":
++    """(summary.posture, summary.domains). Host counts cover host-scope checks
++    only; domain checks are counted once per domain in summary.domains."""
++    hosts = posture.get("hosts", {}) or {}
++    counts = {s.lower(): 0 for s in _POSTURE_STATUSES}
++    for rec in hosts.values():
++        for c in rec.get("checks", {}).values():
++            counts[c["status"].lower()] += 1
++    domains = posture.get("domains", {}) or {}
++    worst = {d: {cid: c["status"] for cid, c in v.get("checks", {}).items()}
++             for d, v in domains.items()}
++    return {"hosts": len(hosts), **counts}, {"count": len(domains), "worst_by_check": worst}
++
++
++def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
++    hosts = {}
++    for h, rec in (posture.get("hosts") or {}).items():
++        hosts[redactor(h)] = {
++            "os": rec.get("os", ""),
++            "source": redactor(rec.get("source", "")),
++            "checks": {cid: {"status": c["status"], "detail": redactor(c["detail"])}
++                       for cid, c in rec.get("checks", {}).items()},
++            "domain_observations": {cid: {"status": c["status"], "detail": redactor(c["detail"])}
++                                    for cid, c in rec.get("domain_observations", {}).items()},
++        }
++    domains = {}
++    for d, v in (posture.get("domains") or {}).items():
++        domains[redactor(d)] = {"checks": {
++            cid: {"status": c["status"], "detail": redactor(c["detail"]),
++                  "observed_from": [{"host": redactor(o["host"]), "status": o["status"],
++                                     "detail": redactor(o["detail"])}
++                                    for o in c.get("observed_from", [])]}
++            for cid, c in v.get("checks", {}).items()}}
++    return {"hosts": hosts, "domains": domains}
++
++
+ # ---------------------------------------------------- renderers
+ _SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+ 
+@@ -2020,7 +2267,15 @@ def _per_host_verdicts(findings: list[dict]) -> dict[str, dict]:
+     {host: {verdict, n_critical, n_high, n_medium, n_low, os}}."""
+     per: dict[str, dict] = {}
+     for f in findings:
+-        if f["service"] not in ("linenum", "winenum"):
++        if f["service"] == "posture":
++            # S3 — host-scope posture counts toward the host's verdict; a
++            # domain-scope canonical finding (host = domain name) does not.
++            if f.get("posture_scope") != "host":
++                continue
++            new_os = str(f.get("posture_os") or "")
++        elif f["service"] in ("linenum", "winenum"):
++            new_os = "linux" if f["service"] == "linenum" else "windows"
++        else:
+             continue
+         h = f["host"]
+         if h not in per:
+@@ -2030,7 +2285,8 @@ def _per_host_verdicts(findings: list[dict]) -> dict[str, dict]:
+         if _SEV_ORDER[f["severity"]] < _SEV_ORDER[per[h]["verdict"]]:
+             per[h]["verdict"] = f["severity"]
+         # Track OS — if both surfaces produced findings, label "mixed"
+-        new_os = "linux" if f["service"] == "linenum" else "windows"
++        if not new_os:
++            continue
+         if not per[h]["os"]:
+             per[h]["os"] = new_os
+         elif per[h]["os"] != new_os:
+@@ -2046,7 +2302,7 @@ def _summary(findings: list[dict], out_dir: Path | None = None) -> dict:
+     for f in findings:
+         counts[f["severity"]] += 1
+         by_service[f["service"]][f["severity"]] += 1
+-        if f["host"] != "(dispatcher)":
++        if f["host"] != "(dispatcher)" and f.get("scope") != "domain":
+             hosts.add(f["host"])
+         services.add(f["service"])
+     hosts_with_findings = set(hosts)
+@@ -2404,10 +2660,16 @@ def collect(out_dir: Path, rules, service_metadata: "dict | None" = None,
+     if service_metadata is None:
+         service_metadata = _load_service_metadata(out_dir)
+     if _is_bulk_enum_dir(out_dir):
+-        findings = finalize_findings(
+-            out_dir, walk_findings_bulk(out_dir, rules, service_metadata, diags))
++        sink = _new_posture_sink()
++        walked = walk_findings_bulk(out_dir, rules, service_metadata, diags, posture=sink)
++        # The domain generator runs only after the walk is exhausted (chain is
++        # lazy), so every host's observations are in the sink before rollup.
++        domain_findings = _posture_domain_findings(sink, _load_finding_kb(), service_metadata)
++        findings = finalize_findings(out_dir, itertools.chain(walked, domain_findings))
++        posture = {"hosts": sink["hosts"], "domains": sink["domains"]} if sink["hosts"] else None
+         return Collection(findings=findings, per_host=_per_host_verdicts(findings),
+-                          mode="bulk-enum", diagnostics=diags)
++                          mode="bulk-enum", posture=posture,
++                          domains=sink["domains"] or None, diagnostics=diags)
+     findings = finalize_findings(out_dir, walk_findings(out_dir, rules, service_metadata))
+     return Collection(findings=findings, per_host=None, mode="auto-enum", diagnostics=diags)
+ 
+@@ -2452,6 +2714,16 @@ def main() -> int:
+         print(_c("[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
+ 
+     summary = _summary(findings, out_dir)
++    posture = collection.posture
++    if posture:
++        summary["posture"], summary["domains"] = _posture_summary(posture)
++        # A host that reported only PASS/INFO posture was still assessed; it
++        # must be a known host (it also seeds --redact for posture.json).
++        summary["hosts"] = sorted(set(summary["hosts"]) | set(posture["hosts"]))
++    # S3 — a quarantined POSTURE line is a data-quality diagnostic, not a
++    # failed collection: it is reported but does not mark the run partial.
++    partial_diagnostics = [d for d in report_diagnostics if d.get("type") != "posture_quarantine"]
++    quarantined = [d for d in report_diagnostics if d.get("type") == "posture_quarantine"]
+ 
+     # Always emit findings.json (machine-readable)
+     findings_json = {
+@@ -2463,10 +2735,15 @@ def main() -> int:
+         "summary":       summary,
+         "findings":      findings,
+     }
+-    if report_diagnostics:
++    if quarantined:
++        findings_json["posture_quarantine"] = quarantined
++        for diagnostic in quarantined:
++            print(_c(f"[!] posture line quarantined: {diagnostic['path']}: {diagnostic['error']}",
++                     "Y"), file=sys.stderr)
++    if partial_diagnostics:
+         findings_json["partial"] = True
+-        findings_json["errors"] = report_diagnostics
+-        for diagnostic in report_diagnostics:
++        findings_json["errors"] = partial_diagnostics
++        for diagnostic in partial_diagnostics:
+             print(
+                 _c(
+                     f"[!] partial report: {diagnostic['path']}: {diagnostic['error']}",
+@@ -2481,14 +2758,28 @@ def main() -> int:
+                                     key=lambda kv: (_SEV_ORDER[kv[1]["verdict"]], kv[0]))
+         }
+     if args.redact:
+-        # Seed hostname redaction from the discovered scan hosts (pre-redaction).
+-        redactor.set_known_hosts(summary.get("hosts", []))
++        # Seed hostname redaction from the discovered scan hosts (pre-redaction),
++        # plus any domain identities the posture rollup established.
++        redactor.set_known_hosts(list(summary.get("hosts", []))
++                                 + sorted((posture or {}).get("domains", {}) or {}))
+         for f in findings_json["findings"]:
+             f["host"] = redactor(f["host"])
+             f["line"] = redactor(f["line"])
+             f["evidence_path"] = redactor(f["evidence_path"])
+             f["evidence_paths"] = [redactor(p) for p in f.get("evidence_paths", [])]
+             f["title"] = redactor(f["title"])
++            if "posture_detail" in f:
++                f["posture_detail"] = redactor(f["posture_detail"])
++            if "observed_from" in f:
++                f["observed_from"] = [{"host": redactor(o["host"]), "status": o["status"],
++                                       "detail": redactor(o["detail"])}
++                                      for o in f["observed_from"]]
++        for d in quarantined:
++            for k in ("host", "path", "line"):
++                d[k] = redactor(str(d.get(k, "")))
++        if "domains" in findings_json["summary"]:
++            findings_json["summary"]["domains"]["worst_by_check"] = {
++                redactor(d): v for d, v in findings_json["summary"]["domains"]["worst_by_check"].items()}
+         for field in ("hosts", "hosts_assessed", "hosts_with_findings"):
+             findings_json["summary"][field] = [redactor(h) for h in summary.get(field, [])]
+         for record in findings_json["summary"].get("coverage", []):
+@@ -2497,13 +2788,26 @@ def main() -> int:
+             findings_json["per_host"] = {redactor(h): v for h, v in findings_json["per_host"].items()}
+     (out_dir / "findings.json").write_text(json.dumps(findings_json, indent=2))
+     print(_c(f"[+] findings.json written ({len(findings)} findings)", "G"))
++    if posture:
++        posture_out = _redact_posture(posture, redactor) if args.redact else {
++            "hosts": posture["hosts"], "domains": posture["domains"]}
++        posture_json = {
++            "schema_version": "1",
++            "label": label,
++            "generated_utc": findings_json["generated_utc"],
++            "redacted": args.redact,
++            **posture_out,
++        }
++        (out_dir / "posture.json").write_text(json.dumps(posture_json, indent=2))
++        print(_c(f"[+] posture.json written ({len(posture['hosts'])} hosts, "
++                 f"{len(posture['domains'])} domains)", "G"))
+ 
+     if args.sarif:
+         (out_dir / "findings.sarif").write_text(
+             json.dumps(_to_sarif(findings_json["findings"], label), indent=2))
+         print(_c("[+] findings.sarif written (SARIF 2.1.0)", "G"))
+ 
+-    result_rc = 1 if report_diagnostics else 0
++    result_rc = 1 if partial_diagnostics else 0
+     if args.findings_only:
+         return result_rc
+ 
+diff --git a/standalones/linux/host-posture.sh b/standalones/linux/host-posture.sh
+new file mode 100755
+index 0000000..4a0c47d
+--- /dev/null
++++ b/standalones/linux/host-posture.sh
+@@ -0,0 +1,538 @@
++#!/usr/bin/env bash
++# host-posture.sh - read-only localhost hardening posture collector (aranum PLAN-001 D3.2).
++#
++# Emits one line per check, strict ASCII framing parsed by network/report.py:
++#     POSTURE|<check-id>|<PASS|FAIL|WARN|INFO|NA|ERR>|<detail>
++# ERR = the check could not run (permission, missing data) - never a PASS.
++# Every check reads local files / local state only: no network, no writes, no
++# package-cache refresh. Safe to pipe over SSH stdin after linenum-fast.sh: the
++# body is one function invoked with stdin from /dev/null, so no command can
++# consume the script stream, and nothing here depends on the caller's shell
++# options. Check ids and their KB guidance live in network/finding-kb.json
++# (`checks`); the posture-KB coverage gate keeps the two in sync.
++#
++# ARANUM_POSTURE_ROOT=<dir>  read every file under <dir> instead of / (hermetic
++#                            tests); command-based checks then report NA, except
++#                            service state, which reads ARANUM_POSTURE_SERVICES
++#                            (space-separated active unit names).
++# Authorized testing only.
++
++__aranum_posture_main() {
++    set +e
++    set -u
++    local R="${ARANUM_POSTURE_ROOT:-}"
++    R="${R%/}"
++    local HERMETIC=0
++    [[ -n "$R" ]] && HERMETIC=1
++    local MYUID
++    MYUID="$(id -u 2>/dev/null || echo 0)"
++    local NONROOT=0
++    (( HERMETIC == 0 )) && [[ "$MYUID" != "0" ]] && NONROOT=1
++
++    printf '== aranum host posture (linux) ==\n'
++
++    # --- helpers ---------------------------------------------------------------
++    _p_emit() {  # id status detail - detail flattened to one safe line
++        local d="$3"
++        d="${d//|/ }"
++        d="${d//[[:cntrl:]]/ }"
++        printf 'POSTURE|%s|%s|%s\n' "$1" "$2" "$d"
++    }
++    _p_read() {  # first line of a file under the root, NUL-stripped; rc 1 if unreadable
++        local f="$R$1"
++        [[ -r "$f" && -f "$f" ]] || return 1
++        head -n 1 "$f" 2>/dev/null | tr -d '\0' | tr -d '\r'
++    }
++    _p_sysctl() {  # value of /proc/sys/<path>, trimmed
++        local v
++        v="$(_p_read "/proc/sys/$1")" || return 1
++        v="${v//[[:space:]]/ }"
++        printf '%s' "${v%% *}"
++    }
++    _p_mode() {  # octal mode of a path under the root
++        stat -L -c '%a' "$R$1" 2>/dev/null
++    }
++    _p_cmd() {  # run a local command quietly; never under the hermetic root
++        (( HERMETIC == 1 )) && return 127
++        command -v "$1" >/dev/null 2>&1 || return 127
++        "$@" </dev/null 2>/dev/null
++    }
++    _p_svc() {  # 0 active, 1 inactive, 2 unknown
++        local u
++        if (( HERMETIC == 1 )); then
++            [[ -n "${ARANUM_POSTURE_SERVICES+x}" ]] || return 2
++            for u in ${ARANUM_POSTURE_SERVICES}; do
++                [[ "$u" == "$1" ]] && return 0
++            done
++            return 1
++        fi
++        if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
++            systemctl is-active --quiet "$1" </dev/null 2>/dev/null && return 0
++            return 1
++        fi
++        if command -v pgrep >/dev/null 2>&1; then
++            pgrep -x "$1" >/dev/null 2>&1 && return 0
++            return 1
++        fi
++        return 2
++    }
++    _p_any_svc() {  # first active service name among args; rc 0 found, 1 none, 2 unknown
++        local s rc unknown=0
++        for s in "$@"; do
++            _p_svc "$s"; rc=$?
++            if (( rc == 0 )); then printf '%s' "$s"; return 0; fi
++            (( rc == 2 )) && unknown=1
++        done
++        (( unknown == 1 )) && return 2
++        return 1
++    }
++    _p_kv() {  # value for KEY in a "KEY value" style file (login.defs), first match
++        local f="$R$1"
++        [[ -r "$f" ]] || return 1
++        awk -v k="$2" '$1==k {print $2; exit}' "$f" 2>/dev/null
++    }
++
++    # --- patching ----------------------------------------------------------------
++    local osname kern
++    osname="$(awk -F= '$1=="PRETTY_NAME"{gsub(/"/,"",$2); print $2; exit}' "$R/etc/os-release" 2>/dev/null)"
++    kern="$(_p_read /proc/sys/kernel/osrelease)"
++    _p_emit LIN-OS-RELEASE INFO "os=${osname:-unknown} kernel=${kern:-unknown}"
++
++    local family=""
++    if [[ -d "$R/etc/apt" ]]; then family=deb
++    elif [[ -d "$R/etc/dnf" || -f "$R/etc/yum.conf" ]]; then family=rpm
++    fi
++
++    local sim total sec
++    if (( HERMETIC == 1 )); then
++        _p_emit LIN-PKG-SECUPDATES NA "package manager not queried under ARANUM_POSTURE_ROOT"
++    elif command -v apt-get >/dev/null 2>&1; then
++        if sim="$(LC_ALL=C timeout 90 apt-get -s -o Debug::NoLocking=1 upgrade </dev/null 2>/dev/null)"; then
++            total="$(printf '%s\n' "$sim" | grep -c '^Inst ')"
++            sec="$(printf '%s\n' "$sim" | grep '^Inst ' | grep -ciE '[-/]security|Debian-Security')"
++            if (( sec > 0 )); then _p_emit LIN-PKG-SECUPDATES FAIL "security=$sec total=$total (apt cache; not refreshed)"
++            elif (( total > 0 )); then _p_emit LIN-PKG-SECUPDATES WARN "security=0 total=$total (apt cache; not refreshed)"
++            else _p_emit LIN-PKG-SECUPDATES PASS "no pending upgrades in apt cache (cache not refreshed)"
++            fi
++        else
++            _p_emit LIN-PKG-SECUPDATES ERR "apt-get -s upgrade failed"
++        fi
++    elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
++        local pm=dnf
++        command -v dnf >/dev/null 2>&1 || pm=yum
++        if sim="$(timeout 90 "$pm" -C -q updateinfo list --security </dev/null 2>/dev/null)"; then
++            sec="$(printf '%s\n' "$sim" | grep -c '[^[:space:]]')"
++            total="$(timeout 90 "$pm" -C -q check-update </dev/null 2>/dev/null | grep -c '^[[:alnum:]]')"
++            if (( sec > 0 )); then _p_emit LIN-PKG-SECUPDATES FAIL "security=$sec total=$total ($pm cache; not refreshed)"
++            elif (( total > 0 )); then _p_emit LIN-PKG-SECUPDATES WARN "security=0 total=$total ($pm cache; not refreshed)"
++            else _p_emit LIN-PKG-SECUPDATES PASS "no pending updates in $pm cache (cache not refreshed)"
++            fi
++        else
++            _p_emit LIN-PKG-SECUPDATES ERR "$pm -C updateinfo failed (empty cache?)"
++        fi
++    else
++        _p_emit LIN-PKG-SECUPDATES NA "no supported package manager (apt/dnf/yum)"
++    fi
++
++    if [[ "$family" == deb ]]; then
++        if grep -hqsE '^[[:space:]]*APT::Periodic::Unattended-Upgrade[[:space:]]+"1"' "$R"/etc/apt/apt.conf.d/* 2>/dev/null; then
++            _p_emit LIN-PKG-AUTOUPDATE PASS "unattended-upgrades enabled"
++        else
++            _p_emit LIN-PKG-AUTOUPDATE WARN "APT::Periodic::Unattended-Upgrade not enabled"
++        fi
++    elif [[ "$family" == rpm ]]; then
++        if ls "$R"/etc/systemd/system/timers.target.wants/dnf-automatic*.timer >/dev/null 2>&1; then
++            _p_emit LIN-PKG-AUTOUPDATE PASS "dnf-automatic timer enabled"
++        else
++            _p_emit LIN-PKG-AUTOUPDATE WARN "dnf-automatic timer not enabled"
++        fi
++    else
++        _p_emit LIN-PKG-AUTOUPDATE NA "unknown package family"
++    fi
++
++    if [[ -e "$R/var/run/reboot-required" || -e "$R/run/reboot-required" ]]; then
++        _p_emit LIN-REBOOT-REQUIRED WARN "reboot-required flag present"
++    elif [[ "$family" == deb ]]; then
++        _p_emit LIN-REBOOT-REQUIRED PASS "no reboot-required flag"
++    elif _p_cmd needs-restarting -r >/dev/null; then
++        _p_emit LIN-REBOOT-REQUIRED PASS "needs-restarting -r: no reboot needed"
++    elif (( $? == 1 )); then
++        _p_emit LIN-REBOOT-REQUIRED WARN "needs-restarting -r: reboot needed"
++    else
++        _p_emit LIN-REBOOT-REQUIRED NA "no reboot indicator for this distro"
++    fi
++
++    # --- kernel sysctls --------------------------------------------------------------
++    local v v2 v3
++    if v="$(_p_sysctl kernel/yama/ptrace_scope)"; then
++        if [[ "$v" == 0 ]]; then _p_emit LIN-SYSCTL-PTRACE WARN "kernel.yama.ptrace_scope=0"
++        else _p_emit LIN-SYSCTL-PTRACE PASS "kernel.yama.ptrace_scope=$v"; fi
++    else _p_emit LIN-SYSCTL-PTRACE NA "yama not present"; fi
++
++    if v="$(_p_sysctl kernel/kptr_restrict)"; then
++        if [[ "$v" == 0 ]]; then _p_emit LIN-SYSCTL-KPTR WARN "kernel.kptr_restrict=0"
++        else _p_emit LIN-SYSCTL-KPTR PASS "kernel.kptr_restrict=$v"; fi
++    else _p_emit LIN-SYSCTL-KPTR ERR "kernel.kptr_restrict unreadable"; fi
++
++    if v="$(_p_sysctl kernel/dmesg_restrict)"; then
++        if [[ "$v" == 0 ]]; then _p_emit LIN-SYSCTL-DMESG WARN "kernel.dmesg_restrict=0"
++        else _p_emit LIN-SYSCTL-DMESG PASS "kernel.dmesg_restrict=$v"; fi
++    else _p_emit LIN-SYSCTL-DMESG ERR "kernel.dmesg_restrict unreadable"; fi
++
++    if v="$(_p_sysctl kernel/unprivileged_bpf_disabled)"; then
++        if [[ "$v" == 0 ]]; then _p_emit LIN-SYSCTL-BPF WARN "kernel.unprivileged_bpf_disabled=0"
++        else _p_emit LIN-SYSCTL-BPF PASS "kernel.unprivileged_bpf_disabled=$v"; fi
++    else _p_emit LIN-SYSCTL-BPF NA "unprivileged_bpf_disabled not present"; fi
++
++    v="$(_p_sysctl kernel/apparmor_restrict_unprivileged_userns)"
++    v2="$(_p_sysctl kernel/unprivileged_userns_clone)"
++    v3="$(_p_sysctl user/max_user_namespaces)"
++    if [[ "$v" == 1 ]]; then _p_emit LIN-SYSCTL-USERNS PASS "apparmor_restrict_unprivileged_userns=1"
++    elif [[ "$v2" == 0 ]]; then _p_emit LIN-SYSCTL-USERNS PASS "kernel.unprivileged_userns_clone=0"
++    elif [[ "$v3" == 0 ]]; then _p_emit LIN-SYSCTL-USERNS PASS "user.max_user_namespaces=0"
++    elif [[ -n "$v2$v3" ]]; then _p_emit LIN-SYSCTL-USERNS WARN "unprivileged userns allowed (clone=${v2:-n/a} max=${v3:-n/a})"
++    else _p_emit LIN-SYSCTL-USERNS ERR "userns sysctls unreadable"; fi
++
++    if v="$(_p_sysctl kernel/randomize_va_space)"; then
++        if [[ "$v" == 2 ]]; then _p_emit LIN-SYSCTL-ASLR PASS "kernel.randomize_va_space=2"
++        else _p_emit LIN-SYSCTL-ASLR FAIL "kernel.randomize_va_space=$v"; fi
++    else _p_emit LIN-SYSCTL-ASLR ERR "kernel.randomize_va_space unreadable"; fi
++
++    if v="$(_p_sysctl fs/suid_dumpable)"; then
++        if [[ "$v" == 0 ]]; then _p_emit LIN-SYSCTL-SUIDDUMP PASS "fs.suid_dumpable=0"
++        else _p_emit LIN-SYSCTL-SUIDDUMP WARN "fs.suid_dumpable=$v"; fi
++    else _p_emit LIN-SYSCTL-SUIDDUMP ERR "fs.suid_dumpable unreadable"; fi
++
++    v="$(_p_sysctl fs/protected_symlinks)"; v2="$(_p_sysctl fs/protected_hardlinks)"
++    if [[ -z "$v" || -z "$v2" ]]; then _p_emit LIN-SYSCTL-PROTLINKS ERR "fs.protected_* unreadable"
++    elif [[ "$v" == 0 || "$v2" == 0 ]]; then _p_emit LIN-SYSCTL-PROTLINKS WARN "protected_symlinks=$v protected_hardlinks=$v2"
++    else _p_emit LIN-SYSCTL-PROTLINKS PASS "protected_symlinks=$v protected_hardlinks=$v2"; fi
++
++    if v="$(_p_sysctl kernel/perf_event_paranoid)"; then
++        if [[ "$v" =~ ^-?[0-9]+$ ]] && (( v < 2 )); then _p_emit LIN-SYSCTL-PERF WARN "kernel.perf_event_paranoid=$v"
++        else _p_emit LIN-SYSCTL-PERF PASS "kernel.perf_event_paranoid=$v"; fi
++    else _p_emit LIN-SYSCTL-PERF NA "perf_event_paranoid not present"; fi
++
++    if v="$(_p_sysctl net/ipv4/ip_forward)"; then
++        if [[ "$v" == 1 ]]; then _p_emit LIN-SYSCTL-IPFWD WARN "net.ipv4.ip_forward=1"
++        else _p_emit LIN-SYSCTL-IPFWD PASS "net.ipv4.ip_forward=$v"; fi
++    else _p_emit LIN-SYSCTL-IPFWD ERR "net.ipv4.ip_forward unreadable"; fi
++
++    # --- MAC / firewall ---------------------------------------------------------------
++    local lsm
++    lsm="$(_p_read /sys/kernel/security/lsm)"
++    v="$(_p_read /sys/fs/selinux/enforce)"
++    v2="$(_p_read /sys/module/apparmor/parameters/enabled)"
++    if [[ "$v" == 1 ]]; then _p_emit LIN-LSM-MAC PASS "selinux enforcing"
++    elif [[ "$v2" == Y ]]; then _p_emit LIN-LSM-MAC PASS "apparmor enabled"
++    elif [[ "$v" == 0 ]]; then _p_emit LIN-LSM-MAC WARN "selinux permissive; lsm=${lsm:-unknown}"
++    else _p_emit LIN-LSM-MAC WARN "no enforcing MAC; lsm=${lsm:-unknown}"; fi
++
++    local fw rc
++    if grep -qsE '^[[:space:]]*ENABLED[[:space:]]*=[[:space:]]*yes' "$R/etc/ufw/ufw.conf"; then
++        _p_emit LIN-FIREWALL PASS "ufw ENABLED=yes"
++    else
++        fw="$(_p_any_svc firewalld nftables iptables netfilter-persistent ufw)"; rc=$?
++        if (( rc == 0 )); then _p_emit LIN-FIREWALL PASS "$fw active"
++        elif (( HERMETIC == 0 )) && [[ "$MYUID" == 0 ]] && command -v nft >/dev/null 2>&1; then
++            if nft list ruleset </dev/null 2>/dev/null | grep -q 'hook input'; then
++                _p_emit LIN-FIREWALL PASS "nft input hook present"
++            else
++                _p_emit LIN-FIREWALL WARN "no firewall service active and no nft input hook"
++            fi
++        elif (( rc == 2 )); then _p_emit LIN-FIREWALL ERR "service state unknown"
++        elif (( NONROOT == 1 )); then _p_emit LIN-FIREWALL ERR "no firewall service active; raw ruleset needs root"
++        else _p_emit LIN-FIREWALL WARN "no firewall service active"; fi
++    fi
++
++    # --- SSH ------------------------------------------------------------------------
++    _p_ssh_lines() {  # $1 file (real path), $2 depth: "keyword value" lines, Match blocks skipped
++        local file="$1" depth="$2" line kw rest pat inc inmatch=0 pats
++        [[ -r "$file" ]] || return 0
++        while IFS= read -r line || [[ -n "$line" ]]; do
++            line="${line%%#*}"
++            line="${line//$'\r'/}"
++            read -r kw rest <<<"$line"
++            [[ -z "$kw" ]] && continue
++            if [[ "$kw" == *=* ]]; then rest="${kw#*=} $rest"; kw="${kw%%=*}"; fi
++            rest="${rest#=}"; rest="${rest# }"
++            kw="${kw,,}"
++            if [[ "$kw" == match ]]; then inmatch=1; continue; fi
++            (( inmatch == 1 )) && continue
++            if [[ "$kw" == include ]]; then
++                (( depth < 4 )) || continue
++                # Split without globbing: an unquoted $rest would expand the
++                # pattern against the live filesystem before it is re-rooted.
++                read -ra pats <<<"$rest"
++                for pat in "${pats[@]}"; do
++                    [[ "$pat" == /* ]] || pat="/etc/ssh/$pat"
++                    for inc in "$R"$pat; do
++                        [[ -f "$inc" ]] && _p_ssh_lines "$inc" $((depth + 1))
++                    done
++                done
++                continue
++            fi
++            printf '%s %s\n' "$kw" "$rest"
++        done < "$file"
++    }
++    local sshcfg="" sshsrc=""
++    if [[ -f "$R/etc/ssh/sshd_config" ]]; then
++        if (( HERMETIC == 0 )) && [[ "$MYUID" == 0 ]] && command -v sshd >/dev/null 2>&1; then
++            sshcfg="$(sshd -T </dev/null 2>/dev/null)" && sshsrc="sshd -T"
++        fi
++        if [[ -z "$sshsrc" ]]; then
++            sshcfg="$(_p_ssh_lines "$R/etc/ssh/sshd_config" 0)"
++            sshsrc="sshd_config"
++        fi
++    fi
++    _p_ssh() { printf '%s\n' "$sshcfg" | awk -v k="$1" 'tolower($1)==k {$1=""; sub(/^ +/,""); print tolower($0); exit}'; }
++    if [[ -z "$sshsrc" ]]; then
++        local sid
++        for sid in LIN-SSH-ROOTLOGIN LIN-SSH-PASSAUTH LIN-SSH-EMPTYPW LIN-SSH-X11 LIN-SSH-MAXAUTH LIN-SSH-CIPHERS; do
++            _p_emit "$sid" NA "no sshd_config"
++        done
++    else
++        v="$(_p_ssh permitrootlogin)"
++        if [[ "$v" == yes ]]; then _p_emit LIN-SSH-ROOTLOGIN FAIL "PermitRootLogin yes ($sshsrc)"
++        else _p_emit LIN-SSH-ROOTLOGIN PASS "PermitRootLogin ${v:-default} ($sshsrc)"; fi
++        v="$(_p_ssh passwordauthentication)"
++        if [[ "$v" == no ]]; then _p_emit LIN-SSH-PASSAUTH PASS "PasswordAuthentication no ($sshsrc)"
++        else _p_emit LIN-SSH-PASSAUTH WARN "PasswordAuthentication ${v:-default yes} ($sshsrc)"; fi
++        v="$(_p_ssh permitemptypasswords)"
++        if [[ "$v" == yes ]]; then _p_emit LIN-SSH-EMPTYPW FAIL "PermitEmptyPasswords yes ($sshsrc)"
++        else _p_emit LIN-SSH-EMPTYPW PASS "PermitEmptyPasswords ${v:-default no} ($sshsrc)"; fi
++        v="$(_p_ssh x11forwarding)"
++        if [[ "$v" == yes ]]; then _p_emit LIN-SSH-X11 WARN "X11Forwarding yes ($sshsrc)"
++        else _p_emit LIN-SSH-X11 PASS "X11Forwarding ${v:-default no} ($sshsrc)"; fi
++        v="$(_p_ssh maxauthtries)"
++        [[ "$v" =~ ^[0-9]+$ ]] || v=6
++        if (( v > 4 )); then _p_emit LIN-SSH-MAXAUTH WARN "MaxAuthTries $v ($sshsrc)"
++        else _p_emit LIN-SSH-MAXAUTH PASS "MaxAuthTries $v ($sshsrc)"; fi
++        local algs weak
++        algs="$(_p_ssh ciphers),$(_p_ssh macs),$(_p_ssh kexalgorithms)"
++        weak="$(printf '%s\n' "$algs" | tr ', ' '\n\n' \
++            | grep -E -- '-cbc$|^arcfour|3des|hmac-md5|diffie-hellman-group1-sha1|diffie-hellman-group14-sha1|diffie-hellman-group-exchange-sha1' \
++            | sort -u | head -6 | tr '\n' ' ')"
++        if [[ -n "$weak" ]]; then _p_emit LIN-SSH-CIPHERS WARN "weak algorithms: ${weak% } ($sshsrc)"
++        else _p_emit LIN-SSH-CIPHERS PASS "no weak ciphers/MACs/KEX configured ($sshsrc)"; fi
++    fi
++
++    local k m bad="" nkeys=0
++    for k in "$R"/etc/ssh/ssh_host_*_key; do
++        [[ -f "$k" ]] || continue
++        nkeys=$((nkeys + 1))
++        m="$(stat -c '%a' "$k" 2>/dev/null)"
++        if [[ -n "$m" ]] && (( (8#$m & 8#044) != 0 )); then bad="$bad ${k##*/}($m)"
++        elif (( NONROOT == 1 )) && [[ -r "$k" ]]; then bad="$bad ${k##*/}(readable-by-uid-$MYUID)"; fi
++    done
++    if (( nkeys == 0 )); then _p_emit LIN-SSH-HOSTKEY-PERMS NA "no ssh host keys"
++    elif [[ -n "$bad" ]]; then _p_emit LIN-SSH-HOSTKEY-PERMS FAIL "exposed:$bad"
++    else _p_emit LIN-SSH-HOSTKEY-PERMS PASS "$nkeys host keys restricted"; fi
++
++    # --- accounts -------------------------------------------------------------------
++    if [[ -r "$R/etc/passwd" ]]; then
++        v="$(awk -F: '$3=="0" && $1!="root" {printf "%s ", $1}' "$R/etc/passwd")"
++        if [[ -n "$v" ]]; then _p_emit LIN-ACCT-UID0 FAIL "uid 0: ${v% }"
++        else _p_emit LIN-ACCT-UID0 PASS "only root has uid 0"; fi
++    else _p_emit LIN-ACCT-UID0 ERR "/etc/passwd unreadable"; fi
++
++    if [[ -r "$R/etc/shadow" ]]; then
++        v="$(awk -F: 'NF>1 && $2=="" {printf "%s ", $1}' "$R/etc/shadow")"
++        if [[ -n "$v" ]]; then _p_emit LIN-ACCT-EMPTYPW FAIL "empty password: ${v% }"
++        else _p_emit LIN-ACCT-EMPTYPW PASS "no empty password fields"; fi
++    elif [[ -e "$R/etc/shadow" ]]; then _p_emit LIN-ACCT-EMPTYPW ERR "/etc/shadow not readable (run as root)"
++    else _p_emit LIN-ACCT-EMPTYPW ERR "/etc/shadow absent"; fi
++
++    if [[ ! -e "$R/etc/sudoers" ]] && { (( HERMETIC == 1 )) || ! command -v sudo >/dev/null 2>&1; }; then
++        _p_emit LIN-ACCT-NOPASSWD NA "sudo not installed"
++    elif [[ -r "$R/etc/sudoers" ]]; then
++        local nrules=0 sf
++        for sf in "$R/etc/sudoers" "$R"/etc/sudoers.d/*; do
++            [[ -f "$sf" && -r "$sf" ]] || continue
++            nrules=$(( nrules + $(grep -vE '^[[:space:]]*#' "$sf" 2>/dev/null | grep -c 'NOPASSWD') ))
++        done
++        if (( nrules > 0 )); then _p_emit LIN-ACCT-NOPASSWD WARN "$nrules NOPASSWD rule(s)"
++        else _p_emit LIN-ACCT-NOPASSWD PASS "no NOPASSWD rules"; fi
++    else _p_emit LIN-ACCT-NOPASSWD ERR "sudoers not readable (run as root)"; fi
++
++    if [[ -r "$R/etc/group" ]]; then
++        v="$(awk -F: '$1=="sudo"||$1=="wheel"||$1=="admin" {printf "%s=%s ", $1, ($4==""?"(none)":$4)}' "$R/etc/group")"
++        v="${v% }"
++        _p_emit LIN-ACCT-ADMINS INFO "${v:-no sudo/wheel/admin group}"
++    else _p_emit LIN-ACCT-ADMINS ERR "/etc/group unreadable"; fi
++
++    if [[ -r "$R/etc/login.defs" ]]; then
++        v="$(_p_kv /etc/login.defs UMASK)"
++        if [[ -z "$v" ]]; then _p_emit LIN-ACCT-UMASK PASS "UMASK unset (default 022)"
++        elif [[ "$v" =~ ^0?[0-7]{3}$ ]] && (( (8#$v & 8#022) == 8#022 )); then _p_emit LIN-ACCT-UMASK PASS "UMASK $v"
++        else _p_emit LIN-ACCT-UMASK WARN "UMASK $v grants group/other write"; fi
++        v="$(_p_kv /etc/login.defs PASS_MAX_DAYS)"
++        if [[ "$v" =~ ^[0-9]+$ ]] && (( v <= 365 )); then _p_emit LIN-ACCT-AGING PASS "PASS_MAX_DAYS $v"
++        else _p_emit LIN-ACCT-AGING WARN "PASS_MAX_DAYS ${v:-unset}"; fi
++    else
++        _p_emit LIN-ACCT-UMASK NA "no /etc/login.defs"
++        _p_emit LIN-ACCT-AGING NA "no /etc/login.defs"
++    fi
++
++    # --- filesystem ------------------------------------------------------------------
++    local f
++    bad=""
++    for f in /etc/shadow /etc/gshadow; do
++        m="$(_p_mode "$f")"
++        [[ -n "$m" ]] && (( (8#$m & 8#006) != 0 )) && bad="$bad $f($m)"
++    done
++    if [[ -n "$bad" ]]; then _p_emit LIN-FILE-SHADOW FAIL "world-accessible:$bad"
++    elif [[ -e "$R/etc/shadow" ]]; then _p_emit LIN-FILE-SHADOW PASS "shadow $(_p_mode /etc/shadow)"
++    else _p_emit LIN-FILE-SHADOW NA "/etc/shadow absent"; fi
++
++    bad=""
++    for f in /etc/passwd /etc/group; do
++        m="$(_p_mode "$f")"
++        [[ -n "$m" ]] && (( (8#$m & 8#022) != 0 )) && bad="$bad $f($m)"
++    done
++    if [[ -n "$bad" ]]; then _p_emit LIN-FILE-PASSWD FAIL "group/other-writable:$bad"
++    elif [[ -e "$R/etc/passwd" ]]; then _p_emit LIN-FILE-PASSWD PASS "passwd $(_p_mode /etc/passwd)"
++    else _p_emit LIN-FILE-PASSWD ERR "/etc/passwd absent"; fi
++
++    local mounts="$R/proc/mounts" opts miss o
++    [[ -r "$mounts" ]] || mounts="$R/proc/self/mounts"
++    if [[ -r "$mounts" ]]; then
++        opts="$(awk '$2=="/tmp" {o=$4} END {print o}' "$mounts")"
++        if [[ -z "$opts" ]]; then _p_emit LIN-MNT-TMP WARN "/tmp is not a separate mount"
++        else
++            miss=""
++            for o in nosuid nodev; do [[ ",$opts," == *",$o,"* ]] || miss="$miss $o"; done
++            if [[ -n "$miss" ]]; then _p_emit LIN-MNT-TMP WARN "/tmp missing:$miss"
++            else _p_emit LIN-MNT-TMP PASS "/tmp $opts"; fi
++        fi
++        opts="$(awk '$2=="/dev/shm" {o=$4} END {print o}' "$mounts")"
++        if [[ -z "$opts" ]]; then _p_emit LIN-MNT-SHM NA "/dev/shm not mounted"
++        else
++            miss=""
++            for o in noexec nosuid; do [[ ",$opts," == *",$o,"* ]] || miss="$miss $o"; done
++            if [[ -n "$miss" ]]; then _p_emit LIN-MNT-SHM WARN "/dev/shm missing:$miss"
++            else _p_emit LIN-MNT-SHM PASS "/dev/shm $opts"; fi
++        fi
++    else
++        _p_emit LIN-MNT-TMP ERR "mount table unreadable"
++        _p_emit LIN-MNT-SHM ERR "mount table unreadable"
++    fi
++
++    local pathlist="" envpath d
++    (( HERMETIC == 0 )) && pathlist="${PATH:-}"
++    envpath="$(awk -F= '$1=="PATH" {gsub(/"/,"",$2); print $2; exit}' "$R/etc/environment" 2>/dev/null)"
++    [[ -n "$envpath" ]] && pathlist="$pathlist:$envpath"
++    bad=""
++    local seen=""
++    local IFS_SAVE="$IFS"
++    IFS=:
++    for d in $pathlist; do
++        IFS="$IFS_SAVE"
++        if [[ "$d" == "." ]]; then bad="$bad .(relative)"; IFS=:; continue; fi
++        [[ -z "$d" || "$d" != /* ]] && { IFS=:; continue; }
++        [[ " $seen " == *" $d "* ]] && { IFS=:; continue; }
++        seen="$seen $d"
++        m="$(_p_mode "$d")"
++        if [[ -n "$m" ]] && (( (8#$m & 8#002) != 0 )) && (( (8#$m & 8#1000) == 0 )); then bad="$bad $d($m)"; fi
++        IFS=:
++    done
++    IFS="$IFS_SAVE"
++    if [[ -z "$pathlist" ]]; then _p_emit LIN-PATH-WW NA "no PATH to evaluate"
++    elif [[ -n "$bad" ]]; then _p_emit LIN-PATH-WW FAIL "writable PATH entries:$bad"
++    else _p_emit LIN-PATH-WW PASS "no world-writable PATH directories"; fi
++
++    bad="$(find "$R/etc/crontab" "$R/etc/cron.d" "$R/etc/cron.hourly" "$R/etc/cron.daily" \
++               "$R/etc/cron.weekly" "$R/etc/cron.monthly" -maxdepth 1 \( -type f -o -type d \) \
++               -perm -0002 2>/dev/null | head -3 | sed "s#^$R##" | tr '\n' ' ')"
++    if [[ -n "$bad" ]]; then _p_emit LIN-CRON-PERMS FAIL "world-writable: ${bad% }"
++    elif [[ -e "$R/etc/crontab" || -d "$R/etc/cron.d" ]]; then _p_emit LIN-CRON-PERMS PASS "cron paths not world-writable"
++    else _p_emit LIN-CRON-PERMS NA "no system cron configuration"; fi
++
++    # --- logging / time ----------------------------------------------------------------
++    _p_svc auditd; rc=$?
++    if (( rc == 0 )); then _p_emit LIN-LOG-AUDITD PASS "auditd active"
++    elif (( rc == 1 )); then _p_emit LIN-LOG-AUDITD WARN "auditd not active"
++    else _p_emit LIN-LOG-AUDITD NA "service state unknown"; fi
++
++    fw="$(_p_any_svc rsyslog syslog-ng syslog)"; rc=$?
++    if (( rc == 0 )); then _p_emit LIN-LOG-SYSLOG PASS "$fw active"
++    else
++        v="$(awk -F= '$1 ~ /^[[:space:]]*Storage/ {gsub(/[[:space:]]/,"",$2); s=$2} END {print s}' "$R/etc/systemd/journald.conf" 2>/dev/null)"
++        if [[ "$v" == persistent ]] || { [[ -z "$v" || "$v" == auto ]] && [[ -d "$R/var/log/journal" ]]; }; then
++            _p_emit LIN-LOG-SYSLOG PASS "journald persistent storage"
++        elif (( rc == 2 )) && [[ ! -e "$R/etc/systemd/journald.conf" ]]; then
++            _p_emit LIN-LOG-SYSLOG NA "logging state unknown"
++        else
++            _p_emit LIN-LOG-SYSLOG WARN "no syslog daemon and journald not persistent (Storage=${v:-auto})"
++        fi
++    fi
++
++    fw="$(_p_any_svc chronyd chrony systemd-timesyncd ntpd ntp ntpsec)"; rc=$?
++    if (( rc == 0 )); then _p_emit LIN-TIME-SYNC PASS "$fw active"
++    elif (( rc == 1 )); then _p_emit LIN-TIME-SYNC WARN "no time sync service active"
++    else _p_emit LIN-TIME-SYNC NA "service state unknown"; fi
++
++    # --- boot / services ----------------------------------------------------------------
++    local sbf
++    if [[ ! -d "$R/sys/firmware/efi" ]]; then
++        _p_emit LIN-BOOT-SECUREBOOT INFO "legacy BIOS boot (no EFI)"
++    else
++        sbf=""
++        for f in "$R"/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c; do
++            [[ -r "$f" ]] && sbf="$f"
++        done
++        if [[ -n "$sbf" ]]; then
++            v="$(od -An -tu1 -j4 -N1 "$sbf" 2>/dev/null | tr -d ' ')"
++            if [[ "$v" == 1 ]]; then _p_emit LIN-BOOT-SECUREBOOT PASS "SecureBoot enabled"
++            elif [[ "$v" == 0 ]]; then _p_emit LIN-BOOT-SECUREBOOT WARN "SecureBoot disabled"
++            else _p_emit LIN-BOOT-SECUREBOOT ERR "SecureBoot efivar unparseable"; fi
++        elif v="$(_p_cmd mokutil --sb-state)"; then
++            case "$v" in
++                *enabled*) _p_emit LIN-BOOT-SECUREBOOT PASS "SecureBoot enabled (mokutil)" ;;
++                *disabled*) _p_emit LIN-BOOT-SECUREBOOT WARN "SecureBoot disabled (mokutil)" ;;
++                *) _p_emit LIN-BOOT-SECUREBOOT ERR "mokutil output unrecognised" ;;
++            esac
++        else _p_emit LIN-BOOT-SECUREBOOT ERR "SecureBoot state unreadable"; fi
++    fi
++
++    if v="$(_p_cmd systemctl --failed --no-legend --plain)"; then
++        _p_emit LIN-SVC-FAILED INFO "failed_units=$(printf '%s\n' "$v" | grep -c '[^[:space:]]')"
++    else _p_emit LIN-SVC-FAILED NA "systemctl unavailable"; fi
++
++    local sock=""
++    for f in /var/run/docker.sock /run/docker.sock; do
++        [[ -S "$R$f" || -e "$R$f" ]] && { sock="$f"; break; }
++    done
++    if [[ -z "$sock" ]]; then _p_emit LIN-CTR-DOCKERSOCK NA "no docker socket"
++    else
++        m="$(_p_mode "$sock")"
++        if [[ -n "$m" ]] && (( (8#$m & 8#002) != 0 )); then _p_emit LIN-CTR-DOCKERSOCK FAIL "$sock world-writable ($m)"
++        elif (( NONROOT == 1 )) && [[ -w "$sock" ]]; then _p_emit LIN-CTR-DOCKERSOCK FAIL "$sock writable by uid $MYUID (root-equivalent)"
++        else _p_emit LIN-CTR-DOCKERSOCK PASS "$sock mode ${m:-?}"; fi
++    fi
++
++    # --- directory membership (localhost only; no DC query) -------------------------------
++    local realm via=""
++    realm="$(_p_cmd realm list --name-only | head -1)"
++    [[ -n "$realm" ]] && via="realm"
++    if [[ -z "$realm" ]]; then
++        realm="$(awk -F= '$1 ~ /^[[:space:]]*default_realm/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' "$R/etc/krb5.conf" 2>/dev/null)"
++        [[ -n "$realm" ]] && via="krb5.conf"
++    fi
++    if [[ -e "$R/etc/sssd/sssd.conf" ]]; then via="${via:+$via+}sssd"
++    elif grep -qsiE '^[[:space:]]*security[[:space:]]*=[[:space:]]*ads' "$R/etc/samba/smb.conf"; then via="${via:+$via+}winbind"; fi
++    if [[ "$via" == *sssd* || "$via" == *winbind* || "$via" == realm* ]]; then
++        _p_emit LIN-AD-JOINED INFO "joined realm=${realm:-unknown} via=$via"
++    elif [[ -n "$realm" ]]; then _p_emit LIN-AD-JOINED INFO "kerberos client only realm=$realm"
++    else _p_emit LIN-AD-JOINED INFO "not joined"; fi
++
++    if [[ -e "$R/etc/krb5.keytab" ]]; then
++        m="$(_p_mode /etc/krb5.keytab)"
++        if [[ -n "$m" ]] && (( (8#$m & 8#004) != 0 )); then _p_emit LIN-AD-KEYTAB FAIL "/etc/krb5.keytab world-readable ($m)"
++        elif (( NONROOT == 1 )) && [[ -r "$R/etc/krb5.keytab" ]]; then _p_emit LIN-AD-KEYTAB FAIL "/etc/krb5.keytab readable by uid $MYUID"
++        else _p_emit LIN-AD-KEYTAB PASS "/etc/krb5.keytab mode ${m:-?}"; fi
++    else _p_emit LIN-AD-KEYTAB NA "no host keytab"; fi
++
++    return 0
++}
++__aranum_posture_main "$@" </dev/null
+diff --git a/standalones/windows/Invoke-HostPosture.ps1 b/standalones/windows/Invoke-HostPosture.ps1
+new file mode 100644
+index 0000000..3def417
+--- /dev/null
++++ b/standalones/windows/Invoke-HostPosture.ps1
+@@ -0,0 +1,775 @@
++<#
++.SYNOPSIS
++    Read-only localhost hardening posture collector (aranum PLAN-001 D3.2).
++.DESCRIPTION
++    Emits one line per check, strict ASCII framing parsed by network/report.py:
++        POSTURE|<check-id>|<PASS|FAIL|WARN|INFO|NA|ERR>|<detail>
++    ERR means the check could not run (permission, missing provider) - never a PASS.
++    Host checks (WIN-*) read the local registry, CIM and service state only.
++    Domain checks (AD-*) run ONLY with -AdChecks: bounded, paged, read-only LDAP
++    against the host's own domain controller (RootDSE), page size 1000 and a
++    per-query timeout. Without -AdChecks no directory query is issued and every
++    AD-* check reports NA. Every AD line carries "domain=<dns> observer=<host>".
++    Check ids and KB guidance: network/finding-kb.json (`checks`).
++.PARAMETER AdChecks
++    Opt in to read-only domain posture queries against this host's own DC.
++.PARAMETER LdapTimeoutSeconds
++    Per-query LDAP server/client time limit (default 30).
++.PARAMETER LibraryOnly
++    Define the functions and return without running (unit tests).
++.EXAMPLE
++    powershell -NoProfile -ExecutionPolicy Bypass -File .\Invoke-HostPosture.ps1
++    powershell -NoProfile -ExecutionPolicy Bypass -File .\Invoke-HostPosture.ps1 -AdChecks
++.NOTES
++    Authorized testing only. Enumeration only: no writes, no persistence.
++#>
++[CmdletBinding()]
++param(
++    [switch]$AdChecks,
++    [int]$LdapTimeoutSeconds = 30,
++    [switch]$LibraryOnly
++)
++
++$script:AranumPostureSeen = @{}
++$script:AranumHostCheckIds = @(
++    'WIN-OS-BUILD', 'WIN-PATCH-AGE', 'WIN-FW-DOMAIN', 'WIN-FW-PRIVATE', 'WIN-FW-PUBLIC',
++    'WIN-DEF-RTP', 'WIN-DEF-TAMPER', 'WIN-DEF-SIGAGE', 'WIN-BITLOCKER', 'WIN-SECUREBOOT',
++    'WIN-SMB-V1', 'WIN-SMB-SRVSIGN', 'WIN-SMB-CLISIGN', 'WIN-NR-LLMNR', 'WIN-NR-NBTNS',
++    'WIN-NR-WPAD', 'WIN-LDAP-CLISIGN', 'WIN-ANON-RESTRICT', 'WIN-PS-V2', 'WIN-PS-SBLOG',
++    'WIN-PS-TRANSCRIPT', 'WIN-PS-LANGMODE', 'WIN-RDP-ENABLED', 'WIN-RDP-NLA',
++    'WIN-CRED-RUNASPPL', 'WIN-CRED-CREDGUARD', 'WIN-CRED-WDIGEST', 'WIN-CRED-LMCOMPAT',
++    'WIN-CRED-NOLMHASH', 'WIN-CRED-CACHEDLOGONS', 'WIN-UAC-LUA', 'WIN-UAC-CONSENT',
++    'WIN-UAC-LATFP', 'WIN-AIE', 'WIN-ACCT-ADMINS', 'WIN-ACCT-GUEST', 'WIN-AUTOLOGON',
++    'WIN-LAPS', 'WIN-SVC-SPOOLER', 'WIN-WINRM-HTTP', 'WIN-DOMAIN-JOINED'
++)
++$script:AranumAdCheckIds = @(
++    'AD-PWPOL-MINLEN', 'AD-PWPOL-LOCKOUT', 'AD-PWPOL-MAXAGE', 'AD-KRBTGT-AGE',
++    'AD-KERBEROASTABLE', 'AD-ASREP', 'AD-UNCONSTRAINED', 'AD-ADMINCOUNT', 'AD-DA-MEMBERS',
++    'AD-PROTECTED-USERS', 'AD-MAQ', 'AD-FUNC-LEVEL', 'AD-LDAP-SIGNING', 'AD-TRUSTS',
++    'AD-LAPS-SCHEMA'
++)
++
++# ------------------------------------------------------------------ framing
++function Write-PostureLine {
++    param([string]$Id, [string]$Status, [string]$Detail)
++    if ($script:AranumPostureSeen.ContainsKey($Id)) { return }
++    $script:AranumPostureSeen[$Id] = $true
++    $d = [string]$Detail
++    $d = $d -replace '[\|\r\n]', ' '
++    $d = $d -replace '[\x00-\x1f\x7f]', ' '
++    Write-Output ('POSTURE|{0}|{1}|{2}' -f $Id, $Status, $d)
++}
++
++function New-PostureResult {
++    param([string]$Status, [string]$Detail)
++    return @{ AranumPostureStatus = $Status; AranumPostureDetail = $Detail }
++}
++
++function Invoke-PostureCheck {
++    # Runs one check block; emits exactly one line for $Id. The block returns a
++    # New-PostureResult; any other output is ignored; an exception becomes ERR.
++    param([string]$Id, [scriptblock]$Block, [string]$Prefix = '')
++    try {
++        $result = & $Block | Where-Object { $_ -is [hashtable] -and $_.ContainsKey('AranumPostureStatus') } |
++            Select-Object -Last 1
++        if ($null -eq $result) {
++            Write-PostureLine $Id 'ERR' ($Prefix + 'check returned no result')
++        } else {
++            Write-PostureLine $Id $result.AranumPostureStatus ($Prefix + $result.AranumPostureDetail)
++        }
++    } catch {
++        Write-PostureLine $Id 'ERR' ($Prefix + 'check failed: ' + $_.Exception.Message)
++    }
++}
++
++# ------------------------------------------------------------------ helpers
++function Test-IsWindowsOS {
++    return ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
++}
++
++function Get-RegValue {
++    param([string]$Path, [string]$Name)
++    try {
++        $item = Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction Stop
++        return $item.$Name
++    } catch {
++        return $null
++    }
++}
++
++function Format-RegText {
++    param($Value)
++    if ($null -eq $Value) { return 'unset' }
++    return [string]$Value
++}
++
++function Get-PostureContext {
++    $ctx = @{ ComputerName = [string]$env:COMPUTERNAME; PartOfDomain = $false; Domain = '';
++              IsDC = $false; Build = 0; Caption = ''; ProductType = 0 }
++    try {
++        $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
++        $ctx.PartOfDomain = [bool]$cs.PartOfDomain
++        $ctx.Domain = [string]$cs.Domain
++        if ($cs.DomainRole -ge 4) { $ctx.IsDC = $true }
++    } catch { }
++    try {
++        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
++        $ctx.Build = [int]$os.BuildNumber
++        $ctx.Caption = [string]$os.Caption
++        $ctx.ProductType = [int]$os.ProductType
++        if ($ctx.ProductType -eq 2) { $ctx.IsDC = $true }
++    } catch { }
++    return $ctx
++}
++
++# ---- AD helpers (named so tests can AST-extract and drive them with fixtures) ----
++function ConvertFrom-LargeInteger {
++    # Int64 from a DirectorySearcher Int64, an [ADSI] IADsLargeInteger COM object,
++    # or any object exposing HighPart/LowPart (LowPart is a signed Int32).
++    param($Value)
++    if ($null -eq $Value) { return $null }
++    if ($Value -is [long] -or $Value -is [int]) { return [long]$Value }
++    $high = $null
++    $low = $null
++    if ($Value.PSObject.Properties['HighPart'] -and $Value.PSObject.Properties['LowPart']) {
++        $high = $Value.HighPart
++        $low = $Value.LowPart
++    } else {
++        $t = $Value.GetType()
++        $high = $t.InvokeMember('HighPart', [System.Reflection.BindingFlags]::GetProperty, $null, $Value, $null)
++        $low = $t.InvokeMember('LowPart', [System.Reflection.BindingFlags]::GetProperty, $null, $Value, $null)
++    }
++    $lowU = [long]$low
++    if ($lowU -lt 0) { $lowU = $lowU + 4294967296 }
++    return ([long]$high * 4294967296) + $lowU
++}
++
++function Get-FileTimeAgeDays {
++    # Days since a FILETIME (100ns ticks since 1601 UTC); $null for never/unset.
++    param($FileTime, [datetime]$Now = [datetime]::UtcNow)
++    $ft = ConvertFrom-LargeInteger $FileTime
++    if ($null -eq $ft -or $ft -le 0 -or $ft -eq [long]::MaxValue) { return $null }
++    return [math]::Floor(($Now - [datetime]::FromFileTimeUtc($ft)).TotalDays)
++}
++
++function Get-EntryValue {
++    param($Entry, [string]$Name)
++    $k = $Name.ToLower()
++    if ($Entry -is [hashtable]) {
++        if ($Entry.ContainsKey($k)) { return $Entry[$k] }
++        return $null
++    }
++    $p = $Entry.PSObject.Properties[$k]
++    if ($p) { return $p.Value }
++    return $null
++}
++
++function Test-EntryEnabled {
++    param($Entry)
++    $uac = [long](Get-EntryValue $Entry 'useraccountcontrol')
++    return (($uac -band 2) -eq 0)
++}
++
++function Test-RoastableUser {
++    # Enabled user (not computer, not krbtgt) with at least one SPN.
++    param($Entry)
++    $spn = @(Get-EntryValue $Entry 'serviceprincipalname') | Where-Object { $_ }
++    if ($spn.Count -eq 0) { return $false }
++    $classes = @(Get-EntryValue $Entry 'objectclass')
++    if ($classes -contains 'computer') { return $false }
++    $sam = [string](Get-EntryValue $Entry 'samaccountname')
++    if ($sam -eq 'krbtgt' -or $sam.EndsWith('$')) { return $false }
++    return (Test-EntryEnabled $Entry)
++}
++
++function Test-AsRepUser {
++    param($Entry)
++    $uac = [long](Get-EntryValue $Entry 'useraccountcontrol')
++    return ((($uac -band 0x400000) -ne 0) -and (Test-EntryEnabled $Entry))
++}
++
++function Test-UnconstrainedNonDc {
++    # TRUSTED_FOR_DELEGATION, enabled, and not a DC (SERVER_TRUST_ACCOUNT 0x2000).
++    param($Entry)
++    $uac = [long](Get-EntryValue $Entry 'useraccountcontrol')
++    if (($uac -band 0x80000) -eq 0) { return $false }
++    if (($uac -band 0x2000) -ne 0) { return $false }
++    return (Test-EntryEnabled $Entry)
++}
++
++function Measure-DistinctMember {
++    # Count distinct members by distinguishedName (case-insensitive) so a user
++    # reached through several nested groups is counted once.
++    param($Entries)
++    $seen = @{}
++    foreach ($e in @($Entries)) {
++        if ($null -eq $e) { continue }
++        $dn = [string](Get-EntryValue $e 'distinguishedname')
++        if ($dn) { $seen[$dn.ToLower()] = $true }
++    }
++    return $seen.Count
++}
++
++function Resolve-LdapSigningStatus {
++    # $null = not readable from this observer -> NA (never a false PASS).
++    param($ServerIntegrity, $ChannelBinding)
++    $cb = 'unknown'
++    if ($null -ne $ChannelBinding) { $cb = [string]$ChannelBinding }
++    if ($null -eq $ServerIntegrity) {
++        return (New-PostureResult 'NA' 'LDAPServerIntegrity not readable from this observer (run on a DC)')
++    }
++    if ([int]$ServerIntegrity -ge 2) {
++        return (New-PostureResult 'PASS' ('LDAPServerIntegrity=' + $ServerIntegrity + ' channel_binding=' + $cb))
++    }
++    return (New-PostureResult 'FAIL' ('LDAPServerIntegrity=' + $ServerIntegrity + ' channel_binding=' + $cb))
++}
++
++function ConvertTo-DnsDomain {
++    param([string]$DistinguishedName)
++    $parts = @($DistinguishedName -split ',' | Where-Object { $_ -match '^\s*DC=' } |
++        ForEach-Object { ($_ -replace '^\s*DC=', '').Trim() })
++    return ($parts -join '.').ToLower()
++}
++
++function ConvertTo-PlainEntry {
++    # SearchResult.Properties (ResultPropertyCollection) -> hashtable, lowercase keys.
++    param($Properties)
++    $h = @{}
++    foreach ($name in $Properties.PropertyNames) {
++        $vals = @($Properties[$name])
++        if ($vals.Count -eq 1) { $h[([string]$name).ToLower()] = $vals[0] }
++        else { $h[([string]$name).ToLower()] = $vals }
++    }
++    return $h
++}
++
++function Invoke-LdapSearch {
++    # Bounded, paged, read-only directory query.
++    param([string]$SearchRoot, [string]$Filter, [string[]]$Properties,
++          [string]$Scope = 'Subtree', [int]$TimeoutSeconds = 30)
++    $entry = New-Object System.DirectoryServices.DirectoryEntry('LDAP://' + $SearchRoot)
++    $searcher = New-Object System.DirectoryServices.DirectorySearcher($entry)
++    $searcher.Filter = $Filter
++    $searcher.PageSize = 1000
++    $searcher.SearchScope = $Scope
++    $searcher.ServerTimeLimit = New-TimeSpan -Seconds $TimeoutSeconds
++    $searcher.ClientTimeout = New-TimeSpan -Seconds ($TimeoutSeconds + 5)
++    foreach ($p in $Properties) { [void]$searcher.PropertiesToLoad.Add($p) }
++    $results = $searcher.FindAll()
++    try {
++        foreach ($r in $results) { ConvertTo-PlainEntry $r.Properties }
++    } finally {
++        $results.Dispose()
++        $searcher.Dispose()
++        $entry.Dispose()
++    }
++}
++
++function Get-RootDse {
++    $r = New-Object System.DirectoryServices.DirectoryEntry('LDAP://RootDSE')
++    try {
++        return @{
++            defaultNamingContext = [string]$r.Properties['defaultNamingContext'].Value
++            schemaNamingContext  = [string]$r.Properties['schemaNamingContext'].Value
++            dnsHostName          = [string]$r.Properties['dnsHostName'].Value
++            domainFunctionality  = [int]([string]$r.Properties['domainFunctionality'].Value)
++            forestFunctionality  = [int]([string]$r.Properties['forestFunctionality'].Value)
++        }
++    } finally {
++        $r.Dispose()
++    }
++}
++
++# ------------------------------------------------------------------ host checks
++function Invoke-HostPostureChecks {
++    param([hashtable]$Context)
++    $lsa = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
++    $sys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
++    $ts = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
++    $tsPol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
++
++    Invoke-PostureCheck 'WIN-OS-BUILD' {
++        $ubr = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' 'UBR'
++        $role = 'workstation'
++        if ($Context.ProductType -eq 3) { $role = 'server' }
++        if ($Context.IsDC) { $role = 'dc' }
++        $build = [string]$Context.Build
++        if ($null -ne $ubr) { $build = $build + '.' + $ubr }
++        New-PostureResult 'INFO' ('os=' + $Context.Caption + ' build=' + $build + ' role=' + $role)
++    }
++
++    Invoke-PostureCheck 'WIN-PATCH-AGE' {
++        $dates = @(Get-HotFix -ErrorAction Stop | Where-Object { $_.InstalledOn } |
++            ForEach-Object { [datetime]$_.InstalledOn })
++        if ($dates.Count -eq 0) { return (New-PostureResult 'ERR' 'no hotfix install dates readable') }
++        $newest = ($dates | Sort-Object -Descending | Select-Object -First 1)
++        $age = [math]::Floor(((Get-Date) - $newest).TotalDays)
++        $detail = 'newest hotfix ' + $newest.ToString('yyyy-MM-dd') + ' age_days=' + $age
++        if ($age -gt 90) { return (New-PostureResult 'FAIL' $detail) }
++        if ($age -gt 45) { return (New-PostureResult 'WARN' $detail) }
++        New-PostureResult 'PASS' $detail
++    }
++
++    $fwSvc = $null
++    try { $fwSvc = Get-Service -Name mpssvc -ErrorAction Stop } catch { }
++    $profiles = @(
++        @{ Id = 'WIN-FW-DOMAIN'; Key = 'DomainProfile'; Pol = 'DomainProfile'; Bad = 'WARN' },
++        @{ Id = 'WIN-FW-PRIVATE'; Key = 'StandardProfile'; Pol = 'PrivateProfile'; Bad = 'WARN' },
++        @{ Id = 'WIN-FW-PUBLIC'; Key = 'PublicProfile'; Pol = 'PublicProfile'; Bad = 'FAIL' }
++    )
++    foreach ($fp in $profiles) {
++        Invoke-PostureCheck $fp.Id {
++            if ($fwSvc -and $fwSvc.Status -ne 'Running') {
++                return (New-PostureResult $fp.Bad ('firewall service mpssvc ' + $fwSvc.Status))
++            }
++            $pol = Get-RegValue ('HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\' + $fp.Pol) 'EnableFirewall'
++            $loc = Get-RegValue ('HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\' + $fp.Key) 'EnableFirewall'
++            $src = 'local'
++            $val = $loc
++            if ($null -ne $pol) { $val = $pol; $src = 'policy' }
++            if ($null -eq $val) { return (New-PostureResult 'ERR' 'EnableFirewall not readable') }
++            if ([int]$val -eq 1) { return (New-PostureResult 'PASS' ('enabled (' + $src + ')')) }
++            New-PostureResult $fp.Bad ('disabled (' + $src + ')')
++        }
++    }
++
++    $mp = $null
++    $mpNote = ''
++    if (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue) {
++        try { $mp = Get-MpComputerStatus -ErrorAction Stop } catch { $mpNote = $_.Exception.Message }
++    } else { $mpNote = 'Defender module absent' }
++    $passive = $false
++    if ($mp -and $mp.PSObject.Properties['AMRunningMode'] -and ([string]$mp.AMRunningMode -match 'Passive|EDR')) { $passive = $true }
++    Invoke-PostureCheck 'WIN-DEF-RTP' {
++        if (-not $mp) { return (New-PostureResult 'NA' ('defender not present: ' + $mpNote)) }
++        if ($passive) { return (New-PostureResult 'NA' ('defender in ' + $mp.AMRunningMode + ' (third-party AV)')) }
++        if ($mp.RealTimeProtectionEnabled) { return (New-PostureResult 'PASS' 'real-time protection on') }
++        New-PostureResult 'FAIL' 'real-time protection off'
++    }
++    Invoke-PostureCheck 'WIN-DEF-TAMPER' {
++        if (-not $mp) { return (New-PostureResult 'NA' 'defender not present') }
++        if (-not $mp.PSObject.Properties['IsTamperProtected']) { return (New-PostureResult 'NA' 'tamper state not reported by this build') }
++        if ($mp.IsTamperProtected) { return (New-PostureResult 'PASS' 'tamper protection on') }
++        New-PostureResult 'WARN' 'tamper protection off'
++    }
++    Invoke-PostureCheck 'WIN-DEF-SIGAGE' {
++        if (-not $mp) { return (New-PostureResult 'NA' 'defender not present') }
++        $age = [int]$mp.AntivirusSignatureAge
++        if ($age -gt 7) { return (New-PostureResult 'WARN' ('signature age ' + $age + ' days')) }
++        New-PostureResult 'PASS' ('signature age ' + $age + ' days')
++    }
++
++    Invoke-PostureCheck 'WIN-BITLOCKER' {
++        $drive = [string]$env:SystemDrive
++        try {
++            $vol = Get-CimInstance -Namespace 'root\cimv2\Security\MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -Filter ("DriveLetter='" + $drive + "'") -ErrorAction Stop
++            if ($vol -and [int]$vol.ProtectionStatus -eq 1) { return (New-PostureResult 'PASS' ($drive + ' protection on')) }
++            if ($vol) { return (New-PostureResult 'WARN' ($drive + ' protection off')) }
++        } catch { }
++        try {
++            $shell = New-Object -ComObject Shell.Application
++            $code = $shell.NameSpace($drive).Self.ExtendedProperty('System.Volume.BitLockerProtection')
++            if ($code -eq 1 -or $code -eq 3 -or $code -eq 5) { return (New-PostureResult 'PASS' ($drive + ' protection on (shell state ' + $code + ')')) }
++            if ($code -eq 2) { return (New-PostureResult 'WARN' ($drive + ' protection off')) }
++        } catch { }
++        New-PostureResult 'ERR' 'BitLocker state not readable without elevation'
++    }
++
++    Invoke-PostureCheck 'WIN-SECUREBOOT' {
++        $v = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State' 'UEFISecureBootEnabled'
++        if ($null -eq $v) { return (New-PostureResult 'INFO' 'legacy BIOS or Secure Boot state key absent') }
++        if ([int]$v -eq 1) { return (New-PostureResult 'PASS' 'UEFISecureBootEnabled=1') }
++        New-PostureResult 'WARN' 'UEFISecureBootEnabled=0'
++    }
++
++    $lmSrv = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
++    $lmWks = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters'
++    Invoke-PostureCheck 'WIN-SMB-V1' {
++        $v = Get-RegValue $lmSrv 'SMB1'
++        if ($null -ne $v) {
++            if ([int]$v -eq 0) { return (New-PostureResult 'PASS' 'SMB1=0') }
++            return (New-PostureResult 'FAIL' ('SMB1=' + $v))
++        }
++        $start = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\srv' 'Start'
++        if ($null -ne $start -and [int]$start -ne 4) { return (New-PostureResult 'FAIL' ('SMB1 server driver srv.sys Start=' + $start)) }
++        New-PostureResult 'PASS' 'SMB1 server driver absent or disabled'
++    }
++    Invoke-PostureCheck 'WIN-SMB-SRVSIGN' {
++        $v = Get-RegValue $lmSrv 'RequireSecuritySignature'
++        $src = 'registry'
++        if ($null -eq $v) {
++            try { $v = [int][bool](Get-SmbServerConfiguration -ErrorAction Stop).RequireSecuritySignature; $src = 'SmbServerConfiguration' } catch { }
++        }
++        if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'PASS' ('RequireSecuritySignature=1 (' + $src + ')')) }
++        New-PostureResult 'FAIL' ('RequireSecuritySignature=' + (Format-RegText $v) + ' (' + $src + ')')
++    }
++    Invoke-PostureCheck 'WIN-SMB-CLISIGN' {
++        $v = Get-RegValue $lmWks 'RequireSecuritySignature'
++        $src = 'registry'
++        if ($null -eq $v) {
++            try { $v = [int][bool](Get-SmbClientConfiguration -ErrorAction Stop).RequireSecuritySignature; $src = 'SmbClientConfiguration' } catch { }
++        }
++        if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'PASS' ('RequireSecuritySignature=1 (' + $src + ')')) }
++        New-PostureResult 'WARN' ('RequireSecuritySignature=' + (Format-RegText $v) + ' (' + $src + ')')
++    }
++
++    Invoke-PostureCheck 'WIN-NR-LLMNR' {
++        $v = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMulticast'
++        if ($null -ne $v -and [int]$v -eq 0) { return (New-PostureResult 'PASS' 'EnableMulticast=0') }
++        New-PostureResult 'FAIL' ('LLMNR not disabled by policy (EnableMulticast=' + (Format-RegText $v) + ')')
++    }
++    Invoke-PostureCheck 'WIN-NR-NBTNS' {
++        $ads = @(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=TRUE' -ErrorAction Stop)
++        $on = @($ads | Where-Object { [int]$_.TcpipNetbiosOptions -ne 2 })
++        if ($on.Count -gt 0) { return (New-PostureResult 'WARN' ([string]$on.Count + ' of ' + $ads.Count + ' IP adapters with NetBIOS not disabled')) }
++        New-PostureResult 'PASS' ('NetBIOS disabled on ' + $ads.Count + ' IP adapters')
++    }
++    Invoke-PostureCheck 'WIN-NR-WPAD' {
++        $dis = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp' 'DisableWpad'
++        if ($null -ne $dis -and [int]$dis -eq 1) { return (New-PostureResult 'PASS' 'DisableWpad=1') }
++        $start = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\WinHttpAutoProxySvc' 'Start'
++        if ($null -ne $start -and [int]$start -eq 4) { return (New-PostureResult 'PASS' 'WinHttpAutoProxySvc disabled') }
++        New-PostureResult 'WARN' ('WPAD discovery possible (WinHttpAutoProxySvc Start=' + (Format-RegText $start) + ')')
++    }
++    Invoke-PostureCheck 'WIN-LDAP-CLISIGN' {
++        $v = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\LDAP' 'LDAPClientIntegrity'
++        if ($null -ne $v -and [int]$v -ge 2) { return (New-PostureResult 'PASS' ('LDAPClientIntegrity=' + $v)) }
++        $shown = '1 (default)'
++        if ($null -ne $v) { $shown = (Format-RegText $v) }
++        New-PostureResult 'WARN' ('LDAPClientIntegrity=' + $shown)
++    }
++    Invoke-PostureCheck 'WIN-ANON-RESTRICT' {
++        $sam = Get-RegValue $lsa 'RestrictAnonymousSAM'
++        $eia = Get-RegValue $lsa 'EveryoneIncludesAnonymous'
++        $ra = Get-RegValue $lsa 'RestrictAnonymous'
++        $detail = 'RestrictAnonymousSAM=' + (Format-RegText $sam) + ' RestrictAnonymous=' + (Format-RegText $ra) + ' EveryoneIncludesAnonymous=' + (Format-RegText $eia)
++        if (($null -ne $sam -and [int]$sam -eq 0) -or ($null -ne $eia -and [int]$eia -eq 1)) { return (New-PostureResult 'WARN' $detail) }
++        New-PostureResult 'PASS' $detail
++    }
++
++    $psPol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell'
++    Invoke-PostureCheck 'WIN-PS-V2' {
++        $v = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine' 'PowerShellVersion'
++        if ($v -and ([string]$v).StartsWith('2')) { return (New-PostureResult 'WARN' ('PowerShell ' + $v + ' engine installed')) }
++        New-PostureResult 'PASS' 'PowerShell 2.0 engine not installed'
++    }
++    Invoke-PostureCheck 'WIN-PS-SBLOG' {
++        $v = Get-RegValue ($psPol + '\ScriptBlockLogging') 'EnableScriptBlockLogging'
++        if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'PASS' 'EnableScriptBlockLogging=1') }
++        New-PostureResult 'WARN' 'script-block logging not enabled by policy'
++    }
++    Invoke-PostureCheck 'WIN-PS-TRANSCRIPT' {
++        $v = Get-RegValue ($psPol + '\Transcription') 'EnableTranscripting'
++        if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'PASS' 'EnableTranscripting=1') }
++        New-PostureResult 'WARN' 'transcription not enabled by policy'
++    }
++    Invoke-PostureCheck 'WIN-PS-LANGMODE' {
++        New-PostureResult 'INFO' ('LanguageMode=' + [string]$ExecutionContext.SessionState.LanguageMode)
++    }
++
++    $rdpDeny = Get-RegValue $tsPol 'fDenyTSConnections'
++    if ($null -eq $rdpDeny) { $rdpDeny = Get-RegValue $ts 'fDenyTSConnections' }
++    $rdpOn = ($null -ne $rdpDeny -and [int]$rdpDeny -eq 0)
++    Invoke-PostureCheck 'WIN-RDP-ENABLED' {
++        if ($rdpOn) { return (New-PostureResult 'INFO' 'RDP enabled (fDenyTSConnections=0)') }
++        New-PostureResult 'INFO' ('RDP disabled (fDenyTSConnections=' + (Format-RegText $rdpDeny) + ')')
++    }
++    Invoke-PostureCheck 'WIN-RDP-NLA' {
++        if (-not $rdpOn) { return (New-PostureResult 'NA' 'RDP disabled') }
++        $v = Get-RegValue $tsPol 'UserAuthentication'
++        if ($null -eq $v) { $v = Get-RegValue ($ts + '\WinStations\RDP-Tcp') 'UserAuthentication' }
++        if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'PASS' 'NLA required') }
++        New-PostureResult 'FAIL' ('NLA not required (UserAuthentication=' + (Format-RegText $v) + ')')
++    }
++
++    Invoke-PostureCheck 'WIN-CRED-RUNASPPL' {
++        $v = Get-RegValue $lsa 'RunAsPPL'
++        if ($null -ne $v -and ([int]$v -eq 1 -or [int]$v -eq 2)) { return (New-PostureResult 'PASS' ('RunAsPPL=' + $v)) }
++        New-PostureResult 'WARN' ('RunAsPPL=' + (Format-RegText $v))
++    }
++    Invoke-PostureCheck 'WIN-CRED-CREDGUARD' {
++        $dg = Get-CimInstance -Namespace 'root\Microsoft\Windows\DeviceGuard' -ClassName Win32_DeviceGuard -ErrorAction Stop
++        if (@($dg.SecurityServicesRunning) -contains 1) { return (New-PostureResult 'PASS' 'Credential Guard running') }
++        New-PostureResult 'WARN' 'Credential Guard not running'
++    }
++    Invoke-PostureCheck 'WIN-CRED-WDIGEST' {
++        $v = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' 'UseLogonCredential'
++        if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'FAIL' 'UseLogonCredential=1') }
++        if ($null -eq $v -and $Context.Build -gt 0 -and $Context.Build -lt 9600) { return (New-PostureResult 'FAIL' ('UseLogonCredential unset on pre-8.1 build ' + $Context.Build + ' (default on)')) }
++        New-PostureResult 'PASS' ('UseLogonCredential=' + (Format-RegText $v))
++    }
++    Invoke-PostureCheck 'WIN-CRED-LMCOMPAT' {
++        $v = Get-RegValue $lsa 'LmCompatibilityLevel'
++        if ($null -eq $v) { return (New-PostureResult 'WARN' 'LmCompatibilityLevel unset (default 3)') }
++        if ([int]$v -lt 3) { return (New-PostureResult 'FAIL' ('LmCompatibilityLevel=' + $v)) }
++        if ([int]$v -lt 5) { return (New-PostureResult 'WARN' ('LmCompatibilityLevel=' + $v)) }
++        New-PostureResult 'PASS' ('LmCompatibilityLevel=' + $v)
++    }
++    Invoke-PostureCheck 'WIN-CRED-NOLMHASH' {
++        $v = Get-RegValue $lsa 'NoLMHash'
++        if ($null -ne $v -and [int]$v -eq 0) { return (New-PostureResult 'FAIL' 'NoLMHash=0') }
++        New-PostureResult 'PASS' ('NoLMHash=' + (Format-RegText $v))
++    }
++    Invoke-PostureCheck 'WIN-CRED-CACHEDLOGONS' {
++        if (-not $Context.PartOfDomain) { return (New-PostureResult 'NA' 'not domain-joined') }
++        $v = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' 'CachedLogonsCount'
++        $n = 10
++        if ($null -ne $v) { $n = [int]((Format-RegText $v)) }
++        if ($n -gt 4) { return (New-PostureResult 'WARN' ('CachedLogonsCount=' + $n)) }
++        New-PostureResult 'PASS' ('CachedLogonsCount=' + $n)
++    }
++
++    Invoke-PostureCheck 'WIN-UAC-LUA' {
++        $v = Get-RegValue $sys 'EnableLUA'
++        if ($null -ne $v -and [int]$v -eq 0) { return (New-PostureResult 'FAIL' 'EnableLUA=0') }
++        New-PostureResult 'PASS' ('EnableLUA=' + (Format-RegText $v))
++    }
++    Invoke-PostureCheck 'WIN-UAC-CONSENT' {
++        $v = Get-RegValue $sys 'ConsentPromptBehaviorAdmin'
++        if ($null -ne $v -and [int]$v -eq 0) { return (New-PostureResult 'WARN' 'ConsentPromptBehaviorAdmin=0') }
++        New-PostureResult 'PASS' ('ConsentPromptBehaviorAdmin=' + (Format-RegText $v))
++    }
++    Invoke-PostureCheck 'WIN-UAC-LATFP' {
++        $v = Get-RegValue $sys 'LocalAccountTokenFilterPolicy'
++        if ($null -ne $v -and [int]$v -eq 1) { return (New-PostureResult 'WARN' 'LocalAccountTokenFilterPolicy=1') }
++        New-PostureResult 'PASS' ('LocalAccountTokenFilterPolicy=' + (Format-RegText $v))
++    }
++    Invoke-PostureCheck 'WIN-AIE' {
++        $m = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer' 'AlwaysInstallElevated'
++        $u = Get-RegValue 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer' 'AlwaysInstallElevated'
++        if ($null -ne $m -and $null -ne $u -and [int]$m -eq 1 -and [int]$u -eq 1) { return (New-PostureResult 'FAIL' 'AlwaysInstallElevated=1 in HKLM and HKCU') }
++        New-PostureResult 'PASS' ('HKLM=' + (Format-RegText $m) + ' HKCU=' + (Format-RegText $u))
++    }
++
++    Invoke-PostureCheck 'WIN-ACCT-ADMINS' {
++        $names = @()
++        if (Get-Command Get-LocalGroupMember -ErrorAction SilentlyContinue) {
++            $names = @(Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop | ForEach-Object { [string]$_.Name })
++        } else {
++            $sid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
++            $gname = ($sid.Translate([System.Security.Principal.NTAccount]).Value -split '\\')[-1]
++            $grp = [ADSI]('WinNT://./' + $gname + ',group')
++            $names = @($grp.Invoke('Members') | ForEach-Object { [string]$_.GetType().InvokeMember('Name', 'GetProperty', $null, $_, $null) })
++        }
++        $shown = ($names | Select-Object -First 10) -join ','
++        New-PostureResult 'INFO' ('count=' + $names.Count + ' members=' + $shown)
++    }
++    Invoke-PostureCheck 'WIN-ACCT-GUEST' {
++        $g = @(Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount=TRUE AND SID LIKE '%-501'" -ErrorAction Stop)
++        if ($g.Count -eq 0) { return (New-PostureResult 'NA' 'no local Guest account (domain controller?)') }
++        if ($g[0].Disabled) { return (New-PostureResult 'PASS' 'Guest disabled') }
++        New-PostureResult 'FAIL' ('Guest enabled (' + $g[0].Name + ')')
++    }
++    Invoke-PostureCheck 'WIN-AUTOLOGON' {
++        $wl = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
++        $item = Get-ItemProperty -LiteralPath $wl -ErrorAction Stop
++        $hasPw = ($null -ne $item.PSObject.Properties['DefaultPassword']) -and ([string]$item.DefaultPassword).Length -gt 0
++        if ($hasPw) { return (New-PostureResult 'FAIL' 'Winlogon DefaultPassword present (value not shown)') }
++        if ([string]$item.AutoAdminLogon -eq '1') { return (New-PostureResult 'WARN' 'AutoAdminLogon=1 without stored DefaultPassword') }
++        New-PostureResult 'PASS' 'no AutoLogon configured'
++    }
++    Invoke-PostureCheck 'WIN-LAPS' {
++        if (-not $Context.PartOfDomain) { return (New-PostureResult 'NA' 'not domain-joined') }
++        $b1 = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS' 'BackupDirectory'
++        $b2 = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LAPS' 'BackupDirectory'
++        $legacy = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft Services\AdmPwd' 'AdmPwdEnabled'
++        if (($null -ne $b1 -and [int]$b1 -gt 0) -or ($null -ne $b2 -and [int]$b2 -gt 0)) { return (New-PostureResult 'PASS' 'Windows LAPS policy BackupDirectory set') }
++        if ($null -ne $legacy -and [int]$legacy -eq 1) { return (New-PostureResult 'PASS' 'legacy LAPS AdmPwdEnabled=1') }
++        New-PostureResult 'WARN' 'no LAPS policy'
++    }
++    Invoke-PostureCheck 'WIN-SVC-SPOOLER' {
++        $s = Get-Service -Name Spooler -ErrorAction Stop
++        if ($s.Status -ne 'Running') { return (New-PostureResult 'PASS' ('Spooler ' + $s.Status)) }
++        if ($Context.IsDC) { return (New-PostureResult 'WARN' 'Spooler running on a domain controller') }
++        New-PostureResult 'INFO' 'Spooler running'
++    }
++    Invoke-PostureCheck 'WIN-WINRM-HTTP' {
++        $s = $null
++        try { $s = Get-Service -Name WinRM -ErrorAction Stop } catch { }
++        if (-not $s -or $s.Status -ne 'Running') { return (New-PostureResult 'NA' 'WinRM not running') }
++        $u1 = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service' 'AllowUnencrypted'
++        $u2 = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WSMAN\Service' 'allow_unencrypted'
++        if (($null -ne $u1 -and [int]$u1 -eq 1) -or ($null -ne $u2 -and [int]$u2 -eq 1)) { return (New-PostureResult 'FAIL' 'AllowUnencrypted=1') }
++        $ls = @(Get-ChildItem -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WSMAN\Listener' -ErrorAction Stop | ForEach-Object { $_.PSChildName })
++        $https = @($ls | Where-Object { $_ -match '\+HTTPS$' })
++        $http = @($ls | Where-Object { $_ -match '\+HTTP$' })
++        if ($https.Count -gt 0) { return (New-PostureResult 'PASS' ('HTTPS listener present (' + $https.Count + ')')) }
++        if ($http.Count -gt 0) { return (New-PostureResult 'WARN' 'HTTP listener only (no TLS)') }
++        New-PostureResult 'PASS' 'no WinRM listeners'
++    }
++    Invoke-PostureCheck 'WIN-DOMAIN-JOINED' {
++        if (-not $Context.PartOfDomain) { return (New-PostureResult 'INFO' 'workgroup') }
++        $role = 'member'
++        if ($Context.IsDC) { $role = 'dc' }
++        New-PostureResult 'INFO' ('domain=' + $Context.Domain.ToLower() + ' role=' + $role)
++    }
++}
++
++# ------------------------------------------------------------------ AD checks
++function Invoke-AdPostureChecks {
++    param([switch]$Enabled, [hashtable]$Context, [int]$TimeoutSeconds = 30)
++    if (-not $Enabled) {
++        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' 'ad checks not requested' }
++        return
++    }
++    if (-not $Context.PartOfDomain) {
++        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' 'not domain-joined' }
++        return
++    }
++    if ([string]$ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
++        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' 'ConstrainedLanguage: ADSI unavailable' }
++        return
++    }
++    $rootDse = $null
++    try { $rootDse = Get-RootDse } catch {
++        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'ERR' ('RootDSE unavailable: ' + $_.Exception.Message) }
++        return
++    }
++    $dn = $rootDse.defaultNamingContext
++    $tag = 'domain=' + (ConvertTo-DnsDomain $dn) + ' observer=' + $Context.ComputerName.ToLower() + ' '
++    $t = $TimeoutSeconds
++
++    $dom = $null
++    $domErr = ''
++    try {
++        $dom = @(Invoke-LdapSearch -SearchRoot $dn -Filter '(objectClass=domainDNS)' -Scope Base -TimeoutSeconds $t `
++            -Properties @('minPwdLength', 'lockoutThreshold', 'maxPwdAge', 'ms-DS-MachineAccountQuota', 'objectSid'))[0]
++    } catch { $domErr = $_.Exception.Message }
++
++    Invoke-PostureCheck 'AD-PWPOL-MINLEN' -Prefix $tag {
++        if (-not $dom) { throw ('domain object unreadable: ' + $domErr) }
++        $n = [int](Get-EntryValue $dom 'minpwdlength')
++        if ($n -lt 8) { return (New-PostureResult 'FAIL' ('minPwdLength=' + $n)) }
++        if ($n -lt 14) { return (New-PostureResult 'WARN' ('minPwdLength=' + $n)) }
++        New-PostureResult 'PASS' ('minPwdLength=' + $n)
++    }
++    Invoke-PostureCheck 'AD-PWPOL-LOCKOUT' -Prefix $tag {
++        if (-not $dom) { throw ('domain object unreadable: ' + $domErr) }
++        $n = [int](Get-EntryValue $dom 'lockoutthreshold')
++        if ($n -eq 0) { return (New-PostureResult 'FAIL' 'lockoutThreshold=0 (no lockout)') }
++        if ($n -gt 10) { return (New-PostureResult 'WARN' ('lockoutThreshold=' + $n)) }
++        New-PostureResult 'PASS' ('lockoutThreshold=' + $n)
++    }
++    Invoke-PostureCheck 'AD-PWPOL-MAXAGE' -Prefix $tag {
++        if (-not $dom) { throw ('domain object unreadable: ' + $domErr) }
++        $raw = ConvertFrom-LargeInteger (Get-EntryValue $dom 'maxpwdage')
++        if ($null -eq $raw -or $raw -eq 0 -or $raw -eq [long]::MinValue) { return (New-PostureResult 'INFO' 'maxPwdAge=never') }
++        New-PostureResult 'INFO' ('maxPwdAge_days=' + [math]::Floor([math]::Abs($raw) / 864000000000))
++    }
++    Invoke-PostureCheck 'AD-MAQ' -Prefix $tag {
++        if (-not $dom) { throw ('domain object unreadable: ' + $domErr) }
++        $n = [int](Get-EntryValue $dom 'ms-ds-machineaccountquota')
++        if ($n -gt 0) { return (New-PostureResult 'WARN' ('ms-DS-MachineAccountQuota=' + $n)) }
++        New-PostureResult 'PASS' 'ms-DS-MachineAccountQuota=0'
++    }
++    Invoke-PostureCheck 'AD-KRBTGT-AGE' -Prefix $tag {
++        $k = @(Invoke-LdapSearch -SearchRoot $dn -Filter '(&(objectClass=user)(sAMAccountName=krbtgt))' -Properties @('pwdLastSet') -TimeoutSeconds $t)
++        if ($k.Count -eq 0) { return (New-PostureResult 'ERR' 'krbtgt not found') }
++        $age = Get-FileTimeAgeDays (Get-EntryValue $k[0] 'pwdlastset')
++        if ($null -eq $age) { return (New-PostureResult 'ERR' 'krbtgt pwdLastSet unset') }
++        if ($age -gt 365) { return (New-PostureResult 'FAIL' ('krbtgt_pwd_age_days=' + $age)) }
++        if ($age -gt 180) { return (New-PostureResult 'WARN' ('krbtgt_pwd_age_days=' + $age)) }
++        New-PostureResult 'PASS' ('krbtgt_pwd_age_days=' + $age)
++    }
++    $acctProps = @('sAMAccountName', 'userAccountControl', 'servicePrincipalName', 'objectClass', 'distinguishedName')
++    Invoke-PostureCheck 'AD-KERBEROASTABLE' -Prefix $tag {
++        $rows = @(Invoke-LdapSearch -SearchRoot $dn -TimeoutSeconds $t -Properties $acctProps `
++            -Filter '(&(objectCategory=person)(objectClass=user)(servicePrincipalName=*)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))')
++        $hits = @($rows | Where-Object { Test-RoastableUser $_ })
++        $names = ($hits | Select-Object -First 5 | ForEach-Object { [string](Get-EntryValue $_ 'samaccountname') }) -join ','
++        if ($hits.Count -gt 0) { return (New-PostureResult 'FAIL' ('count=' + $hits.Count + ' sample=' + $names)) }
++        New-PostureResult 'PASS' 'count=0'
++    }
++    Invoke-PostureCheck 'AD-ASREP' -Prefix $tag {
++        $rows = @(Invoke-LdapSearch -SearchRoot $dn -TimeoutSeconds $t -Properties $acctProps `
++            -Filter '(&(objectCategory=person)(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))')
++        $hits = @($rows | Where-Object { Test-AsRepUser $_ })
++        $names = ($hits | Select-Object -First 5 | ForEach-Object { [string](Get-EntryValue $_ 'samaccountname') }) -join ','
++        if ($hits.Count -gt 0) { return (New-PostureResult 'FAIL' ('count=' + $hits.Count + ' sample=' + $names)) }
++        New-PostureResult 'PASS' 'count=0'
++    }
++    Invoke-PostureCheck 'AD-UNCONSTRAINED' -Prefix $tag {
++        $rows = @(Invoke-LdapSearch -SearchRoot $dn -TimeoutSeconds $t -Properties $acctProps `
++            -Filter '(&(userAccountControl:1.2.840.113556.1.4.803:=524288)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))')
++        $hits = @($rows | Where-Object { Test-UnconstrainedNonDc $_ })
++        $names = ($hits | Select-Object -First 5 | ForEach-Object { [string](Get-EntryValue $_ 'samaccountname') }) -join ','
++        if ($hits.Count -gt 0) { return (New-PostureResult 'FAIL' ('count=' + $hits.Count + ' sample=' + $names)) }
++        New-PostureResult 'PASS' 'count=0 (DCs excluded)'
++    }
++    Invoke-PostureCheck 'AD-ADMINCOUNT' -Prefix $tag {
++        $rows = @(Invoke-LdapSearch -SearchRoot $dn -TimeoutSeconds $t -Properties @('distinguishedName') `
++            -Filter '(&(objectCategory=person)(objectClass=user)(adminCount=1))')
++        New-PostureResult 'INFO' ('count=' + (Measure-DistinctMember $rows))
++    }
++    $domSid = $null
++    if ($dom) {
++        try { $domSid = (New-Object System.Security.Principal.SecurityIdentifier([byte[]](Get-EntryValue $dom 'objectsid'), 0)).Value } catch { }
++    }
++    Invoke-PostureCheck 'AD-DA-MEMBERS' -Prefix $tag {
++        if (-not $domSid) { throw 'domain SID unreadable' }
++        $g = @(Invoke-LdapSearch -SearchRoot $dn -TimeoutSeconds $t -Properties @('distinguishedName') -Filter ('(objectSid=' + $domSid + '-512)'))
++        if ($g.Count -eq 0) { return (New-PostureResult 'ERR' 'Domain Admins group not found') }
++        $gdn = [string](Get-EntryValue $g[0] 'distinguishedname')
++        $m = @(Invoke-LdapSearch -SearchRoot $dn -TimeoutSeconds $t -Properties @('distinguishedName') `
++            -Filter ('(&(objectCategory=person)(memberOf:1.2.840.113556.1.4.1941:=' + $gdn + '))'))
++        $n = Measure-DistinctMember $m
++        if ($n -gt 5) { return (New-PostureResult 'WARN' ('recursive_members=' + $n)) }
++        New-PostureResult 'INFO' ('recursive_members=' + $n)
++    }
++    Invoke-PostureCheck 'AD-PROTECTED-USERS' -Prefix $tag {
++        if (-not $domSid) { throw 'domain SID unreadable' }
++        $g = @(Invoke-LdapSearch -SearchRoot $dn -TimeoutSeconds $t -Properties @('distinguishedName') -Filter ('(objectSid=' + $domSid + '-525)'))
++        if ($g.Count -eq 0) { return (New-PostureResult 'WARN' 'Protected Users group absent (pre-2012R2 domain)') }
++        $gdn = [string](Get-EntryValue $g[0] 'distinguishedname')
++        $m = @(Invoke-LdapSearch -SearchRoot $dn -TimeoutSeconds $t -Properties @('distinguishedName') `
++            -Filter ('(memberOf:1.2.840.113556.1.4.1941:=' + $gdn + ')'))
++        $n = Measure-DistinctMember $m
++        if ($n -eq 0) { return (New-PostureResult 'WARN' 'Protected Users has no members') }
++        New-PostureResult 'PASS' ('members=' + $n)
++    }
++    Invoke-PostureCheck 'AD-FUNC-LEVEL' -Prefix $tag {
++        $d = [int]$rootDse.domainFunctionality
++        $f = [int]$rootDse.forestFunctionality
++        if ($d -lt 7) { return (New-PostureResult 'WARN' ('domainFunctionality=' + $d + ' forestFunctionality=' + $f)) }
++        New-PostureResult 'PASS' ('domainFunctionality=' + $d + ' forestFunctionality=' + $f)
++    }
++    Invoke-PostureCheck 'AD-LDAP-SIGNING' -Prefix $tag {
++        $si = $null
++        $cb = $null
++        if ($Context.IsDC) {
++            $si = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters' 'LDAPServerIntegrity'
++            $cb = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters' 'LdapEnforceChannelBinding'
++            if ($null -eq $si) { $si = 1 }
++        }
++        Resolve-LdapSigningStatus $si $cb
++    }
++    Invoke-PostureCheck 'AD-TRUSTS' -Prefix $tag {
++        $rows = @(Invoke-LdapSearch -SearchRoot ('CN=System,' + $dn) -TimeoutSeconds $t -Properties @('name', 'trustDirection') `
++            -Filter '(objectClass=trustedDomain)')
++        $desc = ($rows | Select-Object -First 5 | ForEach-Object { [string](Get-EntryValue $_ 'name') + ':' + [string](Get-EntryValue $_ 'trustdirection') }) -join ','
++        New-PostureResult 'INFO' ('count=' + $rows.Count + ' trusts=' + $desc)
++    }
++    Invoke-PostureCheck 'AD-LAPS-SCHEMA' -Prefix $tag {
++        $rows = @(Invoke-LdapSearch -SearchRoot $rootDse.schemaNamingContext -TimeoutSeconds $t -Properties @('lDAPDisplayName') `
++            -Filter '(|(lDAPDisplayName=ms-Mcs-AdmPwd)(lDAPDisplayName=msLAPS-Password))')
++        $names = ($rows | ForEach-Object { [string](Get-EntryValue $_ 'ldapdisplayname') }) -join ','
++        if ($rows.Count -gt 0) { return (New-PostureResult 'PASS' ('schema=' + $names)) }
++        New-PostureResult 'WARN' 'no LAPS attributes in schema'
++    }
++}
++
++# ------------------------------------------------------------------ main
++function Invoke-HostPosture {
++    param([switch]$AdChecks, [int]$LdapTimeoutSeconds = 30)
++    Write-Output '== aranum host posture (windows) =='
++    if (-not (Test-IsWindowsOS)) {
++        foreach ($id in ($script:AranumHostCheckIds + $script:AranumAdCheckIds)) { Write-PostureLine $id 'NA' 'not windows' }
++        return
++    }
++    $ctx = Get-PostureContext
++    Invoke-HostPostureChecks -Context $ctx
++    Invoke-AdPostureChecks -Enabled:$AdChecks -Context $ctx -TimeoutSeconds $LdapTimeoutSeconds
++}
++
++if ($LibraryOnly) { return }
++Invoke-HostPosture -AdChecks:$AdChecks -LdapTimeoutSeconds $LdapTimeoutSeconds

@@ -1,0 +1,1 @@
+cd /srv/share/dev/aranum && python3 -m pytest aranumtoolkit/tests -v -rA   # head 7ff27c2
