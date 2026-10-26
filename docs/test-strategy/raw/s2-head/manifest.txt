@@ -150,6 +150,8 @@ PASSED aranumtoolkit/tests/test_finding_kb.py::TestKBCoverageGate::test_coverage
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestKBCoverageGate::test_kb_covers_every_non_low_rule_id
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestKBSchema::test_every_class_has_title_why_test_fix
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestKBSchema::test_schema_version_and_category_references
+PASSED aranumtoolkit/tests/test_finding_kb.py::TestMalformedKB::test_malformed_classes_are_normalized_and_do_not_crash
+PASSED aranumtoolkit/tests/test_finding_kb.py::TestMalformedKB::test_markdown_injection_is_flattened
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestServiceCategorySplit::test_smb_is_ad_on_a_domain_controller
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestServiceCategorySplit::test_smb_is_network_without_kerberos_or_ldap
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestServiceCategorySplit::test_unknown_service_defaults_to_network

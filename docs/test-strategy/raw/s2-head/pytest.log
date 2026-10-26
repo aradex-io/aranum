@@ -1,7 +1,11 @@
 .......................................sss..s........................... [ 15%]
-.............................................................................................................................................................s..... [ 49%]
+..................................................................................................... [ 36%]
+..........................................................s... [ 49%]
 ........................................................................ [ 64%]
-........................................................................................................................................................................  [100%]
+........................................................................ [ 79%]
+........................................ [ 87%]
+......................................................... [ 99%]
+.                                                                        [100%]
 ==================================== PASSES ====================================
 _______________ TestEndToEndMocked.test_basic_over_http_refused ________________
 ----------------------------- Captured stderr call -----------------------------
@@ -9,16 +13,16 @@ _______________ TestEndToEndMocked.test_basic_over_http_refused ________________
 ____________ TestEndToEndMocked.test_dry_run_produces_per_host_dirs ____________
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh  (usable: ssh)
-[22:07:28] 3 host(s) to enumerate -> /tmp/tmp6o30hp5w/out (parallel=4)
-[DRY] alice@host-1.example:5985  ->  /tmp/tmp6o30hp5w/out/alice--host-1.example--p5985--904e10bcc661/winenum.txt  (transport-order=ssh, auth=ntlm)
-[DRY] bob@host-2.example:5986  ->  /tmp/tmp6o30hp5w/out/bob--host-2.example--p5986--a253b63a8247/winenum.txt  (transport-order=ssh, auth=ntlm)
-[DRY] alice@[2001:db8::1]:5985  ->  /tmp/tmp6o30hp5w/out/alice--2001_db8__1--p5985--6fbea2a08455/winenum.txt  (transport-order=ssh, auth=ntlm)
+[22:23:08] 3 host(s) to enumerate -> /tmp/tmp1g_lboj0/out (parallel=4)
+[DRY] alice@host-1.example:5985  ->  /tmp/tmp1g_lboj0/out/alice--host-1.example--p5985--904e10bcc661/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] bob@host-2.example:5986  ->  /tmp/tmp1g_lboj0/out/bob--host-2.example--p5986--a253b63a8247/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] alice@[2001:db8::1]:5985  ->  /tmp/tmp1g_lboj0/out/alice--2001_db8__1--p5985--6fbea2a08455/winenum.txt  (transport-order=ssh, auth=ntlm)
 
 === bulk-enum-windows complete ===
 OK=0  FAIL=0  SKIP=3
-Summary: /tmp/tmp6o30hp5w/out/_summary.tsv
-Per-host: /tmp/tmp6o30hp5w/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmp6o30hp5w/out    # findings.json + report.md + report.html
+Summary: /tmp/tmp1g_lboj0/out/_summary.tsv
+Per-host: /tmp/tmp1g_lboj0/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmp1g_lboj0/out    # findings.json + report.md + report.html
 ----------------------------- Captured stderr call -----------------------------
 [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
 _________________ TestEndToEndMocked.test_parallel_cap_refused _________________
@@ -29,15 +33,15 @@ _____________ TestEndToEndMocked.test_throttle_default_parallel_1 ______________
 [*] --throttle: parallel=1 (default; override with -P N)
     inter-host delay: 1s
 [*] transport order: winrm,ssh  (usable: ssh)
-[22:07:28] 2 host(s) to enumerate -> /tmp/tmpv9d9sfc6/out (parallel=1)
-[DRY] x@a.example:5985  ->  /tmp/tmpv9d9sfc6/out/x--a.example--p5985--5b556695623e/winenum.txt  (transport-order=ssh, auth=ntlm)
-[DRY] x@b.example:5985  ->  /tmp/tmpv9d9sfc6/out/x--b.example--p5985--e351b2847312/winenum.txt  (transport-order=ssh, auth=ntlm)
+[22:23:08] 2 host(s) to enumerate -> /tmp/tmp8cl_wvk0/out (parallel=1)
+[DRY] x@a.example:5985  ->  /tmp/tmp8cl_wvk0/out/x--a.example--p5985--5b556695623e/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] x@b.example:5985  ->  /tmp/tmp8cl_wvk0/out/x--b.example--p5985--e351b2847312/winenum.txt  (transport-order=ssh, auth=ntlm)
 
 === bulk-enum-windows complete ===
 OK=0  FAIL=0  SKIP=2
-Summary: /tmp/tmpv9d9sfc6/out/_summary.tsv
-Per-host: /tmp/tmpv9d9sfc6/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmpv9d9sfc6/out    # findings.json + report.md + report.html
+Summary: /tmp/tmp8cl_wvk0/out/_summary.tsv
+Per-host: /tmp/tmp8cl_wvk0/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmp8cl_wvk0/out    # findings.json + report.md + report.html
 ----------------------------- Captured stderr call -----------------------------
 [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
 __________ TestEndToEndMocked.test_use_smb_admin_without_pass_refused __________
@@ -51,14 +55,14 @@ _ TestDependencyDegradation.test_main_hard_fails_when_all_transports_unavailable
 _ TestDependencyDegradation.test_main_warns_and_skips_unavailable_transport_to_dry_run _
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh  (usable: ssh)
-[22:07:28] 1 host(s) to enumerate -> /tmp/tmpnplvjtvn/out (parallel=4)
-[DRY] x@a.example:5985  ->  /tmp/tmpnplvjtvn/out/x--a.example--p5985--5b556695623e/winenum.txt  (transport-order=ssh, auth=ntlm)
+[22:23:08] 1 host(s) to enumerate -> /tmp/tmpvu3s57at/out (parallel=4)
+[DRY] x@a.example:5985  ->  /tmp/tmpvu3s57at/out/x--a.example--p5985--5b556695623e/winenum.txt  (transport-order=ssh, auth=ntlm)
 
 === bulk-enum-windows complete ===
 OK=0  FAIL=0  SKIP=1
-Summary: /tmp/tmpnplvjtvn/out/_summary.tsv
-Per-host: /tmp/tmpnplvjtvn/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmpnplvjtvn/out    # findings.json + report.md + report.html
+Summary: /tmp/tmpvu3s57at/out/_summary.tsv
+Per-host: /tmp/tmpvu3s57at/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpvu3s57at/out    # findings.json + report.md + report.html
 ----------------------------- Captured stderr call -----------------------------
 [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
 _ TestPayloadWrapping.test_ssh_password_path_degrades_cleanly_without_sshpass __
@@ -67,57 +71,57 @@ _ TestPayloadWrapping.test_ssh_password_path_degrades_cleanly_without_sshpass __
 _ TestAutoFallthrough.test_all_transports_fail_records_last_attempt_with_history _
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh
-[22:07:28] 1 host(s) to enumerate -> /tmp/tmp1m0yio49/out (parallel=4)
+[22:23:08] 1 host(s) to enumerate -> /tmp/tmpk8ahhju4/out (parallel=4)
 
 === bulk-enum-windows complete ===
 OK=0  FAIL=1  SKIP=0
 Failed hosts:
   - host1.example(status=UNREACHABLE, rc=255, transport=ssh, reason=host unreachable (attempted: winrm=AUTH_FAIL, ssh=UNREACHABLE))
-Summary: /tmp/tmp1m0yio49/out/_summary.tsv
-Per-host: /tmp/tmp1m0yio49/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmp1m0yio49/out    # findings.json + report.md + report.html
+Summary: /tmp/tmpk8ahhju4/out/_summary.tsv
+Per-host: /tmp/tmpk8ahhju4/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpk8ahhju4/out    # findings.json + report.md + report.html
 __ TestAutoFallthrough.test_auto_falls_through_winrm_auth_fail_to_ssh_success __
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh
-[22:07:29] 1 host(s) to enumerate -> /tmp/tmpbd1exz5m/out (parallel=4)
+[22:23:09] 1 host(s) to enumerate -> /tmp/tmpqh6s5sdi/out (parallel=4)
 
 === bulk-enum-windows complete ===
 OK=1  FAIL=0  SKIP=0
-Summary: /tmp/tmpbd1exz5m/out/_summary.tsv
-Per-host: /tmp/tmpbd1exz5m/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmpbd1exz5m/out    # findings.json + report.md + report.html
+Summary: /tmp/tmpqh6s5sdi/out/_summary.tsv
+Per-host: /tmp/tmpqh6s5sdi/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpqh6s5sdi/out    # findings.json + report.md + report.html
 ____ TestAutoFallthrough.test_auto_stops_at_first_success_never_tries_next _____
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh
-[22:07:30] 1 host(s) to enumerate -> /tmp/tmp4fwx1te_/out (parallel=4)
+[22:23:10] 1 host(s) to enumerate -> /tmp/tmpldrpr44b/out (parallel=4)
 
 === bulk-enum-windows complete ===
 OK=1  FAIL=0  SKIP=0
-Summary: /tmp/tmp4fwx1te_/out/_summary.tsv
-Per-host: /tmp/tmp4fwx1te_/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmp4fwx1te_/out    # findings.json + report.md + report.html
+Summary: /tmp/tmpldrpr44b/out/_summary.tsv
+Per-host: /tmp/tmpldrpr44b/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpldrpr44b/out    # findings.json + report.md + report.html
 __________ TestAutoFallthrough.test_remote_err_also_stops_fallthrough __________
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh
-[22:07:31] 1 host(s) to enumerate -> /tmp/tmppm5y0ozb/out (parallel=4)
+[22:23:11] 1 host(s) to enumerate -> /tmp/tmp981qiwht/out (parallel=4)
 
 === bulk-enum-windows complete ===
 OK=0  FAIL=1  SKIP=0
 Failed hosts:
   - host1.example(status=REMOTE_ERR, rc=1, transport=winrm, reason=remote command exited rc=1)
-Summary: /tmp/tmppm5y0ozb/out/_summary.tsv
-Per-host: /tmp/tmppm5y0ozb/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmppm5y0ozb/out    # findings.json + report.md + report.html
+Summary: /tmp/tmp981qiwht/out/_summary.tsv
+Per-host: /tmp/tmp981qiwht/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmp981qiwht/out    # findings.json + report.md + report.html
 ________ TestSummaryTsv.test_summary_has_status_and_fail_reason_columns ________
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh
-[22:07:32] 1 host(s) to enumerate -> /tmp/tmp4p4lkiip/out (parallel=4)
+[22:23:12] 1 host(s) to enumerate -> /tmp/tmp4wucka_f/out (parallel=4)
 
 === bulk-enum-windows complete ===
 OK=1  FAIL=0  SKIP=0
-Summary: /tmp/tmp4p4lkiip/out/_summary.tsv
-Per-host: /tmp/tmp4p4lkiip/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmp4p4lkiip/out    # findings.json + report.md + report.html
+Summary: /tmp/tmp4wucka_f/out/_summary.tsv
+Per-host: /tmp/tmp4wucka_f/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmp4wucka_f/out    # findings.json + report.md + report.html
 _______ TestDispatcherContract.test_gated_dispatchers_refuse_without_env _______
 ----------------------------- Captured stdout call -----------------------------
 uuu
@@ -130,22 +134,21 @@ ____________ TestDispatcherContract.test_hints_required_dispatchers ____________
 uuuuuuuuuuuuuuuuuuuuu
 ______________________ TestHelp.test_each_subcommand_help ______________________
 ----------------------------- Captured stdout call -----------------------------
-uu [ 36%]
-uuuuuuuu
+uuuuuuuuuu
 ________ TestMergeResults.test_merge_refuses_missing_findings_directory ________
 ----------------------------- Captured stderr call -----------------------------
-[!] findings.json missing in: /tmp/tmpjlmbwvzw/bad
+[!] findings.json missing in: /tmp/tmpg5obaptu/bad
 _ TestBulkExecutionState.test_legacy_resume_is_unique_only_for_both_bulk_runners _
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh  (usable: ssh)
-[22:08:10] 1 host(s) to enumerate -> /tmp/tmpwr18114t/windows-out (parallel=1)
-[22:08:10] resume-skip: win.example (prior rc=0)
+[22:23:54] 1 host(s) to enumerate -> /tmp/tmpjjaed9wb/windows-out (parallel=1)
+[22:23:54] resume-skip: win.example (prior rc=0)
 
 === bulk-enum-windows complete ===
 OK=0  FAIL=0  SKIP=1
-Summary: /tmp/tmpwr18114t/windows-out/_summary.tsv
-Per-host: /tmp/tmpwr18114t/windows-out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmpwr18114t/windows-out    # findings.json + report.md + report.html
+Summary: /tmp/tmpjjaed9wb/windows-out/_summary.tsv
+Per-host: /tmp/tmpjjaed9wb/windows-out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpjjaed9wb/windows-out    # findings.json + report.md + report.html
 [*] transport order: winrm,ssh  (usable: ssh)
 ----------------------------- Captured stderr call -----------------------------
 [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
@@ -155,25 +158,25 @@ Next: aranumtoolkit/network/report.py /tmp/tmpwr18114t/windows-out    # findings
 __ TestBulkExecutionState.test_windows_endpoint_keys_state_and_worker_bounds ___
 ----------------------------- Captured stdout call -----------------------------
 [*] transport order: winrm,ssh  (usable: ssh)
-[22:08:12] 2 host(s) to enumerate -> /tmp/tmppsd4s1j2/out (parallel=1)
-[DRY] alice@192.0.2.4:5985  ->  /tmp/tmppsd4s1j2/out/alice--192.0.2.4--p5985--79ffa0f057c0/winenum.txt  (transport-order=ssh, auth=ntlm)
-[DRY] bob@192.0.2.4:5986  ->  /tmp/tmppsd4s1j2/out/bob--192.0.2.4--p5986--5309f81251b7/winenum.txt  (transport-order=ssh, auth=ntlm)
+[22:23:56] 2 host(s) to enumerate -> /tmp/tmp6dwi3jby/out (parallel=1)
+[DRY] alice@192.0.2.4:5985  ->  /tmp/tmp6dwi3jby/out/alice--192.0.2.4--p5985--79ffa0f057c0/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] bob@192.0.2.4:5986  ->  /tmp/tmp6dwi3jby/out/bob--192.0.2.4--p5986--5309f81251b7/winenum.txt  (transport-order=ssh, auth=ntlm)
 
 === bulk-enum-windows complete ===
 OK=0  FAIL=0  SKIP=2
-Summary: /tmp/tmppsd4s1j2/out/_summary.tsv
-Per-host: /tmp/tmppsd4s1j2/out/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmppsd4s1j2/out    # findings.json + report.md + report.html
+Summary: /tmp/tmp6dwi3jby/out/_summary.tsv
+Per-host: /tmp/tmp6dwi3jby/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmp6dwi3jby/out    # findings.json + report.md + report.html
 [*] transport order: winrm,ssh  (usable: ssh)
-[22:08:12] 2 host(s) to enumerate -> /tmp/tmppsd4s1j2/max (parallel=16)
-[DRY] alice@192.0.2.4:5985  ->  /tmp/tmppsd4s1j2/max/alice--192.0.2.4--p5985--79ffa0f057c0/winenum.txt  (transport-order=ssh, auth=ntlm)[DRY] bob@192.0.2.4:5986  ->  /tmp/tmppsd4s1j2/max/bob--192.0.2.4--p5986--5309f81251b7/winenum.txt  (transport-order=ssh, auth=ntlm)
+[22:23:56] 2 host(s) to enumerate -> /tmp/tmp6dwi3jby/max (parallel=16)
+[DRY] alice@192.0.2.4:5985  ->  /tmp/tmp6dwi3jby/max/alice--192.0.2.4--p5985--79ffa0f057c0/winenum.txt  (transport-order=ssh, auth=ntlm)[DRY] bob@192.0.2.4:5986  ->  /tmp/tmp6dwi3jby/max/bob--192.0.2.4--p5986--5309f81251b7/winenum.txt  (transport-order=ssh, auth=ntlm)
 
 
 === bulk-enum-windows complete ===
 OK=0  FAIL=0  SKIP=2
-Summary: /tmp/tmppsd4s1j2/max/_summary.tsv
-Per-host: /tmp/tmppsd4s1j2/max/<host>/winenum.txt
-Next: aranumtoolkit/network/report.py /tmp/tmppsd4s1j2/max    # findings.json + report.md + report.html
+Summary: /tmp/tmp6dwi3jby/max/_summary.tsv
+Per-host: /tmp/tmp6dwi3jby/max/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmp6dwi3jby/max    # findings.json + report.md + report.html
 ----------------------------- Captured stderr call -----------------------------
 [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
 [!] parallel must be in 1..16 (you asked for 0)
@@ -181,8 +184,7 @@ Next: aranumtoolkit/network/report.py /tmp/tmppsd4s1j2/max    # findings.json + 
 [!] parallel must be in 1..16 (you asked for 17)
 ____ RedisSemantics.test_ssh_mutations_require_rc_zero_and_exact_trimmed_ok ____
 ----------------------------- Captured stdout call -----------------------------
-uu [ 79%]
-uu
+uuuu
 _________ ActiveMqSemantics.test_callback_ready_before_payload_connect _________
 ----------------------------- Captured stdout call -----------------------------
 [*] Victim will fetch:  http://127.0.0.1:8765/poc.xml
@@ -210,23 +212,22 @@ uuuuuuu
 _____________________ test_matrix_assembly_with_mocked_ssh _____________________
 ----------------------------- Captured stdout call -----------------------------
 [+] 2 key(s), 2 host(s), 2 probe(s)
-[+] 1 accepted pair(s) -> /tmp/pytest-of-net0ruser/pytest-390/test_matrix_assembly_with_mock0/out/authorized-pairs.jsonl
+[+] 1 accepted pair(s) -> /tmp/pytest-of-net0ruser/pytest-391/test_matrix_assembly_with_mock0/out/authorized-pairs.jsonl
     ACCEPTED: k_ed -> root@10.0.0.1:22
 ____________________ test_dry_run_produces_schema_no_probes ____________________
 ----------------------------- Captured stdout call -----------------------------
 [+] inventoried 2 key(s); 1 probe(s) planned (DRY-RUN — not executed).
-[+] output: /tmp/pytest-of-net0ruser/pytest-390/test_dry_run_produces_schema_n0/dry
+[+] output: /tmp/pytest-of-net0ruser/pytest-391/test_dry_run_produces_schema_n0/dry
 [+] probe argv template:
-    ssh -i /tmp/pytest-of-net0ruser/pytest-390/keys0/k_ed -o BatchMode=yes -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o IdentitiesOnly=yes -o KbdInteractiveAuthentication=no -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/tmp/pytest-of-net0ruser/pytest-390/test_dry_run_produces_schema_n0/dry/known_hosts -o NumberOfPasswordPrompts=0 -o LogLevel=ERROR -p 22 root@10.0.0.9 true
+    ssh -i /tmp/pytest-of-net0ruser/pytest-391/keys0/k_ed -o BatchMode=yes -o PreferredAuthentications=publickey -o PubkeyAuthentication=yes -o PasswordAuthentication=no -o IdentitiesOnly=yes -o KbdInteractiveAuthentication=no -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/tmp/pytest-of-net0ruser/pytest-391/test_dry_run_produces_schema_n0/dry/known_hosts -o NumberOfPasswordPrompts=0 -o LogLevel=ERROR -p 22 root@10.0.0.9 true
 _________________ test_output_schema_fields_present_after_run __________________
 ----------------------------- Captured stdout call -----------------------------
 [+] 2 key(s), 1 host(s), 1 probe(s)
-[+] 1 accepted pair(s) -> /tmp/pytest-of-net0ruser/pytest-390/test_output_schema_fields_pres0/out2/authorized-pairs.jsonl
+[+] 1 accepted pair(s) -> /tmp/pytest-of-net0ruser/pytest-391/test_output_schema_fields_pres0/out2/authorized-pairs.jsonl
     ACCEPTED: k_ed -> root@10.0.0.1:22
 _________________ TestBannerMapping.test_banner_mapping_table __________________
 ----------------------------- Captured stdout call -----------------------------
-uu [ 88%]
-uuuuuuuu
+uuuuuuuuuu
 ________________ TestRootCLI.test_unknown_command_returns_error ________________
 ----------------------------- Captured stdout call -----------------------------
 Usage: aranum <subcommand> [args...]
@@ -431,6 +432,8 @@ PASSED aranumtoolkit/tests/test_finding_kb.py::TestServiceCategorySplit::test_un
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestAttachKBFields::test_collect_attaches_kb_to_every_finding
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestAttachKBFields::test_rule_matched_finding_sets_kb_id_equal_to_rule_id
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestAttachKBFields::test_service_default_when_rule_id_has_no_class
+PASSED aranumtoolkit/tests/test_finding_kb.py::TestMalformedKB::test_malformed_classes_are_normalized_and_do_not_crash
+PASSED aranumtoolkit/tests/test_finding_kb.py::TestMalformedKB::test_markdown_injection_is_flattened
 PASSED aranumtoolkit/tests/test_finding_kb.py::TestTopRisksMarkdown::test_report_md_has_top_risks_and_how_to_fix
 PASSED aranumtoolkit/tests/test_findings_fidelity.py::TestCorpusIsReal::test_corpus_has_tomcat_and_misslog
 PASSED aranumtoolkit/tests/test_findings_fidelity.py::TestCorpusIsReal::test_corpus_is_large
@@ -751,4 +754,4 @@ SKIPPED [1] aranumtoolkit/tests/test_bulk_enum_windows.py:115: pywinrm not insta
 SKIPPED [1] aranumtoolkit/tests/test_bulk_enum_windows.py:120: pywinrm not installed — WinRM transport tests skipped
 SKIPPED [1] aranumtoolkit/tests/test_bulk_enum_windows.py:218: pywinrm not installed — WinRM transport test skipped
 SKIPPED [1] aranumtoolkit/tests/test_interop_recce.py:141: recce not importable (set RECCE_PATH to enable)
-470 passed, 5 skipped, 100 subtests passed in 104.64s (0:01:44)
+472 passed, 5 skipped, 100 subtests passed in 114.36s (0:01:54)
