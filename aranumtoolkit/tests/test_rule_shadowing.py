@@ -43,8 +43,10 @@ R = _load_report()
 _TABLE = json.loads(FIXTURE.read_text())
 _CORPUS = extract_emissions(REPO)
 _HIT = [r for r in _CORPUS if r["kind"] in ("hit", "err", "crit")]
-_DEFAULT = list(R._DEFAULT_RULES) + list(R._AD_DEPTH_RULES)
-_BULK = list(R._BULK_RULES) + list(R._AD_DEPTH_RULES)
+# Compose exactly as the walkers do, generic fallbacks LAST (REVIEW #1).
+# Compose exactly as the walkers do (generic fallbacks LAST, REVIEW #1).
+_DEFAULT = R._compose_rules(R._DEFAULT_RULES, R._AD_DEPTH_RULES)
+_BULK = R._compose_rules(R._BULK_RULES, R._AD_DEPTH_RULES)
 
 
 def _emission_for(sample: str) -> str:
@@ -69,6 +71,7 @@ class TestExpectedRuleAndSeverity(unittest.TestCase):
 
     def test_each_sample_matches_expectation(self):
         failures = []
+        gen_ids = R._GENERIC_FALLBACK_RULE_IDS
         for e in _TABLE["expectations"]:
             text = _emission_for(e["sample"])
             g = R._classify_line(text, _DEFAULT)
@@ -80,7 +83,28 @@ class TestExpectedRuleAndSeverity(unittest.TestCase):
             if e["rule_id_substr"] not in g.rule_id:
                 failures.append(f"{e['sample']!r}: rule_id {g.rule_id!r} lacks {e['rule_id_substr']!r} "
                                 f"(shadowed by a different rule?)")
+            # REVIEW #7a / ROUND2 #5: a substring check alone can pass when a
+            # generic fallback's derived slug happens to contain the expected
+            # substring, and checking only g.rule_id misses the case where the
+            # specific rule was DELETED and the critical floor synthesised a
+            # crit-* id from the generic CRITICAL pattern (that id is not in
+            # gen_ids, so the gate would pass vacuously). Check PROVENANCE: the
+            # matched rule's PATTERN must not be a generic fallback. For a floor
+            # synthesis g.pattern is the generic CRITICAL marker, so removing the
+            # specific rule turns this RED instead of silently passing.
+            if R._derive_rule_id(g.pattern) in gen_ids:
+                failures.append(f"{e['sample']!r}: graded via a GENERIC fallback pattern "
+                                f"(id {g.rule_id!r}) — specific rule missing/shadowed")
         self.assertEqual(failures, [], "shadow-audit expectation failures:\n  " + "\n  ".join(failures))
+
+    def test_expectation_table_is_not_vacuous(self):
+        # REVIEW #7b: a shrunk/emptied table must not let the loop pass
+        # vacuously. Pin a floor and total uniqueness of the samples.
+        samples = [e["sample"] for e in _TABLE["expectations"]]
+        self.assertGreaterEqual(len(samples), 25,
+            f"expectation table shrank to {len(samples)} (floor is the 25 tp_labels)")
+        self.assertEqual(len(samples), len(set(samples)),
+            "duplicate samples in the expectation table")
 
     def test_table_covers_every_tp_label(self):
         labels = {s for s, _ in json.loads(
@@ -104,6 +128,72 @@ class TestNfsCrossList(unittest.TestCase):
             self.assertEqual(gd.severity, e["severity"], f"{e['sample']}: default severity")
             self.assertEqual(gb.severity, e["severity"],
                              f"{e['sample']}: bulk severity {gb.severity} != default {e['severity']}")
+
+
+class TestNoGenericShadowsSpecificAcrossCorpus(unittest.TestCase):
+    """REVIEW #1 structural gate: across the composed walker rule list, on the
+    whole real emission corpus, NO generic fallback rule (EXPOSED/UNAUTH/
+    CRITICAL/[!!]) may win first-match over a specific rule — a generic can
+    never steal a specific rule's id. The generic fallbacks are last by
+    construction (report._compose_rules); this proves the invariant holds on
+    actual dispatcher output, not just by rule order.
+
+    RED proof (Phase 7c): put a generic back ahead of the specific rules
+    (e.g. prepend _GENERIC_FALLBACK_RULES to _DEFAULT, or move \\bCRITICAL\\b to
+    the front of _DEFAULT_RULES_RAW) and the offenders list becomes non-empty.
+    """
+
+    GEN_IDS = R._GENERIC_FALLBACK_RULE_IDS
+
+    def _first_matches(self, clean):
+        return [x for x in _DEFAULT if x.pattern.search(clean)]
+
+    def test_corpus_has_lines_a_generic_could_shadow(self):
+        # Anti-vacuous: the invariant is only meaningful if the corpus actually
+        # contains lines that match BOTH a generic fallback and a specific rule
+        # (so first-match order decides the id). If this collapses to ~0 the
+        # gate proves nothing — fail loud.
+        both = 0
+        for r in _HIT:
+            ms = self._first_matches(R._clean_line(r["text"]))
+            if (any(x.rule_id in self.GEN_IDS for x in ms)
+                    and any(x.rule_id not in self.GEN_IDS for x in ms)):
+                both += 1
+        self.assertGreaterEqual(both, 3,
+            f"anti-vacuous: expected corpus lines a generic could shadow, found {both}")
+
+    def test_no_generic_wins_first_match_over_a_specific_rule(self):
+        offenders = []
+        for r in _HIT:
+            clean = R._clean_line(r["text"])
+            ms = self._first_matches(clean)
+            if len(ms) < 2:
+                continue
+            has_specific = any(x.rule_id not in self.GEN_IDS for x in ms)
+            if has_specific and ms[0].rule_id in self.GEN_IDS:
+                offenders.append((r["file"], r["line"], clean[:80], ms[0].rule_id))
+        self.assertEqual(offenders, [],
+            "a generic fallback won first-match over a specific rule:\n" +
+            "\n".join(f"  {f}:{n} {t}  -> {rid}" for f, n, t, rid in offenders))
+
+
+class TestFloorRuleId(unittest.TestCase):
+    """ROUND2 #1: the line-derived KB key for a generic dispatcher critical with
+    no specific rule keeps the URL PATH (distinct resources -> distinct keys)
+    while collapsing volatile host/ip/port (same fact across hosts -> one key)."""
+
+    def _fid(self, line):
+        return R._floor_rule_id(R._clean_line(line))
+
+    def test_distinct_url_paths_get_distinct_keys(self):
+        a = self._fid("[!!] CRITICAL endpoint exposed: http://10.0.0.1/admin")
+        b = self._fid("[!!] CRITICAL endpoint exposed: http://10.0.0.2/debug")
+        self.assertNotEqual(a, b, "different resource paths must not collapse to one KB key")
+
+    def test_same_fact_across_hosts_collapses(self):
+        a = self._fid("[!!] CRITICAL endpoint exposed: http://10.0.0.1/admin")
+        c = self._fid("[!!] CRITICAL endpoint exposed: http://10.0.0.9/admin")
+        self.assertEqual(a, c, "the same critical fact on another host shares one KB key")
 
 
 if __name__ == "__main__":

@@ -36,8 +36,9 @@ def _load_report():
 
 
 R = _load_report()
-# The composed rule order the default (auto-enum) walker uses.
-_RULES = list(R._DEFAULT_RULES) + list(R._AD_DEPTH_RULES)
+# The composed rule order the default (auto-enum) walker uses — including the
+# generic fallbacks the walker appends LAST (REVIEW #1).
+_RULES = list(R._DEFAULT_RULES) + list(R._AD_DEPTH_RULES) + list(R._GENERIC_FALLBACK_RULES)
 _CORPUS = extract_emissions(REPO)
 _MISSLOG = [r for r in _CORPUS if r["kind"] in ("miss", "log")]
 
@@ -143,6 +144,49 @@ class TestOperatorCustomRulesNeverSuppressed(unittest.TestCase):
             self.assertEqual(g.severity, "high")
         finally:
             path.unlink()
+
+    def test_custom_rule_cannot_downgrade_a_marked_critical(self):
+        # ROUND2 #9: custom rules are all miss_ok, but miss_ok bypasses only
+        # marker SUPPRESSION — a dispatcher [!!]/CRITICAL mark still floors the
+        # severity to critical, so an operator low/medium custom rule can never
+        # downgrade a dispatcher-marked critical in findings.json.
+        import tempfile, json as _json
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as tf:
+            tf.write(_json.dumps({"pattern": r"ACME-WIDGET", "severity": "low"}) + "\n")
+            path = Path(tf.name)
+        try:
+            rules = R._load_rules(path)
+            g = R._classify_line("[!!] ACME-WIDGET total compromise", rules)
+            self.assertIsNotNone(g)
+            self.assertEqual(g.severity, "critical",
+                             "the [!!] critical floor must override a custom low rule")
+            self.assertTrue(g.miss_ok)
+            self.assertTrue(g.rule_id.startswith("custom-"), "operator rule keeps its own id")
+            # a NON-critical-marked custom match keeps the operator-chosen severity.
+            g2 = R._classify_line("[-] ACME-WIDGET present", rules)
+            self.assertEqual(g2.severity, "low")
+        finally:
+            path.unlink()
+
+    def test_custom_rule_id_is_stable_across_line_moves(self):
+        # ROUND2 #6 (regression): the custom rule id derives from pattern+flags,
+        # not the file line number, so inserting a comment above a rule does not
+        # churn its KB key.
+        import tempfile, json as _json
+
+        def _cid(text):
+            with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as tf:
+                tf.write(text)
+                p = Path(tf.name)
+            try:
+                return next(r.rule_id for r in R._load_rules(p)
+                            if r.rule_id.startswith("custom-"))
+            finally:
+                p.unlink()
+
+        rule = _json.dumps({"pattern": r"ACME-SIGNAL", "severity": "high"}) + "\n"
+        self.assertEqual(_cid(rule), _cid("# leading comment\n\n" + rule),
+                         "custom rule id must not depend on the file line number")
 
 
 if __name__ == "__main__":

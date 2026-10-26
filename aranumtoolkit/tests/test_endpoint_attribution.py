@@ -19,6 +19,7 @@ Run with: python3 -m unittest tests.test_endpoint_attribution
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import tempfile
 import unittest
@@ -96,6 +97,25 @@ class TestHostLevelFallback(unittest.TestCase):
                              "ambiguous port -> host-level attribution (port empty)")
             self.assertEqual(fin[0]["scope"], "host",
                              "a host we know is better than (dispatcher)")
+
+    def test_protocol_only_ambiguity_keeps_the_port(self):
+        # ROUND2 #5 (regression): the SAME host+port seen as both tcp and udp is
+        # a PROTOCOL-only ambiguity, not a port ambiguity. The known port must be
+        # kept (protocol blank), not discarded to host scope.
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            (out / "inventory.json").write_text(json.dumps({"entries": [
+                {"ip": "192.0.2.9", "port": "5060", "proto": "tcp", "service": "sip"},
+                {"ip": "192.0.2.9", "port": "5060", "proto": "udp", "service": "sip"},
+            ]}))
+            fin = R.finalize_findings(
+                out, [_disp("SIP service: 192.0.2.9:5060 — Asterisk", "sip")])
+            self.assertEqual(len(fin), 1)
+            self.assertEqual(fin[0]["host"], "192.0.2.9")
+            self.assertEqual(fin[0]["port"], "5060",
+                             "a protocol-only ambiguity must not erase the known port")
+            self.assertEqual(fin[0]["protocol"], "",
+                             "the ambiguous protocol is left blank, never guessed")
 
 
 class TestHostDisambiguation(unittest.TestCase):

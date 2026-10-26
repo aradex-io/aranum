@@ -104,6 +104,20 @@ class TestEchoDedup(unittest.TestCase):
         ])
         self.assertEqual(len(out), 2, "a multi-share enumeration is not one share")
 
+    def test_multi_word_enum_elements_not_collapsed(self):
+        # ROUND2 #2: list elements with internal spaces ("Finance Team") must be
+        # protected whole. Two distinct multi-WORD enumerations that happen to
+        # share one element ("HR Team") must NOT merge and drop the other, even
+        # though a single-token tokenizer would reduce both to {team, hr}.
+        out = R._dedup_echoes([
+            _echo("smb", "10.0.0.5", 445, "high",
+                  "[+] UNAUTH SMB shares exposed: Finance Team, HR Team"),
+            _host("smb", "10.0.0.5", 445, "high",
+                  "UNAUTH SMB shares exposed: Legal Team, HR Team", "shares.txt"),
+        ])
+        self.assertEqual(len(out), 2,
+                         "distinct multi-word enumerations are different facts, not an echo")
+
     def test_one_to_one_second_echo_does_not_fan_in(self):
         out = R._dedup_echoes([
             _echo("smb", "10.0.0.5", 445, "medium", "[+] SMB signing disabled at 10.0.0.5"),
