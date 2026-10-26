@@ -247,7 +247,7 @@ __aranum_posture_main() {
 
     # --- SSH ------------------------------------------------------------------------
     _p_ssh_lines() {  # $1 file (real path), $2 depth: "keyword value" lines, Match blocks skipped
-        local file="$1" depth="$2" line kw rest pat inc inmatch=0
+        local file="$1" depth="$2" line kw rest pat inc inmatch=0 pats
         [[ -r "$file" ]] || return 0
         while IFS= read -r line || [[ -n "$line" ]]; do
             line="${line%%#*}"
@@ -261,7 +261,10 @@ __aranum_posture_main() {
             (( inmatch == 1 )) && continue
             if [[ "$kw" == include ]]; then
                 (( depth < 4 )) || continue
-                for pat in $rest; do
+                # Split without globbing: an unquoted $rest would expand the
+                # pattern against the live filesystem before it is re-rooted.
+                read -ra pats <<<"$rest"
+                for pat in "${pats[@]}"; do
                     [[ "$pat" == /* ]] || pat="/etc/ssh/$pat"
                     for inc in "$R"$pat; do
                         [[ -f "$inc" ]] && _p_ssh_lines "$inc" $((depth + 1))
