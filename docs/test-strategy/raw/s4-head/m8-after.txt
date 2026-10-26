@@ -1,0 +1,5 @@
+local: rc=0 privesc_script=/srv/share/dev/aranum/build/scratch/le-smoke/tiny-privesc.sh
+M8 full: 4/4 ['linux-ssh', 'local', 'windows-ssh', 'windows-winrm']
+M8 compact: 2/3 ['smbexec', 'wmiexec']
+M8 desktop: 0/2 []
+M8 total: 6/9

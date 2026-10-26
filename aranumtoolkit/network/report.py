@@ -1209,6 +1209,21 @@ def _is_bulk_enum_dir(out_dir: Path) -> bool:
     return False
 
 
+BULK_ROOT_MARKER = "_aranum_bulk_root"
+
+
+def _bulk_roots(out_dir: Path) -> "list[Path]":
+    """Top-level dirs local-enum.py marked as a bulk root (S4/D5). Each holds
+    the bulk layout one level down: <root>/<host>/{_meta.json, linenum|winenum}.
+    A marker makes the OS roots unambiguous, so a mixed tree never mistakes
+    `linux/`/`windows/` for a service directory (and vice versa)."""
+    roots = []
+    for sub in sorted(out_dir.iterdir()):
+        if sub.is_dir() and not sub.is_symlink() and (sub / BULK_ROOT_MARKER).is_file():
+            roots.append(sub)
+    return roots
+
+
 def _is_generated_dashboard_dir(path: Path) -> bool:
     """Detect report-dashboard.py output so regenerated dashboards do not
     ingest their own static HTML/CSS/JS as service evidence."""
@@ -1795,15 +1810,23 @@ def _coverage(out_dir: Path, findings: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------- walker
-def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) -> Iterable[dict]:
+def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None,
+                  exclude: "set | None" = None) -> Iterable[dict]:
     """Yield finding dicts. Each finding has:
         host, port, service, severity, line, evidence_path plus
         structured fields for schema v2.
+
+    `exclude` names top-level dirs to skip — the mixed-tree collector passes
+    the bulk roots so they are walked by walk_findings_bulk, not mistaken for
+    service directories.
     """
     if service_metadata is None:
         service_metadata = _load_service_metadata(out_dir)
+    exclude = exclude or set()
     _root = out_dir.resolve()
-    for svc_dir in sorted(p for p in out_dir.iterdir() if p.is_dir() and not _is_generated_dashboard_dir(p)):
+    for svc_dir in sorted(p for p in out_dir.iterdir()
+                          if p.is_dir() and not _is_generated_dashboard_dir(p)
+                          and p.name not in exclude):
         service = svc_dir.name
         # Two layouts in use across the toolkit:
         #   $OUT/$service/<ip>/<file>          (most dispatchers)
@@ -1967,6 +1990,7 @@ def walk_findings_bulk(
     service_metadata: dict | None = None,
     diagnostics: list[dict] | None = None,
     posture: dict | None = None,
+    rel_base: Path | None = None,
 ) -> Iterable[dict]:
     """Walk a bulk-enum output tree. Each top-level subdir is one host. The
     host's output file selects the rule set + service label:
@@ -1983,6 +2007,8 @@ def walk_findings_bulk(
         service_metadata = _load_service_metadata(out_dir)
     if posture is None:
         posture = _new_posture_sink()
+    if rel_base is None:
+        rel_base = out_dir
     kb = _load_finding_kb()
     extras = list(extra_rules or [])
     # Fold in the AD-depth / CVE-signal rules so bulk (winenum/linenum) findings —
@@ -2012,7 +2038,7 @@ def walk_findings_bulk(
             diagnostic = {
                 "type": "invalid_bulk_metadata",
                 "artifact_id": host_dir.name,
-                "path": str(meta.relative_to(out_dir)),
+                "path": str(meta.relative_to(rel_base)),
                 "error": metadata_error,
             }
             if diagnostics is not None:
@@ -2021,7 +2047,7 @@ def walk_findings_bulk(
             yield _with_bulk_identity(_structured_finding(
                 identity["host"], identity["port"], _svc, "medium",
                 f"[bulk-enum] PARTIAL: invalid canonical metadata ({metadata_error})",
-                str(meta.relative_to(out_dir)), service_metadata,
+                str(meta.relative_to(rel_base)), service_metadata,
                 identity["protocol"]), identity)
         # ADR-006 D1a-2 integration: a host that AUTH_FAIL'd / was UNREACHABLE /
         # timed out did NOT produce clean enumeration. Without surfacing the
@@ -2037,7 +2063,7 @@ def walk_findings_bulk(
             yield _with_bulk_identity(_structured_finding(
                 identity["host"], identity["port"], _svc, _sev,
                 f"[bulk-enum] host NOT fully enumerated — status={_status} ({_reason})",
-                str(meta.relative_to(out_dir)), service_metadata,
+                str(meta.relative_to(rel_base)), service_metadata,
                 identity["protocol"]), identity)
         for fname, rules, svc in (
             ("linenum.txt", linux_rules, "linenum"),
@@ -2050,7 +2076,7 @@ def walk_findings_bulk(
                 text = evidence.read_text(errors="replace")
             except Exception:
                 continue
-            rel = str(evidence.relative_to(out_dir))
+            rel = str(evidence.relative_to(rel_base))
             for line in text.splitlines():
                 if "POSTURE|" in line[:16]:
                     pf = _ingest_posture_line(line, identity["host"], svc, rel, posture,
@@ -2067,7 +2093,7 @@ def walk_findings_bulk(
                     svc,
                     matched.severity,
                     line,
-                    str(evidence.relative_to(out_dir)),
+                    str(evidence.relative_to(rel_base)),
                     service_metadata,
                     identity["protocol"],
                     rule_id=matched.rule_id,
@@ -2700,6 +2726,43 @@ def collect(out_dir: Path, rules, service_metadata: "dict | None" = None,
     diags = diagnostics if diagnostics is not None else []
     if service_metadata is None:
         service_metadata = _load_service_metadata(out_dir)
+
+    roots = _bulk_roots(out_dir)
+    if roots:
+        # S4/D5 marked tree. Each root is walked one level down with evidence
+        # paths rebased onto out_dir (so they keep the `<os>/<host>/…` prefix);
+        # any non-root top-level dir is still a service dir. "mixed" when both
+        # kinds coexist, else "bulk-enum". per_host is the unified table filtered
+        # to the bulk hosts (service findings have no bulk per-host verdict).
+        exclude = {r.name for r in roots}
+        service_dirs = [p for p in out_dir.iterdir()
+                        if p.is_dir() and not p.is_symlink()
+                        and p.name not in exclude
+                        and not _is_generated_dashboard_dir(p)]
+        sink = _new_posture_sink()
+        bulk_hosts: set = set()
+
+        def _bulk_chain():
+            for root in roots:
+                for f in walk_findings_bulk(root, rules, service_metadata, diags,
+                                            posture=sink, rel_base=out_dir):
+                    bulk_hosts.add(f.get("host", ""))
+                    yield f
+            yield from _posture_domain_findings(sink, _load_finding_kb(), service_metadata)
+
+        bulk_findings = list(_bulk_chain())
+        service_findings = list(walk_findings(out_dir, rules, service_metadata, exclude=exclude))
+        findings = finalize_findings(out_dir,
+                                     itertools.chain(bulk_findings, service_findings))
+        posture = {"hosts": sink["hosts"], "domains": sink["domains"]} if sink["hosts"] else None
+        all_per_host = _per_host_verdicts(findings)
+        per_host = {h: v for h, v in all_per_host.items() if h in bulk_hosts} or None
+        mode = "mixed" if service_dirs else "bulk-enum"
+        layout = {"service_findings": sum(1 for f in findings if f.get("host") not in bulk_hosts),
+                  "bulk_hosts": sorted(h for h in bulk_hosts if h)}
+        return Collection(findings=findings, per_host=per_host, mode=mode, layout=layout,
+                          posture=posture, domains=sink["domains"] or None, diagnostics=diags)
+
     if _is_bulk_enum_dir(out_dir):
         sink = _new_posture_sink()
         walked = walk_findings_bulk(out_dir, rules, service_metadata, diags, posture=sink)

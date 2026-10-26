@@ -111,11 +111,12 @@ else
 fi
 
 # ADR-006 — impacket enables bulk-enum-windows.py's smb transport (wmiexec).
+# ADR-007 — the `aranum local` exec tier shells out to impacket-{wmiexec,smbexec,psexec}.
 if python3 -c "import impacket" 2>/dev/null; then
     v=$(python3 -c "import impacket; print(getattr(impacket, '__version__', '?'))" 2>/dev/null || true)
     printf "${G}[+]${N} %-22s impacket %s (Python)\n" "impacket" "$v"
 else
-    printf "[ ] %-22s (optional Python pkg — pip install impacket; bulk-enum-windows.py smb transport)\n" "impacket"
+    printf "[ ] %-22s (optional Python pkg — pip install impacket; bulk-enum-windows.py smb transport + 'aranum local' exec tier)\n" "impacket"
 fi
 
 # ADR-006 — paramiko is the preferred backend for ssh-key-triage.py (ssh-keygen fallback).

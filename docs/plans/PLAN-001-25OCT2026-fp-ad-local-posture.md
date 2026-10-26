@@ -486,6 +486,57 @@ The three impacket-family methods (wmiexec, smbexec, psexec) run a command throu
 
 **Blast radius:** a new orchestrator, CLI dispatch + arg partitioning, the mixed-tree collector. **Rollback:** revert the squash; the new command and flag are additive.
 
+### S4 Phase-8 benefit (measured 26OCT2026, M8 harness, base `41860c8`)
+
+M8 counts access pathways runnable via the `--local` layer, by capability tier.
+Harness: `docs/test-strategy/harness/m8_pathways.py` (written at the S4 base before
+any S4 code; `local`(full) runs a real self-scan, the rest are dry-run PLAN checks).
+Raw: `docs/test-strategy/raw/s4-base-41860c8/m8-baseline.txt` (base) and `raw/s4-head/`.
+
+| M8 tier | Baseline (`41860c8`) | After (S4 head) | Target | Δ | Provenance |
+|---|---|---|---|---|---|
+| full (local, linux-ssh, windows-ssh, windows-winrm) | 0/4 | **4/4** | 4 | +4 | measured |
+| compact (wmiexec, smbexec, psexec) | 0/3 | **2/3** | see erratum | +2 | measured |
+| desktop (rdp, vnc) | 0/2 | 0/2 | S5 | 0 | measured (S5 scope) |
+| **M8 total** | **0/9** | **6/9** | 6 (S4) | **+6** | measured |
+
+At the base SHA the `local` command does not exist, so every pathway is 0/9 regardless
+of harness scoring; the baseline is unaffected by the harness's refinement.
+
+**Erratum — compact tier is 2/3, by design, not 3/3.** The pre-registered M8 row listed
+wmiexec/smbexec/psexec as the compact tier without stating per-method capacity. Measured
+on the S4 code: the compact-probe *core* (helpers + `whoami /priv` + first check) is 7146
+chars. That fits wmiexec (ceiling 8000, carries 2 checks) and smbexec (7800, 1 check) but
+is ~1.8× psexec's 4000 ceiling, so **psexec carries no posture and the builder refuses**,
+routing the operator to winrm/ssh. psexec remains a valid *access* pathway; it is not a
+*posture* pathway. This is the "refuse over truncate" contract (ADR-007 D4) exercised, not
+a regression — `psexec` is a correct M8 FAIL. S4 target restated: full 4/4 + compact 2/3 =
+**6/9**. Detail: ADR-007 erratum (26OCT2026).
+
+### S4 Phase-6 independent diff review (REVIEW-011, Daybreak Blue)
+
+The diff review returned CHANGES-REQUESTED with 10 findings, all confirmed real
+(`docs/review/REVIEW-011-26OCT2026-s4-local-access-peer.md`): #1 compact-probe
+privilege evidence stripped as impacket noise; #2 misleading plan row for a
+superseded exec pathway; #3 unbounded Windows engine (`--host-timeout` no-op);
+#4 self-scan ignored collector rc; #5 no-pathway hosts left no record; #6 silent
+port-ignore on exec methods; #7 mixed-tree dashboard evidence misattribution; #8
+Windows self-scan ignored `--windows-script`; #9 `--opt=value` misrouted by
+`_partition_local`; #10 `run_bounded` `UnboundLocalError` on an exit race. All
+fixed in round 1 (two with a code-corrected remedy; #3's fix is a subprocess cap,
+not flag-forwarding, because the engine has no such flag). **Benefit re-measured
+post-fix: M8 = 6/9, unchanged** (`docs/test-strategy/raw/s4-head-postreview/`);
+suite 588 passed / 5 skipped, 0 regressions vs S4-head (per-nodeid). Phase-6 gate
+GREEN.
+
+**Backlog (deferred from S4):**
+- **S4-BL-01** — *runtime cross-lane fallback.* When a Windows host's preferred
+  full-engine pathway (winrm/ssh) fails at connect/auth time and a consent-gated
+  exec method is also configured, run the compact exec probe as a true fallback.
+  Deferred because it is new runtime behavior with its own test surface, outside
+  the S4 plan; S4 instead makes the plan honest (the exec row is labelled
+  `superseded`, no dead pathway is seeded). Candidate for S5 or a later sprint.
+
 ---
 
 ## S5 — Desktop transports (G19)

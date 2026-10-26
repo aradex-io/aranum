@@ -11,6 +11,7 @@ __pycache__/
 
 # Test/enum output (operator-generated)
 outputs/*
+build/
 enum-results/
 network/enum-results/
 aranumtoolkit/network/enum-results/

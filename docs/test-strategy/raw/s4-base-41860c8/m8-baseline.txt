@@ -1,0 +1,5 @@
+local: rc=2 privesc_script=default
+M8 full: 0/4 []
+M8 compact: 0/3 []
+M8 desktop: 0/2 []
+M8 total: 0/9

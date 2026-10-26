@@ -497,6 +497,28 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     findings = collection.findings
     bulk = collection.mode == "bulk-enum"
 
+    # S4/D5 marked tree (local-enum.py): bulk hosts live one level down under
+    # `_aranum_bulk_root` dirs and are keyed by their canonical _meta.json host,
+    # not the opaque endpoint-key dir name. `marked` covers both the mixed tree
+    # and a --self-only ("bulk-enum") marked tree; `legacy_bulk` is the old
+    # flat bulk tree with no markers, whose behavior is unchanged.
+    roots = rpt._bulk_roots(out_dir)
+    marked = bool(roots)
+    root_names = {r.name for r in roots}
+    legacy_bulk = bulk and not marked
+    bulk_host_index: dict[str, Path] = {}
+    if marked:
+        for root in roots:
+            for host_dir in sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink()):
+                mp = host_dir / "_meta.json"
+                if not mp.is_file():
+                    continue
+                try:
+                    host = str(json.loads(mp.read_text(errors="replace")).get("host") or host_dir.name)
+                except Exception:
+                    host = host_dir.name
+                bulk_host_index.setdefault(host, host_dir)
+
     summary = rpt._summary(findings, out_dir)
 
     # Group findings by host + service for cheap lookup
@@ -514,18 +536,20 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     # Service inventory per host — every dir under $OUT/<svc>/<ip>/ that exists
     services_per_host: dict[str, set[str]] = defaultdict(set)
     hosts_per_service: dict[str, set[str]] = defaultdict(set)
-    if not bulk:
+    if not legacy_bulk:
+        # auto-enum / mixed service dirs ($OUT/<svc>/<ip>/); skip marked roots.
         for svc_dir in sorted(
             p for p in out_dir.iterdir()
             if p.is_dir() and not rpt._is_generated_dashboard_dir(p)
+            and p.name not in root_names
         ):
             for host_dir in sorted(p for p in svc_dir.iterdir() if p.is_dir()):
                 name = host_dir.name
                 ip = name.rsplit("_", 1)[0] if "_" in name and name.rsplit("_", 1)[-1].isdigit() else name
                 services_per_host[ip].add(svc_dir.name)
                 hosts_per_service[svc_dir.name].add(ip)
-    else:
-        # Bulk-enum: every top-level dir is a host
+    if legacy_bulk:
+        # Legacy flat bulk tree: every top-level dir is a host (keyed by dir name).
         for host_dir in sorted(
             p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink()
         ):
@@ -533,6 +557,13 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
                 if (host_dir / fname).is_file():
                     services_per_host[host_dir.name].add(svc)
                     hosts_per_service[svc].add(host_dir.name)
+    if marked:
+        # Marked bulk hosts, keyed by canonical _meta.json host.
+        for host, host_dir in bulk_host_index.items():
+            for fname, svc in (("linenum.txt", "linenum"), ("winenum.txt", "winenum")):
+                if (host_dir / fname).is_file():
+                    services_per_host[host].add(svc)
+                    hosts_per_service[svc].add(host)
 
     events = read_run_log(out_dir)
     per_host_verdicts = collection.per_host or {}
@@ -572,6 +603,7 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
             if (
                 not svc_dir.is_dir()
                 or svc_dir.name.startswith("_")
+                or svc_dir.name in root_names
                 or rpt._is_generated_dashboard_dir(svc_dir)
             ):
                 continue
@@ -618,8 +650,26 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     for (host, svc), ports in ports_per_host_svc.items():
         host_svc_findings = [f for f in by_host.get(host, []) if f["service"] == svc]
         evidence_files: list[str] = []
-        if not bulk:
-            svc_dir = out_dir / svc
+        svc_dir = out_dir / svc
+        svc_dir_present = svc_dir.is_dir() and (
+            (svc_dir / host).is_dir() or any(
+                c.is_dir() and c.name.startswith(f"{host}_")
+                and c.name.rsplit("_", 1)[-1].isdigit()
+                for c in svc_dir.iterdir()
+            )
+        )
+        if marked and host in bulk_host_index and not svc_dir_present:
+            # Marked bulk host with no genuine service dir for this service: its
+            # evidence is the files under its endpoint dir. When a real service
+            # dir DOES exist (a mixed-tree host that was also auto-enum'd for
+            # this service), fall through so the service card resolves its own
+            # files instead of being overridden by the bulk-posture files.
+            evidence_files = sorted(
+                str(fp.relative_to(out_dir))
+                for fp in bulk_host_index[host].rglob("*")
+                if fp.is_file() and fp.name != rpt.BULK_ROOT_MARKER
+            )
+        elif not legacy_bulk:
             evidence_roots: list[Path] = []
             exact_host_dir = svc_dir / host
             if exact_host_dir.is_dir():
@@ -931,7 +981,7 @@ def render_index(model: dict) -> str:
       <tr><td>Services exercised</td><td class="num">{n_services}</td></tr>
       <tr><td>Findings emitted</td><td class="num">{n_findings}</td></tr>
       <tr><td>Run-log events</td><td class="num">{n_events}</td></tr>
-      <tr><td>Mode</td><td>{'bulk-enum' if model['bulk'] else 'auto-enum'}</td></tr>
+      <tr><td>Mode</td><td>{model['mode']}</td></tr>
       <tr><td>Generated</td><td>{e(model['generated_at'])}</td></tr>
     </tbody>
   </table>
