@@ -484,7 +484,7 @@ The three impacket-family methods (wmiexec, smbexec, psexec) run a command throu
   - Dependency-absent degradation: tool absent → non-zero host status + clear message, run continues.
 - **(c) New gate:** the **exec-ceiling gate** — the assembled exec-method command for each method must be under that method's declared ceiling, and the builder must refuse when a requested probe set exceeds it. RED: lower a method's ceiling constant (or enlarge the probe set) in a temp copy → the builder must refuse and the "fits" assertion must fail. (The old relay-safety gate is retired with the relay.)
 
-**Blast radius:** a new orchestrator, CLI dispatch + arg partitioning, the mixed-tree collector. **Rollback:** revert the squash; the new command and flag are additive.
+**Blast radius:** a new orchestrator, CLI dispatch + arg partitioning, the mixed-tree collector. **Rollback:** revert the S4 squash commit `d7556c2` (PR #9, merged into `main` 26OCT2026 on top of base `41860c8`); the new command and flag are additive, no data migration.
 
 ### S4 Phase-8 benefit (measured 26OCT2026, M8 harness, base `41860c8`)
 
