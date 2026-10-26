@@ -335,6 +335,84 @@ The header is corrected from the round-1 draft: **host** posture is localhost-on
 - **(b) Parser.** On fixture winenum/linenum with POSTURE lines: FAIL → finding at KB severity; PASS → only in posture.json; a malformed `POSTURE|` line → quarantined diagnostic, not a finding; the same domain check from two hosts → **one canonical finding** whose `observed_from` holds two `{host,status,detail}` records; a PASS-from-host-a + ERR-from-host-b pair yields canonical `PASS` (determined beats undetermined) with both records preserved; a PASS + FAIL pair yields canonical `FAIL` with a `conflict:` detail; an ERR + NA pair (no determined observer) yields canonical `ERR`.
 - **(c) New gate:** the posture-KB coverage test — every check id emitted by either collector has a KB check entry with test+fix (ids extracted statically). RED: add a fake id to a temp copy of a collector → fail. Asserts ≥ 30 ids extracted (no vacuous pass). A second gate asserts the strict parser rejects a crafted field-injection detail (`a|b|c` inside detail) — RED by relaxing the split cap.
 
+### S3 execution notes and errata (26OCT2026)
+
+- **D3.4 erratum (Windows delivery, measured).** The literal `& { <body> }` wrapper
+  matches the plan, with one requirement the plan did not state: over
+  `pwsh -Command -` each block must be followed by a **blank line**, or the host
+  waits for more input and the block never runs. A base64 variant
+  (`[scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(…)))`)
+  was tried and **rejected**: under ConstrainedLanguage it emits 0 lines
+  ("Method invocation is supported only on core types"; review R1,
+  `raw/s3-wip/r1-clm-red.txt`).
+- **D3.4 deviation (Linux delivery).** The plan said plain concatenation. As
+  shipped, the privesc body runs as `( <linenum-fast.sh> ) </dev/null`, followed
+  by the posture body. bash reads the whole subshell before it runs it, so no
+  command inside can eat the rest of the stdin stream, and an `exit` inside
+  cannot skip the posture collector. Without `--with-posture` the default payload
+  is byte-for-byte unchanged (tested).
+- **Test-plan deviation (Windows helpers).** The plan said "AST-extract the AD
+  helper functions". Instead the tests dot-source the shipped collector with
+  `-LibraryOnly`, which defines the same functions and runs nothing. That covers
+  everything AST extraction would, and it tests the exact file that ships.
+  Daybreak asked for AST extraction in round 2 and the request was rejected with
+  this rationale (REVIEW-010).
+- **Grading hardening from review (REVIEW-010):**
+  - Registry reads now separate "absent" from "unreadable". An unreadable value
+    is ERR, never the absent-value default.
+  - AD-LDAP-SIGNING grades signing **and** channel binding.
+  - Every registry policy is read through one validated reader (`Get-RegPolicy`),
+    so a value outside its documented set grades ERR. This is the round-3
+    structural closure, guarded by an out-of-domain fuzz gate.
+  - AD lines are domain-tagged before discovery.
+  - RootDSE goes through the bounded searcher.
+- **New items (Phase-1 IDs, not absorbed into S3):**
+  - **N1:** WinRM `-EncodedCommand` 32K command-line limit. Relevant to S5.
+  - **N2:** pre-existing duplicate bulk host pages, keyed both by directory name
+    and by IP (the fixture shows "hosts: 6" for 3 hosts).
+  - **N3:** `_AD_FAMILIES` matches by substring. This is an owner question.
+  - **N4:** stdin buffering under Windows PowerShell 5.1 is unmeasured. A custom
+    `--script` that calls `exit` would stop the posture block. Lab item for S5.
+  - **N5:** account names in `sample=` detail are not redacted. The redaction
+    contract covers IP, host and domain only.
+  - **N6:** review R5 residual. ADSI bind and DC location are synchronous, so
+    there is no hard wall-clock bound before the first LDAP result. No portable
+    bound was demonstrable on this Linux host. Verify in the S5 Windows lab.
+- **Review:** REVIEW-010, three rounds (round 1: 10 findings in 6 classes;
+  round 2 verify: 7 closed, 3 partial, 1 new; round 3: the fall-through-PASS
+  class recurred, so it was escalated to the structural `Get-RegPolicy` reader +
+  gate, followed by a verify-only pass).
+  Test card: `docs/test-strategy/cards/CARD-S3-26OCT2026-host-posture.md`.
+
+### S3 Phase-8 benefit (measured 26OCT2026, same harness as the S3 base, base `7e62404`)
+
+Harness: `docs/test-strategy/harness/m7_posture_coverage.py` (v2), re-run unchanged
+at base and head.
+
+| Metric | Baseline (`7e62404`) | After (S3 head) | Target | Δ | Provenance |
+|---|---|---|---|---|---|
+| M7 — Linux posture checks with KB test + remediation | 0 | 43 | ≥ 30 | +43 | measured (`raw/s3-base-7e62404/m7-baseline-v2.txt`, `raw/s3-head/m7-after-v2.txt`) |
+| M7 — Windows host + AD posture checks with KB test + remediation | 0 | 56 | ≥ 35 | +56 | measured |
+
+Both targets are met. The structural guarantee is GATE 1, the posture-KB coverage
+test: every id a collector can emit has a KB test and fix, and no KB check is
+orphaned.
+
+Regression: the full suite gives `529 passed / 5 skipped / 0 failed` at head
+`7ff27c2`, against the S3 base manifest of `472 passed / 5 skipped`. Every
+baseline-passing test still passes (compared per test), the skip signatures are
+identical, and 57 S3 tests are new. Raw: `docs/test-strategy/raw/s3-head/`.
+
+**Blast radius:**
+- new collectors under `standalones/`
+- `--with-posture` / `--ad` on both bulk transports
+- `report.py` posture parser, `posture.json` and redaction
+- the dashboard Posture page, host card and AD domain posture
+- the `checks` section of `finding-kb.json`
+
+**Rollback:** revert the S3 squash commit. All new keys and flags are additive and
+off by default, and findings are regenerated from raw trees. Merge SHA: recorded on merge.
+
 ---
 
 ## S4 — `--local` access layer (G17, G18, G20)

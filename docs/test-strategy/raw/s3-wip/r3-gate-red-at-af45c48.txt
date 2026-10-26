@@ -1,0 +1,12 @@
+        passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
+>       assert set(passed) <= allowed, passed
+E       AssertionError: ['WIN-AIE', 'WIN-ANON-RESTRICT', 'WIN-AUTOLOGON', 'WIN-CRED-NOLMHASH', 'WIN-CRED-WDIGEST', 'WIN-LAPS', ...]
+        passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
+>       assert set(passed) <= allowed, passed
+E       AssertionError: ['WIN-AIE', 'WIN-ANON-RESTRICT', 'WIN-AUTOLOGON', 'WIN-CRED-CACHEDLOGONS', 'WIN-CRED-NOLMHASH', 'WIN-CRED-WDIGEST', ...]
+        passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
+>       assert set(passed) <= allowed, passed
+E       AssertionError: ['WIN-AUTOLOGON', 'WIN-PATCH-AGE', 'WIN-PS-V2']
+FAILED aranumtoolkit/tests/test_host_posture.py::test_windows_get_regpolicy_validates_the_documented_domain
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[99]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[-1]

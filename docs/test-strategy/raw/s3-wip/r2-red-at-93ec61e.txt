@@ -1,0 +1,11 @@
+        assert proc.returncode == 0, proc.stderr
+>       assert rows == [["", "", "NA"], ["2", "", "FAIL"], ["2", "0", "FAIL"], ["2", "1", "WARN"],
+E       AssertionError: assert [['', '', 'NA... 'FAIL'], ...] == [['', '', 'NA... 'FAIL'], ...]
+>       assert "AA:BB:CC:DD:EE:FF" in out
+E       AssertionError: assert 'AA:BB:CC:DD:EE:FF' in 'mac aa:bb:cc:dd:ee:ff host <TARGET-1> and <TARGET-1> ip <TARGET-2>'
+FAILED aranumtoolkit/tests/test_host_posture.py::test_windows_ldap_signing_grades_both_policies
+FAILED aranumtoolkit/tests/test_host_posture.py::test_redactor_folds_case_for_identities_but_leaves_non_ip_tokens_verbatim
+2 failed, 36 deselected in 1.20s
+FAILED aranumtoolkit/tests/test_host_posture.py::test_windows_lmcompat_out_of_domain_is_err[7-ERR]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_windows_lmcompat_out_of_domain_is_err[-1-ERR]
+2 failed, 3 passed, 38 deselected in 8.64s

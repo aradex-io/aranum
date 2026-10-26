@@ -1,0 +1,2 @@
+linux: collector_present=True ids=43 kb_covered=43
+windows: collector_present=True ids=56 kb_covered=56

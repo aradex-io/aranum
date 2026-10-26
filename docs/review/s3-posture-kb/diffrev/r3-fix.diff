@@ -1,0 +1,228 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 6863e95..b9f3f8b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -28,7 +28,7 @@ See `CLAUDE.md` §6 for the entry style guide.
+ ### Security
+ - `network/report.py`: `_load_finding_kb()` now normalizes nested KB structure — category values must be dicts, a class must point at a known category and has its `title`/`why`/`test`/`fix`/`refs` coerced to safe types — so a syntactically valid but structurally malformed KB (a null category, `"test": null`, a class with no title) can never reach a renderer and raise. The "Top risks" section flattens newlines and escapes angle brackets in every interpolated title/why/label/fix-text and renders commands in a backtick-safe inline-code span, so an override KB or an engagement-derived finding title cannot forge a report heading, inject raw HTML, or break out of a code span.
+ - `network/report-dashboard.py`: the Active Directory and Categories renderers read finding fields defensively (missing `host`/`line`/`severity` no longer crash rendering), and `_dc_hosts()` coerces numeric string ports so a domain controller is still detected when inventory ports arrive as strings.
+-- `network/report.py`: `--redact` matches known hostnames case-insensitively and maps every case variant of a name to one `<TARGET-N>` token (before, `HOST01` survived when the known name was `host01`).
++- `network/report.py`: `--redact` matches known hostnames case-insensitively and maps every case variant of a name to one `<TARGET-N>` token (before, `HOST01` survived when the known name was `host01`); colon tokens that are not IP addresses (e.g. an uppercase MAC) are returned verbatim, not case-folded.
+ 
+ ### Changed
+ - `network/report.py`: findings now carry additive `scope` (`"endpoint"` | `"host"` | `"run"`) and structured `host`/`port`/`protocol` attribution fields; the output schema stays `"2"` (purely additive, no consumer break).
+@@ -40,6 +40,7 @@ See `CLAUDE.md` §6 for the entry style guide.
+ - `standalones/passwords/Get-WeakPassword.ps1`: reads standard input when given `-` as a path, or when stdin is redirected (a shell pipe) and no other source is specified — so `cat file | pwsh -File Get-WeakPassword.ps1` works from any shell, matching `password-scrape.sh`'s `-`/pipe convention. `pwsh -File` does not bind redirected stdin to the `ValueFromPipeline` parameter the way an in-session pipeline (`Get-Content x | .\Get-WeakPassword.ps1`) does; both now work. Guarded on `IsInputRedirected` so an interactive run never blocks waiting on the console, and suppressed when `-Path`/`-History` supplied a source.
+ 
+ ### Fixed
++- `standalones/windows/Invoke-HostPosture.ps1`: enumerated registry policies no longer fall through to PASS on an out-of-domain value — `LDAPServerIntegrity`/`LdapEnforceChannelBinding` outside 0..2 and `LmCompatibilityLevel` outside 0..5 now grade ERR (before, `LdapEnforceChannelBinding=3` graded AD-LDAP-SIGNING PASS).
+ - `standalones/linux/host-posture.sh`: sshd `Include` patterns are split with `read -ra` instead of an unquoted expansion, so under `ARANUM_POSTURE_ROOT` a glob is never expanded against the live filesystem before it is re-rooted (hermetic runs could read the real host's `sshd_config.d`).
+ - `network/report.py`: specific product rules (Tomcat, Jenkins, Spark, Solr, SSDP/UPnP, GitLab, Hadoop, …) are no longer shadowed by the generic `CRITICAL`/`EXPOSED`/`UNAUTH` fallbacks — the four generics are composed **last** at every rule-assembly site (`_compose_rules`), so a specific rule always wins first-match and keeps its own severity and KB `rule_id`.
+ - `network/report.py`: a dispatcher-marked critical (`[!!]` / `CRITICAL`) can never be downgraded by a lower-severity rule or an operator `--severity-rules` custom rule (unconditional critical floor), and distinct criticals receive distinct line-derived KB keys that preserve the URL path (so `.../admin` and `.../debug` do not collapse to one key).
+diff --git a/aranumtoolkit/network/finding-kb.json b/aranumtoolkit/network/finding-kb.json
+index 36ff19e..e6738fb 100644
+--- a/aranumtoolkit/network/finding-kb.json
++++ b/aranumtoolkit/network/finding-kb.json
+@@ -7254,7 +7254,7 @@
+       "title": "LAN Manager authentication level",
+       "sev_fail": "high",
+       "sev_warn": "medium",
+-      "semantics": "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5.",
++      "semantics": "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5; ERR: value outside 0..5.",
+       "why": "Allowing LM or NTLMv1 authentication exposes weak challenge-response material that is practical to crack or relay. Attackers can force or capture legacy authentication and recover credentials for lateral movement.",
+       "test": [
+         {
+@@ -8030,7 +8030,7 @@
+       "title": "DC LDAP signing / channel binding",
+       "sev_fail": "high",
+       "sev_warn": "medium",
+-      "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS).",
++      "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable or a value outside 0..2 (never a false PASS).",
+       "why": "A domain controller that does not require LDAP signing can accept integrity-unprotected LDAP binds. An attacker can relay authentication to LDAP or alter traffic and then make directory changes with the relayed user's permissions. Signing alone does not stop relay to LDAPS: without channel binding (LdapEnforceChannelBinding=2) a relayed NTLM bind over TLS is still accepted.",
+       "test": [
+         {
+diff --git a/aranumtoolkit/network/report.py b/aranumtoolkit/network/report.py
+index 04e3122..a176575 100755
+--- a/aranumtoolkit/network/report.py
++++ b/aranumtoolkit/network/report.py
+@@ -938,16 +938,17 @@ class Redactor:
+         host_set = {h.lower() for h in self._hosts}
+         def _sub(m):
+             # One token per identity regardless of case (and per IPv6 hex case).
+-            key = m.group(0).lower()
++            raw = m.group(0)
++            key = raw.lower()
+             # A colon-bearing, non-bracketed match is a bare-IPv6 candidate:
+             # redact only if it is a real IP address or a known host, else leave
+-            # it (avoids mangling MACs / hex tokens the loose regex catches).
++            # it verbatim (avoids mangling MACs / hex tokens the loose regex catches).
+             if ":" in key and not key.startswith("["):
+                 try:
+                     ipaddress.ip_address(key)
+                 except ValueError:
+                     if key not in host_set:
+-                        return key
++                        return raw
+             if key not in self._map:
+                 self._counter += 1
+                 self._map[key] = f"<TARGET-{self._counter}>"
+diff --git a/aranumtoolkit/tests/test_host_posture.py b/aranumtoolkit/tests/test_host_posture.py
+index 1b21925..6be7936 100644
+--- a/aranumtoolkit/tests/test_host_posture.py
++++ b/aranumtoolkit/tests/test_host_posture.py
+@@ -318,7 +318,8 @@ def test_windows_ldap_signing_grades_both_policies(tmp_path):
+     # R2: signing required alone is not compliant -- channel binding is graded too, and
+     # PASS needs both. An absent CBT value on a DC is "not enforced" (FAIL), not NA.
+     body = _lib(r"""
+-foreach ($c in @(@($null,$null), @(2,$null), @(2,0), @(2,1), @(2,2), @(1,2), @(0,$null))) {
++foreach ($c in @(@($null,$null), @(2,$null), @(2,0), @(2,1), @(2,2), @(1,2), @(0,$null),
++                 @(2,3), @(2,-1), @(3,2), @(-1,2))) {
+   $r = Resolve-LdapSigningStatus $c[0] $c[1]
+   'ROW|' + [string]$c[0] + '|' + [string]$c[1] + '|' + $r.AranumPostureStatus
+ }
+@@ -327,7 +328,9 @@ foreach ($c in @(@($null,$null), @(2,$null), @(2,0), @(2,1), @(2,2), @(1,2), @(0
+     assert proc.returncode == 0, proc.stderr
+     rows = [ln.split("|")[1:] for ln in proc.stdout.splitlines() if ln.startswith("ROW|")]
+     assert rows == [["", "", "NA"], ["2", "", "FAIL"], ["2", "0", "FAIL"], ["2", "1", "WARN"],
+-                    ["2", "2", "PASS"], ["1", "2", "FAIL"], ["0", "", "FAIL"]]
++                    ["2", "2", "PASS"], ["1", "2", "FAIL"], ["0", "", "FAIL"],
++                    # round 2: out-of-domain enum values are ERR, never a fall-through PASS
++                    ["2", "3", "ERR"], ["2", "-1", "ERR"], ["3", "2", "ERR"], ["-1", "2", "ERR"]]
+ 
+ 
+ def test_windows_get_regvalue_separates_absent_from_error(tmp_path):
+@@ -372,6 +375,26 @@ Invoke-HostPostureChecks -Context $ctx
+     assert passed == ["WIN-PATCH-AGE"], passed     # the only non-registry PASS in this fixture
+ 
+ 
++@pytest.mark.parametrize("val,want", [(7, "ERR"), (-1, "ERR"), (5, "PASS"), (4, "WARN"), (2, "FAIL")])
++def test_windows_lmcompat_out_of_domain_is_err(tmp_path, val, want):
++    # Round 2 sweep (enumerated policy, fall-through PASS): LmCompatibilityLevel is 0..5;
++    # anything else is ERR, never graded as the PASS end of the scale.
++    body = _lib(r"""
++function Get-RegValue { param([string]$Path, [string]$Name)
++  if ($Name -eq 'LmCompatibilityLevel') { return %d }
++  return $null }
++function Get-Service { param([string]$Name) [pscustomobject]@{ Name=$Name; Status='Running' } }
++function Get-HotFix { @([pscustomobject]@{ InstalledOn = (Get-Date).AddDays(-3) }) }
++function Get-CimInstance { param($ClassName,$Namespace,$Filter) throw 'no cim' }
++$ctx = @{ ComputerName='WS01'; PartOfDomain=$false; Domain='WORKGROUP'; IsDC=$false; Build=19045; Caption='Windows 10'; ProductType=1 }
++Invoke-HostPostureChecks -Context $ctx
++""" % val)
++    proc = _pwsh_file(tmp_path, body)
++    assert proc.returncode == 0, proc.stderr
++    got = {c: st for c, st, _ in _posture_lines(proc.stdout)}
++    assert got["WIN-CRED-LMCOMPAT"] == want, got.get("WIN-CRED-LMCOMPAT")
++
++
+ def test_windows_rootdse_uses_the_bounded_searcher(tmp_path):
+     # R5: RootDSE is read through Invoke-LdapSearch (ClientTimeout/ServerTimeLimit), with
+     # the collector's -TimeoutSeconds threaded through -- not an unbounded DirectoryEntry.
+@@ -476,7 +499,8 @@ def test_windows_collector_and_payload_pass_pssa_51_profiles(tmp_path):
+                            str(canary), str(WINPS), str(payload)],
+                           capture_output=True, text=True, timeout=600)
+     if "PSSA_MISSING" in proc.stdout:
+-        pytest.skip("PSScriptAnalyzer not installed -- 5.1 profile check inconclusive")
++        pytest.fail("PSScriptAnalyzer missing: the 5.1 profile gate is required whenever pwsh is "
++                    "present (Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser)")
+     assert proc.returncode == 0, proc.stderr
+     rows = {r.split("|")[1]: r.split("|")[2:] for r in proc.stdout.splitlines() if r.startswith("PSSA|")}
+     assert set(rows["canary.ps1"][1].split(",")) == {
+@@ -484,6 +508,18 @@ def test_windows_collector_and_payload_pass_pssa_51_profiles(tmp_path):
+     assert rows[WINPS.name] == ["0", ""], rows[WINPS.name]
+     assert rows["payload.ps1"] == ["0", ""], rows["payload.ps1"]
+ 
++def test_redactor_folds_case_for_identities_but_leaves_non_ip_tokens_verbatim():
++    # Round 2 NEW-1: case-folding is for identity lookup only. A colon token that is
++    # not an IP address (uppercase MAC) must come back byte-for-byte, while the same
++    # host in two cases still maps to one token.
++    r = RPT.Redactor(True)
++    r.set_known_hosts(["dc01.corp.local"])
++    out = r("mac AA:BB:CC:DD:EE:FF host DC01.CORP.LOCAL and dc01.corp.local ip FE80::1")
++    assert "AA:BB:CC:DD:EE:FF" in out
++    assert "DC01" not in out and "dc01" not in out and "FE80::1" not in out.upper()
++    assert out.count("<TARGET-1>") == 2, out
++
++
+ # ============================================================ report.py parser / model
+ def _bulk_tree(tmp_path: Path, hosts: "dict[str, tuple[str, str]]") -> Path:
+     """hosts: dirname -> (ip, winenum|linenum file content)."""
+diff --git a/docs/review/s3-posture-kb/catalog.json b/docs/review/s3-posture-kb/catalog.json
+index 4f6fbac..35b3c7a 100644
+--- a/docs/review/s3-posture-kb/catalog.json
++++ b/docs/review/s3-posture-kb/catalog.json
+@@ -778,7 +778,7 @@
+   "category": "winlocal",
+   "sev_fail": "high",
+   "sev_warn": "medium",
+-  "semantics": "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5."
++  "semantics": "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5; ERR: value outside 0..5."
+  },
+  {
+   "id": "WIN-CRED-NOLMHASH",
+@@ -1064,7 +1064,7 @@
+   "category": "ad",
+   "sev_fail": "high",
+   "sev_warn": "medium",
+-  "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS)."
++  "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable or a value outside 0..2 (never a false PASS)."
+  },
+  {
+   "id": "AD-TRUSTS",
+diff --git a/docs/review/s3-posture-kb/catalog.py b/docs/review/s3-posture-kb/catalog.py
+index 8771b76..46396d7 100644
+--- a/docs/review/s3-posture-kb/catalog.py
++++ b/docs/review/s3-posture-kb/catalog.py
+@@ -83,7 +83,7 @@ WIN = [
+  ("WIN-CRED-RUNASPPL", "LSA protection (RunAsPPL)", "credential-protection", "winlocal", "", "medium", "PASS: Lsa RunAsPPL 1 or 2; WARN: not set."),
+  ("WIN-CRED-CREDGUARD", "Credential Guard", "credential-protection", "winlocal", "", "low", "PASS: Credential Guard running; WARN: not running; ERR: DeviceGuard WMI unavailable."),
+  ("WIN-CRED-WDIGEST", "WDigest cleartext credentials", "credential-protection", "winlocal", "critical", "", "FAIL: WDigest UseLogonCredential=1 (cleartext passwords in LSASS); PASS: 0/absent on 8.1+."),
+- ("WIN-CRED-LMCOMPAT", "LAN Manager authentication level", "credential-protection", "winlocal", "high", "medium", "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5."),
++ ("WIN-CRED-LMCOMPAT", "LAN Manager authentication level", "credential-protection", "winlocal", "high", "medium", "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5; ERR: value outside 0..5."),
+  ("WIN-CRED-NOLMHASH", "LM hash storage", "credential-protection", "winlocal", "high", "", "FAIL: NoLMHash=0; PASS: 1/default."),
+  ("WIN-CRED-CACHEDLOGONS", "Cached domain logons", "credential-protection", "winlocal", "", "low", "WARN: CachedLogonsCount >4 (default 10); PASS: <=4; NA: not domain-joined."),
+  ("WIN-UAC-LUA", "UAC enabled", "access-control", "winlocal", "high", "", "FAIL: EnableLUA=0; PASS: 1."),
+@@ -111,7 +111,7 @@ AD = [
+  ("AD-PROTECTED-USERS", "Protected Users group", "domain-privilege", "ad", "", "low", "WARN: Protected Users has no members; PASS: >=1."),
+  ("AD-MAQ", "Machine account quota", "domain-policy", "ad", "", "medium", "WARN: ms-DS-MachineAccountQuota>0 (any user can join computers; RBCD/Certifried aid); PASS: 0."),
+  ("AD-FUNC-LEVEL", "Domain/forest functional level", "domain-policy", "ad", "", "low", "WARN: domain functional level below 2016 (msDS-Behavior-Version<7); PASS: >=7."),
+- ("AD-LDAP-SIGNING", "DC LDAP signing / channel binding", "relay", "ad", "high", "medium", "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS)."),
++ ("AD-LDAP-SIGNING", "DC LDAP signing / channel binding", "relay", "ad", "high", "medium", "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable or a value outside 0..2 (never a false PASS)."),
+  ("AD-TRUSTS", "Domain trusts", "domain-policy", "ad", "", "", "INFO: count and direction of trustedDomain objects."),
+  ("AD-LAPS-SCHEMA", "LAPS schema present", "domain-policy", "ad", "", "medium", "PASS: ms-Mcs-AdmPwd or msLAPS-Password attribute in schema; WARN: neither."),
+ ]
+diff --git a/standalones/windows/Invoke-HostPosture.ps1 b/standalones/windows/Invoke-HostPosture.ps1
+index 6d68bdd..54fda4b 100644
+--- a/standalones/windows/Invoke-HostPosture.ps1
++++ b/standalones/windows/Invoke-HostPosture.ps1
+@@ -230,11 +230,19 @@ function Resolve-LdapSigningStatus {
+     $cb = 'unset'
+     if ($null -ne $ChannelBinding) { $cb = [string]$ChannelBinding }
+     $detail = 'LDAPServerIntegrity=' + $ServerIntegrity + ' LdapEnforceChannelBinding=' + $cb
+-    if ([int]$ServerIntegrity -lt 2) { return (New-PostureResult 'FAIL' $detail) }
+-    if ($null -eq $ChannelBinding -or [int]$ChannelBinding -eq 0) {
++    # Both are enumerated policies: a value outside the documented domain is ERR,
++    # never a fall-through PASS (si 0..2, cb 0..2).
++    $si = [int]$ServerIntegrity
++    if ($si -lt 0 -or $si -gt 2) { return (New-PostureResult 'ERR' ($detail + ' (LDAPServerIntegrity outside 0..2)')) }
++    if ($null -ne $ChannelBinding) {
++        $cbv = [int]$ChannelBinding
++        if ($cbv -lt 0 -or $cbv -gt 2) { return (New-PostureResult 'ERR' ($detail + ' (LdapEnforceChannelBinding outside 0..2)')) }
++    }
++    if ($si -lt 2) { return (New-PostureResult 'FAIL' $detail) }
++    if ($null -eq $ChannelBinding -or $cbv -eq 0) {
+         return (New-PostureResult 'FAIL' ($detail + ' (LDAPS relay: channel binding not enforced)'))
+     }
+-    if ([int]$ChannelBinding -eq 1) {
++    if ($cbv -eq 1) {
+         return (New-PostureResult 'WARN' ($detail + ' (channel binding only when supported)'))
+     }
+     return (New-PostureResult 'PASS' $detail)
+@@ -524,6 +532,7 @@ function Invoke-HostPostureChecks {
+     Invoke-PostureCheck 'WIN-CRED-LMCOMPAT' {
+         $v = Get-RegValue $lsa 'LmCompatibilityLevel'
+         if ($null -eq $v) { return (New-PostureResult 'WARN' 'LmCompatibilityLevel unset (default 3)') }
++        if ([int]$v -lt 0 -or [int]$v -gt 5) { return (New-PostureResult 'ERR' ('LmCompatibilityLevel=' + $v + ' (outside 0..5)')) }
+         if ([int]$v -lt 3) { return (New-PostureResult 'FAIL' ('LmCompatibilityLevel=' + $v)) }
+         if ([int]$v -lt 5) { return (New-PostureResult 'WARN' ('LmCompatibilityLevel=' + $v)) }
+         New-PostureResult 'PASS' ('LmCompatibilityLevel=' + $v)

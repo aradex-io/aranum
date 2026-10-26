@@ -1,0 +1,3 @@
+# CLM RED proof for REVIEW-010 R1 (pwsh 7.6.7, -Command - over stdin, ConstrainedLanguage)
+old-0f80c45: PRIV-RAN=0 POSTURE_lines=0 AD_lines=0 first_error=Method invocation is supported only on core types in this language mode
+new-1904ba3: PRIV-RAN=1 POSTURE_lines=56 AD_lines=15 first_error=

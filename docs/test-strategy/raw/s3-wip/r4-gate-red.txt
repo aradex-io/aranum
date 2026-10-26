@@ -1,0 +1,30 @@
+## M1 (reviewer counterexample): AIE HKCU read unvalidated, at 7ff27c2
+ standalones/windows/Invoke-HostPosture.ps1 | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+E           AssertionError: ('HKCU:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer!AlwaysInstallElevated', {})
+E           AssertionError: ('HKCU:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer!AlwaysInstallElevated', {})
+E           AssertionError: ('HKCU:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer!AlwaysInstallElevated', {})
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[99]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[-1]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass['x']
+3 failed, 44 deselected in 44.31s
+## M2: PS-V2 domain reverted to f309050 (version-shaped only), at 7ff27c2
+ standalones/windows/Invoke-HostPosture.ps1 | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+E           AssertionError: ('HKLM:\\SOFTWARE\\Microsoft\\PowerShell\\1\\PowerShellEngine!PowerShellVersion', {})
+E           AssertionError: ('HKLM:\\SOFTWARE\\Microsoft\\PowerShell\\1\\PowerShellEngine!PowerShellVersion', {'WIN-PS-V2': ('ERR', 'check failed: PowerShellVersion=-1 is not a version')})
+E           AssertionError: ('HKLM:\\SOFTWARE\\Microsoft\\PowerShell\\1\\PowerShellEngine!PowerShellVersion', {'WIN-PS-V2': ('ERR', 'check failed: PowerShellVersion=x is not a version')})
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[99]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[-1]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass['x']
+3 failed, 44 deselected in 46.25s
+## restored (7ff27c2)
+3 passed, 44 deselected in 56.95s
+## pre-fix commit af45c48 with the new test
+E           AssertionError: ('HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile!EnableFirewall', {'WIN-FW-DOMAIN': ('WARN', 'disabled (policy)')})
+E           AssertionError: ('HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile!EnableFirewall', {'WIN-FW-DOMAIN': ('WARN', 'disabled (policy)')})
+E           AssertionError: ('HKLM:\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\DomainProfile!EnableFirewall', {})
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[99]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass[-1]
+FAILED aranumtoolkit/tests/test_host_posture.py::test_gate_out_of_domain_registry_values_never_grade_pass['x']
+3 failed, 44 deselected in 48.33s
