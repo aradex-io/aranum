@@ -61,6 +61,8 @@ NAV_ITEMS = [
     ("Inbox",     "inbox.html"),
     ("Guidance",  "guidance.html"),
     ("Hosts",     "hosts.html"),
+    ("Active Directory", "ad.html"),
+    ("Categories", "categories.html"),
     ("Inventory", "inventory.html"),
     ("Services",  "services.html"),
     ("Severity",  "severity.html"),
@@ -377,6 +379,66 @@ def read_guidance(out_dir: Path) -> list[dict]:
     return []
 
 
+# ----------------------------------------------------------- run health (G10)
+_RUN_HEALTH_RE = re.compile(r"^\s*\[!\]\s*(?P<msg>.+?)\s*$")
+_RUN_HEALTH_REASONS = (
+    ("timeout", re.compile(r"\b(time ?d? ?out|timeout|deadline exceeded)\b", re.I)),
+    ("missing-tool", re.compile(r"\b(not installed|not found|missing|no such file|command not found|unavailable)\b", re.I)),
+    ("refused", re.compile(r"\b(refused|unreachable|reset|no route|connection closed|denied)\b", re.I)),
+    ("error", re.compile(r"\b(error|failed|exception|traceback|crash)\b", re.I)),
+)
+
+
+def _run_health_reason(msg: str) -> str:
+    for name, rx in _RUN_HEALTH_REASONS:
+        if rx.search(msg):
+            return name
+    return "other"
+
+
+def build_run_health(out_dir: Path, rules) -> list[dict]:
+    """G10 — operational gaps: `[!]` warning lines in any `_dispatcher.log`
+    that NO severity rule grades (tool missing, refused, timed out, errored).
+    Grouped by service (the dispatcher-log's parent dir) and reason, with a
+    count and one sample line. These are coverage gaps, not findings."""
+    agg: "dict[tuple[str, str], dict]" = {}
+    for log in sorted(out_dir.rglob("_dispatcher.log")):
+        if rpt._is_generated_dashboard_dir(log.parent):
+            continue
+        service = log.parent.name if log.parent != out_dir else "(run)"
+        try:
+            text = log.read_text(errors="replace")
+        except Exception:
+            continue
+        for raw in text.splitlines():
+            m = _RUN_HEALTH_RE.match(raw)
+            if not m:
+                continue
+            msg = m.group("msg")
+            # Skip anything a severity rule actually grades — that is a finding,
+            # not a coverage gap.
+            if rpt._classify_line(raw, rules) is not None:
+                continue
+            reason = _run_health_reason(msg)
+            key = (service, reason)
+            slot = agg.setdefault(key, {"service": service, "reason": reason,
+                                        "count": 0, "sample": msg})
+            slot["count"] += 1
+    order = {"timeout": 0, "missing-tool": 1, "refused": 2, "error": 3, "other": 4}
+    return sorted(agg.values(), key=lambda s: (s["service"], order.get(s["reason"], 9)))
+
+
+def _dc_hosts(inventory: list[dict]) -> list[str]:
+    """Domain controllers: hosts exposing Kerberos (88) plus LDAP (389) or SMB
+    (445) — the inventory signature of a DC."""
+    ports: "dict[str, set[int]]" = defaultdict(set)
+    for r in inventory:
+        if r.get("host") and isinstance(r.get("port"), int):
+            ports[r["host"]].add(r["port"])
+    dcs = [h for h, ps in ports.items() if 88 in ps and (389 in ps or 445 in ps)]
+    return sorted(dcs)
+
+
 # --------------------------------------------------------------- aggregation
 def _is_run_scope(f: dict) -> bool:
     """A finding the collector could not attribute to a known endpoint. Prefer
@@ -601,6 +663,8 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
         "inventory_by_host": dict(inventory_by_host),
         "inbox": build_inbox(findings),
         "guidance": read_guidance(out_dir),
+        "run_health": build_run_health(out_dir, rules),
+        "dc_hosts": _dc_hosts(inventory),
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -836,6 +900,7 @@ def render_index(model: dict) -> str:
   </table>
 </section>
 """
+    body += render_run_health_panel(model)
     return render_page("Dashboard", body, "Dashboard")
 
 
@@ -937,10 +1002,11 @@ def _render_host_port_rows(model: dict, host: str, details_open: bool = True) ->
         if r["findings"]:
             inner = []
             for f in r["findings"]:
+                guide = kb_guidance_html(f)
                 inner.append(f"""
                 <tr>
                   <td>{severity_chip(f['severity'])}</td>
-                  <td><code class="mono">{e(truncate(clean_line(f['line']), 320))}</code></td>
+                  <td><code class="mono">{e(truncate(clean_line(f['line']), 320))}</code>{guide}</td>
                   <td><code class="mono small">{e(f['evidence_path'])}</code></td>
                 </tr>""")
             finding_rows_html = f"""
@@ -1745,6 +1811,25 @@ code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; border:
 .chip-medium   { background: color-mix(in srgb, var(--sev-medium) 22%, transparent);   color: var(--sev-medium);   border: 1px solid color-mix(in srgb, var(--sev-medium) 40%, transparent); }
 .chip-low      { background: color-mix(in srgb, var(--sev-low) 22%, transparent);      color: var(--sev-low);      border: 1px solid color-mix(in srgb, var(--sev-low) 40%, transparent); }
 .chip-info     { background: color-mix(in srgb, var(--sev-info) 22%, transparent);     color: var(--sev-info);     border: 1px solid color-mix(in srgb, var(--sev-info) 40%, transparent); }
+.chip-warn     { background: color-mix(in srgb, var(--sev-high) 22%, transparent);     color: var(--sev-high);     border: 1px solid color-mix(in srgb, var(--sev-high) 40%, transparent); }
+/* S2 — KB test/remediation guidance + callouts */
+.callout { border-radius: 8px; padding: 10px 14px; margin: 10px 0 16px 0; border: 1px solid var(--border); background: var(--bg-elev-2); font-size: 0.9em; }
+.callout-warn { border-color: color-mix(in srgb, var(--sev-high) 45%, transparent); background: color-mix(in srgb, var(--sev-high) 10%, transparent); }
+details.kb-guide { margin: 6px 0 2px 0; }
+details.kb-guide > summary { cursor: pointer; color: var(--accent, #6af); font-size: 0.86em; user-select: none; }
+.kb-body { margin: 6px 0 4px 0; padding: 8px 10px; border-left: 2px solid var(--border); background: var(--bg-elev-2); border-radius: 0 6px 6px 0; }
+.kb-why { margin: 0 0 8px 0; font-size: 0.9em; }
+.kb-block { margin: 6px 0; }
+.kb-h { display: block; font-weight: 600; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; margin-bottom: 3px; }
+.kb-cmd { margin: 3px 0; }
+.kb-cmd-label { display: block; font-size: 0.82em; opacity: 0.85; }
+.kb-cmd-line { display: flex; align-items: center; gap: 6px; }
+.kb-cmd-line code { flex: 1; overflow-x: auto; }
+.kb-fix { margin: 3px 0; font-size: 0.9em; }
+.kb-fix-text { display: block; opacity: 0.95; }
+.kb-refs { font-size: 0.82em; opacity: 0.8; margin-top: 6px; }
+.copybtn { cursor: pointer; border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text); border-radius: 4px; padding: 1px 6px; font-size: 0.9em; line-height: 1.2; }
+.copybtn.copied { color: var(--sev-low); border-color: var(--sev-low); }
 .chip-svc, .chip-host {
   background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border);
   margin-right: 4px; margin-bottom: 4px; text-decoration: none;
@@ -2062,6 +2147,26 @@ JS_TEMPLATE = r"""
       search.value = ""; search.dispatchEvent(new Event("input")); search.blur();
     }
   });
+
+  // ---- copy-to-clipboard for KB test/fix commands (delegated) ----
+  document.addEventListener("click", async e => {
+    const btn = e.target.closest("[data-copy]");
+    if (!btn) return;
+    const text = btn.getAttribute("data-copy") || "";
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); document.body.removeChild(ta);
+      }
+      const old = btn.textContent;
+      btn.textContent = "✓"; btn.classList.add("copied");
+      setTimeout(() => { btn.textContent = old; btn.classList.remove("copied"); }, 1200);
+    } catch (err) { /* clipboard blocked — no-op */ }
+  });
 })();
 """
 
@@ -2105,6 +2210,210 @@ def render_wiki_index() -> str:
     return render_page("Wiki", body, "Wiki")
 
 
+# ------------------------------------------------------ KB guidance (S2/D2.2)
+_FINDING_KB = rpt._load_finding_kb()
+
+
+def _kb_class(f: dict) -> "dict | None":
+    """The KB class for a finding, or None when it was not graded by a rule
+    that has its own KB class (service-default or custom rules)."""
+    if f.get("kb_match") == "rule" and f.get("kb_id"):
+        cls = _FINDING_KB.get("classes", {}).get(f["kb_id"])
+        if isinstance(cls, dict):
+            return cls
+    return None
+
+
+def _short_ref(url: str) -> str:
+    try:
+        host = re.sub(r"^https?://(www\.)?", "", url).split("/", 1)[0]
+        return host or url
+    except Exception:
+        return url
+
+
+def _kb_cmd_row(label: str, cmd: str) -> str:
+    """A labelled, copyable command line. The copy button reuses the delegated
+    [data-copy] handler in dashboard.js."""
+    return (f'<div class="kb-cmd"><span class="kb-cmd-label">{e(label)}</span>'
+            f'<div class="kb-cmd-line"><code class="mono">{e(cmd)}</code>'
+            f'<button class="copybtn" type="button" data-copy="{e(cmd)}" '
+            f'title="Copy">⧉</button></div></div>')
+
+
+def kb_guidance_html(f: dict) -> str:
+    """Collapsible 'How to test / How to fix' guidance for one finding, drawn
+    from its KB class. Empty string when there is no KB class for the finding."""
+    cls = _kb_class(f)
+    if not cls:
+        return ""
+    parts: list[str] = []
+    if cls.get("why"):
+        parts.append(f'<p class="kb-why">{e(str(cls["why"]))}</p>')
+    tests = [t for t in cls.get("test", []) if isinstance(t, dict) and t.get("cmd")]
+    if tests:
+        rows = "".join(_kb_cmd_row(str(t.get("label", "")), str(t["cmd"])) for t in tests)
+        parts.append(f'<div class="kb-block"><span class="kb-h">How to test</span>{rows}</div>')
+    fixes = [x for x in cls.get("fix", []) if isinstance(x, dict)]
+    if fixes:
+        frows = []
+        for x in fixes:
+            if x.get("cmd"):
+                frows.append(_kb_cmd_row(str(x.get("label", "")), str(x["cmd"])))
+            else:
+                frows.append(f'<div class="kb-fix"><span class="kb-cmd-label">'
+                             f'{e(str(x.get("label", "")))}</span>'
+                             f'<span class="kb-fix-text">{e(str(x.get("text", "")))}</span></div>')
+        parts.append(f'<div class="kb-block"><span class="kb-h">How to fix</span>{"".join(frows)}</div>')
+    refs = [r for r in cls.get("refs", []) if isinstance(r, str)]
+    if refs:
+        links = " · ".join(f'<a href="{e(r)}" target="_blank" rel="noopener">{e(_short_ref(r))}</a>'
+                           for r in refs)
+        parts.append(f'<div class="kb-refs">References: {links}</div>')
+    title = e(str(cls.get("title", "guidance")))
+    return (f'<details class="kb-guide"><summary>Test &amp; remediation — {title}</summary>'
+            f'<div class="kb-body">{"".join(parts)}</div></details>')
+
+
+# AD attack-path families: rule_id substring -> family. First match wins.
+_AD_FAMILIES = [
+    ("Relay &amp; coercion", ["signing", "petitpotam", "webclient", "localaccounttoken",
+                              "printnightmare", "esc8", "relay"]),
+    ("Kerberoasting / AS-REP", ["kerberoast", "as-rep", "asrep"]),
+    ("AD CS (certificate services)", ["esc-1-9", "esc8", "adcs", "cert"]),
+    ("Delegation", ["unconstrained-delegation", "allowedtoact", "machineaccountquota", "delegation"]),
+    ("Credential exposure", ["cpassword", "gpp", "laps", "wdigest", "ccm-logs", "sccm"]),
+    ("Policy &amp; hygiene", []),  # catch-all for remaining AD findings
+]
+
+
+def _ad_family(rule_id: str) -> str:
+    for name, subs in _AD_FAMILIES:
+        for s in subs:
+            if s in rule_id:
+                return name
+    return "Policy &amp; hygiene"
+
+
+def render_ad(model: dict) -> str:
+    """S2/D2.2 — Active Directory attack-surface page.
+
+    Lists detected domain controllers, then AD findings grouped by attack-path
+    family. Cross-family signals are labelled UNCORRELATED: S2 has no domain
+    identity yet, so we cannot claim two findings share a domain. S3's domain
+    rollup upgrades these to confirmed, domain-keyed chains."""
+    findings = [f for f in model["findings"] if f.get("category") == "ad"]
+    dcs = model.get("dc_hosts", [])
+    dc_html = (", ".join(f'<a href="host_{e(safe_name(h))}.html"><code class="mono">{e(h)}</code></a>'
+                         for h in dcs)
+               if dcs else '<span class="muted">none positively identified (88 + 389/445)</span>')
+    body = [f"""
+<section class="card">
+  <h2 class="card-title">Domain controllers</h2>
+  <p class="card-sub">Hosts exposing Kerberos (88) with LDAP (389) or SMB (445).</p>
+  <p>{dc_html}</p>
+</section>
+<div class="callout callout-warn">
+  <strong>Uncorrelated signals.</strong> The findings below are grouped by attack-path
+  family, not by domain. aranum has not yet established domain identity, so two findings in
+  different families are <em>not</em> confirmed to share a domain or be chainable. Treat each as an
+  independent signal until confirmed.
+</div>
+"""]
+    if not findings:
+        body.append('<section class="card"><p class="muted">No Active Directory findings.</p></section>')
+        return render_page("Active Directory", "".join(body), "Active Directory")
+    fam: "dict[str, list[dict]]" = defaultdict(list)
+    for f in findings:
+        fam[_ad_family(str(f.get("rule_id", "")))].append(f)
+    for name, _ in _AD_FAMILIES:
+        group = fam.get(name)
+        if not group:
+            continue
+        rows = []
+        for f in sorted(group, key=lambda x: (SEVERITY_ORDER.index(x["severity"])
+                                              if x["severity"] in SEVERITY_ORDER else 9, x.get("host", ""))):
+            guide = kb_guidance_html(f)
+            rows.append(f"""
+            <tr>
+              <td>{severity_chip(f['severity'])}</td>
+              <td><a href="host_{e(safe_name(f['host']))}.html"><code class="mono">{e(f['host'])}</code></a></td>
+              <td><code class="mono">{e(truncate(clean_line(f['line']), 200))}</code>{guide}</td>
+            </tr>""")
+        body.append(f"""
+<section class="card">
+  <h2 class="card-title">{name} <span class="chip chip-info">{len(group)}</span></h2>
+  <table class="data">
+    <thead><tr><th>Sev</th><th>Host</th><th>Signal &amp; guidance</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
+</section>""")
+    return render_page("Active Directory", "".join(body), "Active Directory")
+
+
+def render_categories(model: dict) -> str:
+    """S2/D2.2 — findings organised by KB category, each with test/fix guidance."""
+    cats = _FINDING_KB.get("categories", {})
+    findings = [f for f in model["findings"] if f.get("severity") in ("critical", "high", "medium")]
+    by_cat: "dict[str, list[dict]]" = defaultdict(list)
+    for f in findings:
+        by_cat[str(f.get("category") or "network")].append(f)
+    ordered = sorted(by_cat, key=lambda c: (cats.get(c, {}).get("order", 99), c))
+    intro = """
+<p class="card-sub">Findings grouped by category. Each row carries test and remediation guidance from
+the finding knowledge base (<code class="mono">aranumtoolkit/network/finding-kb.json</code>).</p>
+"""
+    body = [intro]
+    if not ordered:
+        body.append('<section class="card"><p class="muted">No non-low findings.</p></section>')
+    for cat in ordered:
+        title = cats.get(cat, {}).get("title", cat)
+        group = by_cat[cat]
+        rows = []
+        for f in sorted(group, key=lambda x: (SEVERITY_ORDER.index(x["severity"])
+                                              if x["severity"] in SEVERITY_ORDER else 9, x.get("host", ""))):
+            guide = kb_guidance_html(f)
+            rows.append(f"""
+            <tr>
+              <td>{severity_chip(f['severity'])}</td>
+              <td><a href="host_{e(safe_name(f['host']))}.html"><code class="mono">{e(f['host'])}</code></a></td>
+              <td><code class="mono">{e(truncate(clean_line(f['line']), 200))}</code>{guide}</td>
+            </tr>""")
+        body.append(f"""
+<section class="card">
+  <h2 class="card-title" id="{e(cat)}">{e(title)} <span class="chip chip-info">{len(group)}</span></h2>
+  <table class="data">
+    <thead><tr><th>Sev</th><th>Host</th><th>Finding &amp; guidance</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
+</section>""")
+    return render_page("Categories", "".join(body), "Categories")
+
+
+def render_run_health_panel(model: dict) -> str:
+    """A panel (used on the index) listing dispatcher coverage gaps (G10)."""
+    rh = model.get("run_health", [])
+    if not rh:
+        return ""
+    rows = "".join(f"""
+      <tr>
+        <td><code class="mono">{e(r['service'])}</code></td>
+        <td><span class="chip chip-info">{e(r['reason'])}</span></td>
+        <td class="num">{r['count']}</td>
+        <td><code class="mono small">{e(truncate(r['sample'], 160))}</code></td>
+      </tr>""" for r in rh)
+    return f"""
+<section class="card">
+  <h2 class="card-title">Run health <span class="chip chip-warn">{len(rh)}</span></h2>
+  <p class="card-sub">Dispatcher <code>[!]</code> warnings no rule graded — coverage gaps
+  (tool missing, refused, timed out, errored), not findings.</p>
+  <table class="data">
+    <thead><tr><th>Service</th><th>Reason</th><th>Count</th><th>Sample</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>"""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Generate a multi-page HTML dashboard from an aranum $OUTDIR.",
@@ -2132,6 +2441,8 @@ def main() -> int:
     pages.append(("inbox.html", render_inbox(model)))
     pages.append(("guidance.html", render_guidance(model)))
     pages.append(("hosts.html", render_hosts(model)))
+    pages.append(("ad.html", render_ad(model)))
+    pages.append(("categories.html", render_categories(model)))
     pages.append(("inventory.html", render_inventory(model)))
     pages.append(("services.html", render_services(model)))
     pages.append(("severity.html", render_severity_landing(model)))
