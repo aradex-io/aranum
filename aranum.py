@@ -53,6 +53,7 @@ _COMMANDS = {
     "bulk-windows": ("python", _script_path("bulk-enum-windows.py")),
     "ssh-triage": ("bash", _script_path("ssh-triage.sh")),
     "ssh-key-triage": ("python", _script_path("ssh-key-triage.py")),
+    "local": ("python", _script_path("local-enum.py")),
     "export-recce": ("python", INTEROP_DIR / "aranum_to_recce.py"),
 }
 _LOCAL_COMMANDS = {"queue", "version", "selftest", "deps-check"}
@@ -80,6 +81,24 @@ _AUTO_ENUM_VALUE_FLAGS = {
     "--queue",
     "--skip-low-priority",
 }
+
+# `aranum run <scan> --local ...` partitions argv: these local-only flags (and
+# the bool flags below) go ONLY to local-enum.py; the shared flags go to both;
+# everything else goes to auto-enum. Keeps auto-enum from ever seeing a flag it
+# rejects (S4/ADR-007 D6).
+_LOCAL_ENUM_VALUE_FLAGS = {
+    "--targets", "--from-inventory", "--creds", "--key", "--transport",
+    "--win-exec", "--host-timeout", "--connect-timeout",
+    "--linux-script", "--linux-posture-script", "--windows-script",
+}
+_LOCAL_ENUM_BOOL_FLAGS = {
+    "--local", "--self", "--use-smb-admin", "--ad", "--desktop-ok",
+    "--vnc-automate", "--tls",
+}
+# Passed to BOTH auto-enum and local-enum when `run --local` is used.
+_LOCAL_SHARED_VALUE_FLAGS = {"-u", "--user", "-p", "--password", "--pass",
+                             "-H", "--hash", "-d", "--domain", "-P", "--parallel"}
+_LOCAL_SHARED_BOOL_FLAGS = {"--dry-run"}
 
 
 def _build_help() -> str:
@@ -635,16 +654,11 @@ def _prepare_run_args(args: Sequence[str]) -> tuple[list[str], bool, bool]:
     return run_args, generate_report, serve_dashboard
 
 
-def _run_auto_enum(args: Sequence[str], session: str) -> int:
-    dirs = _session_dirs(session)
-    run_args, generate_report, serve_dashboard = _prepare_run_args(args)
-    run_args = _add_default_output(run_args, dirs["raw"])
-    _copy_input_artifact(_extract_option(run_args, {"-i", "--input"}), dirs["inputs"])
-    rc = subprocess.run(build_command("run", run_args)).returncode
-    if rc != 0 or not generate_report:
-        return rc
-
-    outdir = Path(_extract_option(run_args, {"-o", "--output"}) or dirs["raw"])
+def _run_report_chain(outdir: Path, session: str, dirs: dict, serve_dashboard: bool) -> int:
+    """report.py over `outdir`, copy the artifacts, then build (or serve) the
+    dashboard. Shared by `aranum run … -report` and `aranum local … -report`
+    so the auto-enum and access-layer paths produce the identical report chain
+    (and, for `run --local`, one chain over the mixed tree)."""
     report_cmd = build_command("report", [str(outdir), "--label", session])
     rc = subprocess.run(report_cmd).returncode
     if rc != 0:
@@ -662,6 +676,103 @@ def _run_auto_enum(args: Sequence[str], session: str) -> int:
         index = dash_dir / "index.html"
         print(f"[*] dashboard generated: file://{index}", file=sys.stderr)
     return rc
+
+
+def _partition_local(args: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Split `run --local` argv into (auto_enum_args, local_enum_args). Local-only
+    flags go only to local-enum; shared creds/-P/--dry-run go to both; `--local`
+    itself is consumed; everything else is an auto-enum arg."""
+    auto: list[str] = []
+    local: list[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--local":
+            i += 1
+        elif arg in _LOCAL_ENUM_VALUE_FLAGS:
+            local += [arg, args[i + 1]] if i + 1 < len(args) else [arg]
+            i += 2
+        elif arg in _LOCAL_ENUM_BOOL_FLAGS:
+            local.append(arg)
+            i += 1
+        elif arg in _LOCAL_SHARED_VALUE_FLAGS:
+            val = args[i + 1] if i + 1 < len(args) else ""
+            auto += [arg, val]
+            local += [arg, val]
+            i += 2
+        elif arg in _LOCAL_SHARED_BOOL_FLAGS:
+            auto.append(arg)
+            local.append(arg)
+            i += 1
+        else:
+            auto.append(arg)
+            i += 1
+    return auto, local
+
+
+def _run_auto_enum(args: Sequence[str], session: str) -> int:
+    if "--local" in args:
+        return _run_auto_enum_local(args, session)
+    dirs = _session_dirs(session)
+    run_args, generate_report, serve_dashboard = _prepare_run_args(args)
+    run_args = _add_default_output(run_args, dirs["raw"])
+    _copy_input_artifact(_extract_option(run_args, {"-i", "--input"}), dirs["inputs"])
+    rc = subprocess.run(build_command("run", run_args)).returncode
+    if rc != 0 or not generate_report:
+        return rc
+
+    outdir = Path(_extract_option(run_args, {"-o", "--output"}) or dirs["raw"])
+    return _run_report_chain(outdir, session, dirs, serve_dashboard)
+
+
+def _run_auto_enum_local(args: Sequence[str], session: str) -> int:
+    """`aranum run <scan> --local [args]`: auto-enum first, then the local
+    access layer over the same raw tree (seeded by inventory.json), then one
+    report chain over the resulting mixed tree (ADR-007 D6)."""
+    dirs = _session_dirs(session)
+    auto_args, local_args = _partition_local(args)
+    run_args, generate_report, serve_dashboard = _prepare_run_args(auto_args)
+    run_args = _add_default_output(run_args, dirs["raw"])
+    _copy_input_artifact(_extract_option(run_args, {"-i", "--input"}), dirs["inputs"])
+    rc = subprocess.run(build_command("run", run_args)).returncode
+    if rc != 0:
+        return rc
+    raw = Path(_extract_option(run_args, {"-o", "--output"}) or dirs["raw"])
+
+    local_args = list(local_args) + ["-o", str(raw)]
+    inv = raw / "inventory.json"
+    if inv.is_file() and not _has_option(local_args, {"--from-inventory"}) \
+            and not _has_option(local_args, {"--targets"}):
+        local_args += ["--from-inventory", str(inv)]
+    rc = subprocess.run(build_command("local", local_args)).returncode
+    if rc != 0:
+        return rc
+    if not generate_report:
+        return rc
+    return _run_report_chain(raw, session, dirs, serve_dashboard)
+
+
+def _run_local(args: Sequence[str], session: str) -> int:
+    """`aranum local [args] [-report|-serve]`: the access layer standalone,
+    defaulting output into the session raw tree and chaining the report."""
+    dirs = _session_dirs(session)
+    local_args: list[str] = []
+    generate_report = False
+    serve_dashboard = False
+    for arg in args:
+        if arg in _RUN_REPORT_FLAGS or arg in _RUN_DASHBOARD_FLAGS:
+            generate_report = True
+        elif arg in _RUN_SERVE_FLAGS:
+            generate_report = True
+            serve_dashboard = True
+        else:
+            local_args.append(arg)
+    local_args = _add_default_output(local_args, dirs["raw"])
+    rc = subprocess.run(build_command("local", local_args)).returncode
+    if rc != 0 or not generate_report:
+        return rc
+    outdir = Path(_extract_option(local_args, {"-o", "--output"}) or dirs["raw"])
+    return _run_report_chain(outdir, session, dirs, serve_dashboard)
 
 
 def _run_iterative(args: Sequence[str], session: str) -> int:
@@ -741,6 +852,8 @@ def run(command: str, args: Sequence[str], session: str, session_explicit: bool 
         return _cmd_deps_check(args)
     if command == "run":
         return _run_auto_enum(args, session)
+    if command == "local":
+        return _run_local(args, session)
     if command == "iter":
         return _run_iterative(args, session)
     if command in {"bulk-linux", "bulk-windows"}:
