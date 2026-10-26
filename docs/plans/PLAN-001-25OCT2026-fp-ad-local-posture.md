@@ -411,7 +411,7 @@ identical, and 57 S3 tests are new. Raw: `docs/test-strategy/raw/s3-head/`.
 - the `checks` section of `finding-kb.json`
 
 **Rollback:** revert the S3 squash commit. All new keys and flags are additive and
-off by default, and findings are regenerated from raw trees. Merge SHA: recorded on merge.
+off by default, and findings are regenerated from raw trees. Merge SHA: `38ffedc` (PR #8).
 
 ---
 
