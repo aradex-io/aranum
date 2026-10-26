@@ -284,7 +284,6 @@ def _build_rules(raw, *, miss_ok_patterns=()) -> "list[Rule]":
 # The literal lists below stay 2-tuples; _build_rules() converts each to a
 # Rule (with a derived stable rule_id) at the bottom of this section.
 _DEFAULT_RULES_RAW: list = [
-    (re.compile(r"\bCRITICAL\b", re.I),                                 "critical"),
     (re.compile(r"\bUNAUTH (?:Docker|etcd|/v2/keys|kubelet|apiserver)\b", re.I), "critical"),
     # REVIEW-004 service-additions: NATS + ClickHouse (unauth-by-default).
     (re.compile(r"\bCRITICAL: UNAUTH NATS\b", re.I),                    "critical"),
@@ -321,18 +320,11 @@ _DEFAULT_RULES_RAW: list = [
     # D1.5 — critical findings the classifier previously missed (G07).
     (re.compile(r"\badmin:admin WORKS\b", re.I),                        "critical"),
     (re.compile(r"\bno_root_squash\b", re.I),                           "critical"),
-    # D1.5 — generic crit-marker fallback. All `crit`/[!!] dispatcher call sites
-    # are criticals; this catches any [!!] line not matched by a specific rule
-    # above. Placed after the specific criticals (so those keep their rule_id)
-    # and before the high/medium rules (so a [!!] line is never downgraded).
-    (re.compile(r"^\s*\[!!\]\s"),                                       "critical"),
-    (re.compile(r"\bEXPOSED\b", re.I),                                  "high"),
     # E2 tier-2a medium rules that contain "UNAUTH" — must precede the generic UNAUTH high rule
     # so first-match-wins classifies them at the intended severity.
     (re.compile(r"\bCUPS UNAUTH and POTENTIALLY VULN\b", re.I),         "high"),
     (re.compile(r"\bCUPS UNAUTH:", re.I),                               "medium"),
     (re.compile(r"\bConsul UNAUTH agent API:", re.I),                   "medium"),
-    (re.compile(r"\bUNAUTH\b", re.I),                                   "high"),
     # E1 tier-1 dispatcher-specific HIGH rules (documented intent, survive generic rule rewrite)
     (re.compile(r"\bAJP responding without auth\b", re.I),               "high"),
     (re.compile(r"\bOracle (?:TNS:|SIDs discovered)", re.I),             "high"),
@@ -509,6 +501,16 @@ _DEFAULT_RULES_RAW: list = [
     (re.compile(r"\bRMI registry:", re.I),                            "medium"),
     (re.compile(r"\bKIBANA API responds\b", re.I),                    "medium"),
     (re.compile(r"\b(?:Jenkins|GitLab|SonarQube|Grafana|Prometheus) detected:", re.I), "medium"),
+    # Generic content-word fallbacks (REVIEW Phase-6 #1): these catch a bare
+    # "exposed"/"unauth" line that no product-specific rule above matched. They
+    # The two low product catch-alls stay LAST inside _DEFAULT_RULES_RAW so every
+    # specific product rule above wins first-match and keeps its own stable
+    # rule_id (the S2 KB key). The generic EXPOSED/UNAUTH (high) and CRITICAL/
+    # [!!] (critical) fallbacks were moved OUT of this list (REVIEW #1) into
+    # _GENERIC_FALLBACK_RULES, which every walker appends AFTER the AD-depth
+    # rules — so a generic can never shadow a specific rule (incl. AD-depth) and
+    # steal its rule_id. The critical severity floor is enforced structurally in
+    # _classify_line, not by rule order.
     (re.compile(r"\bVault reachable\b", re.I),                        "low"),
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
@@ -592,6 +594,72 @@ def _is_suppressed_marker(cleaned: str) -> bool:
     return any(m.search(cleaned) for m in _SUPPRESS_MARKERS)
 
 
+# Dispatcher critical markers (REVIEW #1). A line carrying either marker is a
+# critical finding no matter which severity rule won first-match; _classify_line
+# enforces this as a severity FLOOR (never a downgrade) so correctness does not
+# depend on rule ordering. _CRITICAL_FLOOR_MARKERS and _GENERIC_HIGH_PATTERNS are
+# the exact patterns used to build _GENERIC_FALLBACK_RULES (below, appended last
+# by every walker). _GENERIC_FALLBACK_IDS holds all four derived ids so
+# _classify_line can tell "only a generic fallback matched" from "a specific rule
+# matched" and keep the specific id when there is one.
+_CRITICAL_FLOOR_MARKERS: tuple = (
+    re.compile(r"\bCRITICAL\b", re.I),
+    re.compile(r"^\s*\[!!\]\s"),
+)
+_GENERIC_HIGH_PATTERNS: tuple = (
+    re.compile(r"\bEXPOSED\b", re.I),
+    re.compile(r"\bUNAUTH\b", re.I),
+)
+_GENERIC_FALLBACK_IDS: frozenset = frozenset(
+    _derive_rule_id(m) for m in _CRITICAL_FLOOR_MARKERS + _GENERIC_HIGH_PATTERNS
+)
+_FLOOR_ID_STRIP: tuple = (
+    # URL scheme+authority only (host:port); the PATH/QUERY is a distinguishing
+    # resource and MUST be kept (ROUND2 #1) so e.g. ".../admin" and ".../debug"
+    # on different hosts do not collapse to one KB key.
+    re.compile(r"https?://[^/\s]+", re.I),       # URL scheme + host[:port]
+    re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"),  # bare IPv4
+    re.compile(r":\d{1,5}\b"),                   # :port
+)
+
+# A comma-separated enumeration run (ROUND2 #2). An element may contain internal
+# whitespace ("Finance Team"), so a multi-WORD list is protected element-wise and
+# as a whole run — "Finance Team, HR Team" and "Legal Team, HR Team" no longer
+# reduce to the same {team, hr} token set and can never false-merge in dedup.
+_ENUM_ELEM = r"[\w$.*/\\-]+(?:[ \t]+[\w$.*/\\-]+)*"
+_ENUM_RUN_RE = re.compile(r"%s(?:[ \t]*,[ \t]*%s)+" % (_ENUM_ELEM, _ENUM_ELEM))
+
+
+def _floor_rule_id(cleaned: str) -> str:
+    """Line-derived id for a generic dispatcher critical with no specific rule.
+
+    Host/IP/port/URL are stripped first so the SAME critical fact seen on
+    several hosts shares one KB key, while two DIFFERENT critical facts get
+    distinct keys — the collapse REVIEW #1 flagged (every generic critical
+    sharing one pattern-derived id) is what this avoids."""
+    norm = cleaned
+    for rx in _FLOOR_ID_STRIP:
+        norm = rx.sub("", norm)
+    norm = norm.strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", norm.lower()).strip("-")[:55].strip("-")
+    digest = hashlib.sha1(norm.encode()).hexdigest()[:8]
+    return ("crit-" + slug + "-" + digest) if slug else ("crit-" + digest)
+
+
+def _apply_critical_floor(matched: "Rule", cleaned: str) -> "Rule":
+    """Enforce the unconditional critical floor on an already-matched rule: a
+    dispatcher-marked critical is graded critical, and if a GENERIC fallback won
+    (its id would collapse every critical onto one key) swap in a line-derived id
+    so distinct criticals keep distinct KB keys. A specific or custom rule keeps
+    its own id; only a generic fallback id is replaced."""
+    rule_id = matched.rule_id
+    if rule_id in _GENERIC_FALLBACK_IDS:
+        rule_id = _floor_rule_id(cleaned)
+    if matched.severity != "critical" or rule_id != matched.rule_id:
+        return matched._replace(severity="critical", rule_id=rule_id)
+    return matched
+
+
 def _classify_line(line: str, rules: "list[Rule]") -> "Rule | None":
     """Marker-aware classifier used by every finding walker (G01/G02).
 
@@ -604,12 +672,30 @@ def _classify_line(line: str, rules: "list[Rule]") -> "Rule | None":
     when a non-miss_ok rule actually matched — the only case where suppression
     changes the outcome — so the common no-match line costs nothing extra."""
     matched = _classify(line, rules)
+    cleaned = _clean_line(line)
+    crit_marked = any(m.search(cleaned) for m in _CRITICAL_FLOOR_MARKERS)
+    if matched is not None and matched.miss_ok:
+        # miss_ok bypasses marker SUPPRESSION only. The critical floor still
+        # applies (ROUND2 #9): a dispatcher-marked critical is never downgraded,
+        # not even by an operator custom rule (every custom rule is miss_ok) or a
+        # built-in miss_ok rule.
+        return _apply_critical_floor(matched, cleaned) if crit_marked else matched
+    if _is_suppressed_marker(cleaned):
+        return None
     if matched is None:
+        # Forgiving-by-default: a dispatcher-marked critical that no rule
+        # matched (e.g. the caller passed a list without the generic
+        # fallbacks) is still a critical finding, never silently lost. Give it
+        # a line-derived id so distinct criticals get distinct KB keys.
+        if crit_marked:
+            return Rule(_CRITICAL_FLOOR_MARKERS[0], "critical",
+                        _floor_rule_id(cleaned), False)
         return None
-    if matched.miss_ok:
-        return matched
-    if _is_suppressed_marker(_clean_line(line)):
-        return None
+    # Critical severity FLOOR (REVIEW #1): a dispatcher-marked critical can
+    # never be downgraded by a lower-severity rule, and a generic fallback must
+    # not collapse every critical onto one rule_id.
+    if crit_marked:
+        return _apply_critical_floor(matched, cleaned)
     return matched
 
 
@@ -629,14 +715,20 @@ def _load_rules(path: Path | None) -> "list[Rule]":
                 # Custom operator rules keep the (pattern, severity) FILE contract;
                 # here they become Rules with a stable custom id and miss_ok=True
                 # so the D1.1 guard never suppresses an operator-chosen match.
-                custom.append(Rule(re.compile(obj["pattern"], re.I), sev,
-                                   "custom:%d" % lineno, True))
+                # The id is derived from the PATTERN (REVIEW #6), not the file
+                # line number, so reordering/editing the rules file does not
+                # churn the KB key; two rules with the same pattern collide on
+                # one id, which is a real duplicate the uniqueness guard catches.
+                cre = re.compile(obj["pattern"], re.I)
+                custom.append(Rule(cre, sev, "custom-" + _derive_rule_id(cre), True))
             except (json.JSONDecodeError, KeyError, re.error, TypeError, ValueError) as exc:
                 print(f"error: {path}:{lineno}: invalid severity rule ({exc})",
                       file=sys.stderr)
                 sys.exit(2)
-    # Explicit operator policy overrides defaults under first-match semantics.
-    return custom + list(_DEFAULT_RULES)
+    # Explicit operator policy overrides defaults under first-match semantics;
+    # the generic fallbacks are appended LAST so this is a self-complete rule
+    # set (direct callers grade generic EXPOSED/UNAUTH/CRITICAL lines too).
+    return _compose_rules(custom, _DEFAULT_RULES)
 
 
 # ---------------------------------------------------- redaction
@@ -914,6 +1006,32 @@ _DEFAULT_RULES: "list[Rule]" = _build_rules(_DEFAULT_RULES_RAW, miss_ok_patterns
 _BULK_RULES: "list[Rule]" = _build_rules(_BULK_RULES_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
 _BULK_RULES_WIN: "list[Rule]" = _build_rules(_BULK_RULES_WIN_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
 _AD_DEPTH_RULES: "list[Rule]" = _build_rules(_AD_DEPTH_RULES_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
+# Generic last-resort fallbacks (REVIEW #1): built from the SAME pattern objects
+# as the _classify_line floor markers, so their derived ids equal
+# _GENERIC_FALLBACK_IDS. Every walker appends this list AFTER its specific rules
+# and the AD-depth rules, so a generic can never win first-match over — and so
+# can never steal the rule_id of — a specific rule. Critical fallbacks precede
+# the high ones so a line matching both grades critical even before the floor.
+_GENERIC_FALLBACK_RULES: "list[Rule]" = _build_rules(
+    [(m, "critical") for m in _CRITICAL_FLOOR_MARKERS]
+    + [(p, "high") for p in _GENERIC_HIGH_PATTERNS],
+    miss_ok_patterns=_MISS_OK_PATTERNS,
+)
+_GENERIC_FALLBACK_RULE_IDS: frozenset = frozenset(r.rule_id for r in _GENERIC_FALLBACK_RULES)
+
+
+def _compose_rules(*rule_lists) -> "list[Rule]":
+    """Concatenate the given specific-rule lists and append the generic
+    fallbacks LAST (REVIEW #1), so a generic can never win first-match over —
+    and so can never steal the rule_id of — a specific rule, including the
+    AD-depth rules. Idempotent: any generic fallback already present in the
+    inputs is dropped before the single trailing copy is appended, so callers
+    can compose pre-composed lists without double-appending or re-shadowing."""
+    out: list = []
+    for rl in rule_lists:
+        out.extend(rl)
+    out = [r for r in out if r.rule_id not in _GENERIC_FALLBACK_RULE_IDS]
+    return out + list(_GENERIC_FALLBACK_RULES)
 
 
 # ---------------------------------------------------- layout detector
@@ -1128,6 +1246,16 @@ def _endpoint_in_text(line: str, endpoints: list[dict], service: str) -> dict | 
     if len(unique) == 1:
         return next(iter(unique.values()))
     if unique:
+        # REVIEW #5: before falling back to a host-only record, collapse on
+        # (host, port). If every match shares a single host AND port and only
+        # the protocol is ambiguous (e.g. the same service seen as tcp and
+        # udp), the port is NOT ambiguous — keep it. Dropping it here is what
+        # lost ports to the host-level fallback.
+        host_port = {(m["host"], m["port"]) for m in unique.values()}
+        if len(host_port) == 1:
+            host, port = next(iter(host_port))
+            return {"host": host, "port": port,
+                    "protocol": "", "service": service}
         hosts = {m["host"] for m in unique.values()}
         if len(hosts) == 1:
             return {"host": next(iter(hosts)), "port": "",
@@ -1185,6 +1313,21 @@ def _protected_tokens(line: str, host: str = "", port: str = "") -> frozenset:
     toks.update(re.findall(r"\b[0-9A-Fa-f]{12,}\b", s))                       # hex blobs
     toks.update(re.findall(r"\b[A-Za-z0-9+/]{20,}={0,2}\b", s))               # base64 blobs
     toks.update(t.upper() for t in re.findall(r"\bCVE-\d{4}-\d+\b", s, re.I))
+    # Enumerated list items (REVIEW #2): a run of 2+ comma-separated items is a
+    # load-bearing enumeration — shares, users, accounts, hashes. Folding each
+    # item into the protected set makes echo dedup conservative: a multi-item
+    # enumeration can only merge with a line carrying the SAME set, never with a
+    # different or subset list (which would silently drop the extra items). A
+    # terse single-item line has no comma run, so true verbose/terse echoes that
+    # carry no list are unaffected and still collapse.
+    for run_items in _ENUM_RUN_RE.findall(s):
+        # The whole run is an opaque token: any membership difference changes it,
+        # so a multi-value summary never merges with a subset per-host line.
+        toks.add("enumrun:" + re.sub(r"\s+", " ", run_items).strip())
+        for item in run_items.split(","):
+            item = re.sub(r"\s+", " ", item).strip().rstrip(".;:")
+            if item:
+                toks.add("enum:" + item)
     norm = {t.lower() for t in toks}
     # Fold the attributed endpoint in and drop the line's own copy of it, so an
     # address-asymmetric echo pair on the same endpoint matches.
@@ -1323,7 +1466,13 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
             elif not endpoint:
                 endpoint = _endpoint_in_text(str(finding.get("line", "")), endpoints, service)
         if endpoint:
-            finding.update(endpoint)
+            # REVIEW #5: never overwrite a value the finding already carries
+            # with an emptier one. A host-only fallback (port="") must promote
+            # the host without erasing a port the finding already resolved.
+            for k, v in endpoint.items():
+                if not v and finding.get(k):
+                    continue
+                finding[k] = v
         finding.setdefault("protocol", "")
         # D1.3 — additive scope label. A line we could not attribute keeps
         # host="(dispatcher)" and is run-scoped; the dashboard collapses these
@@ -1655,8 +1804,8 @@ def walk_findings_bulk(
     # LAPS, ADCS/ESC, PrintNightmare, writable pipes, coercion primitives — actually
     # get graded. They were only wired into the auto-enum classifier path, so a
     # bulk-windows sweep produced ungraded (LOW-looking) AD-depth signals.
-    linux_rules = list(_BULK_RULES) + list(_AD_DEPTH_RULES) + extras
-    win_rules   = list(_BULK_RULES_WIN) + list(_AD_DEPTH_RULES) + extras
+    linux_rules = _compose_rules(_BULK_RULES, _AD_DEPTH_RULES, extras)
+    win_rules   = _compose_rules(_BULK_RULES_WIN, _AD_DEPTH_RULES, extras)
     for host_dir in sorted(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink()):
         meta = host_dir / "_meta.json"
         if not meta.is_file():
@@ -2053,8 +2202,9 @@ def main() -> int:
 
     rules = _load_rules(Path(args.severity_rules) if args.severity_rules else None)
     # D1.5: layer the AD-depth rules on top of the default + operator rules.
-    # These are general (apply to both auto-enum and bulk-enum trees).
-    rules = list(rules) + list(_AD_DEPTH_RULES)
+    # _compose_rules keeps the generic fallbacks LAST (REVIEW #1) so they never
+    # shadow a specific rule — including the AD-depth rules layered in here.
+    rules = _compose_rules(rules, _AD_DEPTH_RULES)
     service_metadata = _load_service_metadata(out_dir)
     redactor = Redactor(args.redact)
     label = args.label or out_dir.name

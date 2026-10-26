@@ -402,7 +402,7 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     pass is gone."""
     # Mirror report.py:main — the AD-depth rules (Kerberoast/AS-REP, ESC1,
     # cpassword, LAPS-readable, PwnKit, writable-pipe) are CRITICAL findings.
-    rules = list(rpt._load_rules(rules_path)) + list(rpt._AD_DEPTH_RULES)
+    rules = rpt._compose_rules(rpt._load_rules(rules_path), rpt._AD_DEPTH_RULES)
     collection = rpt.collect(out_dir, rules)
     findings = collection.findings
     bulk = collection.mode == "bulk-enum"
