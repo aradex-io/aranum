@@ -79,11 +79,16 @@ class TestKBCoverageGate(unittest.TestCase):
     def test_kb_covers_every_non_low_rule_id(self):
         kb = _fresh_kb(R)
         ids = _non_low_builtin_rule_ids(R)
-        # Anti-vacuous: the denominator must be substantial. A rule-list rename
-        # that empties it would otherwise make coverage pass trivially.
-        self.assertGreaterEqual(
-            len(ids), 150,
-            f"only {len(ids)} non-low rule_ids enumerated — denominator collapsed")
+        # Anti-vacuous: pin the exact denominator. A rule-list rename that drops
+        # rule_ids (or a de-dup that collapses them) changes this number and
+        # fails here, rather than silently shrinking the set coverage is checked
+        # against. Update deliberately — in lockstep with a KB change — when the
+        # rule lists genuinely gain or lose a non-low rule.
+        EXPECTED_NON_LOW_RULE_IDS = 199
+        self.assertEqual(
+            len(ids), EXPECTED_NON_LOW_RULE_IDS,
+            f"non-low rule_id count is {len(ids)}, expected {EXPECTED_NON_LOW_RULE_IDS} "
+            f"— rule lists changed; reconcile the KB and update this pin deliberately")
         uncovered = _uncovered(R, kb)
         self.assertEqual(
             uncovered, [],
@@ -209,6 +214,79 @@ class TestAttachKBFields(unittest.TestCase):
             self.assertTrue(matched, "no finding resolved a KB class end-to-end")
             for f in matched:
                 self.assertEqual(f["kb_id"], f["rule_id"])
+
+
+class TestMalformedKB(unittest.TestCase):
+    """A structurally malformed but syntactically valid KB must normalize to a
+    safe shape (not reach a renderer and raise). Guards the loader hardening."""
+
+    def tearDown(self):
+        _fresh_kb(R)
+
+    def test_malformed_classes_are_normalized_and_do_not_crash(self):
+        bad = {
+            "schema": 1,
+            "categories": {"ad": {"title": "AD", "order": 1}, "network": None},
+            "service_categories": {"smb": "network", "ldap": 123},
+            "classes": {
+                "ok-class": {"category": "ad", "title": "T", "why": "w",
+                             "test": [{"label": "t", "cmd": "id"}],
+                             "fix": [{"label": "f", "text": "do"}]},
+                "null-test": {"category": "ad", "test": None, "fix": None},
+                "no-title": {"category": "ad", "why": "w"},
+                "bad-category": {"category": "nope", "title": "x"},
+                "null-category": {"category": None, "title": "x"},
+                "not-a-dict": "oops",
+            },
+        }
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bad-kb.json"
+            p.write_text(json.dumps(bad))
+            kb = _fresh_kb(R, p)
+        # category with a null value is dropped; service_categories non-str dropped
+        self.assertIn("ad", kb["categories"])
+        self.assertNotIn("network", kb["categories"])
+        self.assertEqual(kb["service_categories"], {"smb": "network"})
+        # classes pointing at absent/null categories or non-dicts are dropped
+        self.assertNotIn("bad-category", kb["classes"])
+        self.assertNotIn("null-category", kb["classes"])
+        self.assertNotIn("not-a-dict", kb["classes"])
+        # surviving classes have safe field types (no None test/fix/title)
+        for rid in ("ok-class", "null-test", "no-title"):
+            c = kb["classes"][rid]
+            self.assertIsInstance(c["test"], list)
+            self.assertIsInstance(c["fix"], list)
+            self.assertIsInstance(c["title"], str)
+            self.assertTrue(c["title"])
+        # rendering a finding against this KB must not raise
+        f = {"rule_id": "null-test", "service": "smb", "host": "h",
+             "severity": "high", "line": "x", "title": "x"}
+        R._attach_kb(f, kb, set())
+        R._render_top_risks([f], kb, R.Redactor(False))  # no exception == pass
+
+    def test_markdown_injection_is_flattened(self):
+        # An override KB whose prose carries a newline + a fake heading must not
+        # forge a section; angle brackets are escaped.
+        evil = {
+            "schema": 1,
+            "categories": {"ad": {"title": "AD", "order": 1}},
+            "service_categories": {},
+            "classes": {"x": {"category": "ad", "title": "t",
+                              "why": "line1\n#### FORGED HEADING <img src=x>",
+                              "test": [{"label": "l", "cmd": "echo `id`"}],
+                              "fix": [{"label": "f", "text": "ok"}]}},
+        }
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "evil-kb.json"
+            p.write_text(json.dumps(evil))
+            kb = _fresh_kb(R, p)
+            f = {"rule_id": "x", "service": "smb", "host": "h",
+                 "severity": "high", "line": "x", "title": "t"}
+            R._attach_kb(f, kb, set())
+            md = "\n".join(R._render_top_risks([f], kb, R.Redactor(False)))
+        self.assertNotIn("\n#### FORGED HEADING", md)  # newline flattened
+        self.assertNotIn("<img", md)                    # angle brackets escaped
+        self.assertIn("&lt;img", md)
 
 
 class TestTopRisksMarkdown(unittest.TestCase):

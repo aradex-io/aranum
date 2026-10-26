@@ -77,8 +77,17 @@ class TestDashboardKB(unittest.TestCase):
         self.assertIn("signing disabled", ad)
         # Cross-family correlation caveat must be present (S2 has no domain id).
         self.assertIn("Uncorrelated signals", ad)
-        # The DC (88 + 389/445) is positively identified.
-        self.assertIn("10.0.0.10", ad)
+        # The DC (88 + 389/445) is positively identified. Assert the host link
+        # appears INSIDE the "Domain controllers" section — not merely anywhere
+        # on the page (it also shows in the finding row, which would make a
+        # whole-page assertion vacuous w.r.t. _dc_hosts). The section ends at the
+        # Uncorrelated-signals callout that follows it.
+        start = ad.find("Domain controllers")
+        self.assertNotEqual(start, -1, "Domain controllers section missing")
+        dc_section = ad[start:ad.find("Uncorrelated signals", start)]
+        self.assertIn("10.0.0.10", dc_section,
+                      "DC not listed in the Domain controllers section — _dc_hosts missed it")
+        self.assertNotIn("none positively identified", dc_section)
 
     def test_run_health_lists_ungraded_timeout(self):
         idx = self._read("index.html")
