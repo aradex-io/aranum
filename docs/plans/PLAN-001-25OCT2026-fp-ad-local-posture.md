@@ -513,6 +513,30 @@ routing the operator to winrm/ssh. psexec remains a valid *access* pathway; it i
 a regression — `psexec` is a correct M8 FAIL. S4 target restated: full 4/4 + compact 2/3 =
 **6/9**. Detail: ADR-007 erratum (26OCT2026).
 
+### S4 Phase-6 independent diff review (REVIEW-011, Daybreak Blue)
+
+The diff review returned CHANGES-REQUESTED with 10 findings, all confirmed real
+(`docs/review/REVIEW-011-26OCT2026-s4-local-access-peer.md`): #1 compact-probe
+privilege evidence stripped as impacket noise; #2 misleading plan row for a
+superseded exec pathway; #3 unbounded Windows engine (`--host-timeout` no-op);
+#4 self-scan ignored collector rc; #5 no-pathway hosts left no record; #6 silent
+port-ignore on exec methods; #7 mixed-tree dashboard evidence misattribution; #8
+Windows self-scan ignored `--windows-script`; #9 `--opt=value` misrouted by
+`_partition_local`; #10 `run_bounded` `UnboundLocalError` on an exit race. All
+fixed in round 1 (two with a code-corrected remedy; #3's fix is a subprocess cap,
+not flag-forwarding, because the engine has no such flag). **Benefit re-measured
+post-fix: M8 = 6/9, unchanged** (`docs/test-strategy/raw/s4-head-postreview/`);
+suite 588 passed / 5 skipped, 0 regressions vs S4-head (per-nodeid). Phase-6 gate
+GREEN.
+
+**Backlog (deferred from S4):**
+- **S4-BL-01** — *runtime cross-lane fallback.* When a Windows host's preferred
+  full-engine pathway (winrm/ssh) fails at connect/auth time and a consent-gated
+  exec method is also configured, run the compact exec probe as a true fallback.
+  Deferred because it is new runtime behavior with its own test surface, outside
+  the S4 plan; S4 instead makes the plan honest (the exec row is labelled
+  `superseded`, no dead pathway is seeded). Candidate for S5 or a later sprint.
+
 ---
 
 ## S5 — Desktop transports (G19)
