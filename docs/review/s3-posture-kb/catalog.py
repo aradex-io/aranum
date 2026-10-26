@@ -83,7 +83,7 @@ WIN = [
  ("WIN-CRED-RUNASPPL", "LSA protection (RunAsPPL)", "credential-protection", "winlocal", "", "medium", "PASS: Lsa RunAsPPL 1 or 2; WARN: not set."),
  ("WIN-CRED-CREDGUARD", "Credential Guard", "credential-protection", "winlocal", "", "low", "PASS: Credential Guard running; WARN: not running; ERR: DeviceGuard WMI unavailable."),
  ("WIN-CRED-WDIGEST", "WDigest cleartext credentials", "credential-protection", "winlocal", "critical", "", "FAIL: WDigest UseLogonCredential=1 (cleartext passwords in LSASS); PASS: 0/absent on 8.1+."),
- ("WIN-CRED-LMCOMPAT", "LAN Manager authentication level", "credential-protection", "winlocal", "high", "medium", "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5."),
+ ("WIN-CRED-LMCOMPAT", "LAN Manager authentication level", "credential-protection", "winlocal", "high", "medium", "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5; ERR: value outside 0..5."),
  ("WIN-CRED-NOLMHASH", "LM hash storage", "credential-protection", "winlocal", "high", "", "FAIL: NoLMHash=0; PASS: 1/default."),
  ("WIN-CRED-CACHEDLOGONS", "Cached domain logons", "credential-protection", "winlocal", "", "low", "WARN: CachedLogonsCount >4 (default 10); PASS: <=4; NA: not domain-joined."),
  ("WIN-UAC-LUA", "UAC enabled", "access-control", "winlocal", "high", "", "FAIL: EnableLUA=0; PASS: 1."),
@@ -111,7 +111,7 @@ AD = [
  ("AD-PROTECTED-USERS", "Protected Users group", "domain-privilege", "ad", "", "low", "WARN: Protected Users has no members; PASS: >=1."),
  ("AD-MAQ", "Machine account quota", "domain-policy", "ad", "", "medium", "WARN: ms-DS-MachineAccountQuota>0 (any user can join computers; RBCD/Certifried aid); PASS: 0."),
  ("AD-FUNC-LEVEL", "Domain/forest functional level", "domain-policy", "ad", "", "low", "WARN: domain functional level below 2016 (msDS-Behavior-Version<7); PASS: >=7."),
- ("AD-LDAP-SIGNING", "DC LDAP signing / channel binding", "relay", "ad", "high", "medium", "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS)."),
+ ("AD-LDAP-SIGNING", "DC LDAP signing / channel binding", "relay", "ad", "high", "medium", "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable or a value outside 0..2 (never a false PASS)."),
  ("AD-TRUSTS", "Domain trusts", "domain-policy", "ad", "", "", "INFO: count and direction of trustedDomain objects."),
  ("AD-LAPS-SCHEMA", "LAPS schema present", "domain-policy", "ad", "", "medium", "PASS: ms-Mcs-AdmPwd or msLAPS-Password attribute in schema; WARN: neither."),
 ]

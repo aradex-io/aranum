@@ -230,11 +230,19 @@ function Resolve-LdapSigningStatus {
     $cb = 'unset'
     if ($null -ne $ChannelBinding) { $cb = [string]$ChannelBinding }
     $detail = 'LDAPServerIntegrity=' + $ServerIntegrity + ' LdapEnforceChannelBinding=' + $cb
-    if ([int]$ServerIntegrity -lt 2) { return (New-PostureResult 'FAIL' $detail) }
-    if ($null -eq $ChannelBinding -or [int]$ChannelBinding -eq 0) {
+    # Both are enumerated policies: a value outside the documented domain is ERR,
+    # never a fall-through PASS (si 0..2, cb 0..2).
+    $si = [int]$ServerIntegrity
+    if ($si -lt 0 -or $si -gt 2) { return (New-PostureResult 'ERR' ($detail + ' (LDAPServerIntegrity outside 0..2)')) }
+    if ($null -ne $ChannelBinding) {
+        $cbv = [int]$ChannelBinding
+        if ($cbv -lt 0 -or $cbv -gt 2) { return (New-PostureResult 'ERR' ($detail + ' (LdapEnforceChannelBinding outside 0..2)')) }
+    }
+    if ($si -lt 2) { return (New-PostureResult 'FAIL' $detail) }
+    if ($null -eq $ChannelBinding -or $cbv -eq 0) {
         return (New-PostureResult 'FAIL' ($detail + ' (LDAPS relay: channel binding not enforced)'))
     }
-    if ([int]$ChannelBinding -eq 1) {
+    if ($cbv -eq 1) {
         return (New-PostureResult 'WARN' ($detail + ' (channel binding only when supported)'))
     }
     return (New-PostureResult 'PASS' $detail)
@@ -524,6 +532,7 @@ function Invoke-HostPostureChecks {
     Invoke-PostureCheck 'WIN-CRED-LMCOMPAT' {
         $v = Get-RegValue $lsa 'LmCompatibilityLevel'
         if ($null -eq $v) { return (New-PostureResult 'WARN' 'LmCompatibilityLevel unset (default 3)') }
+        if ([int]$v -lt 0 -or [int]$v -gt 5) { return (New-PostureResult 'ERR' ('LmCompatibilityLevel=' + $v + ' (outside 0..5)')) }
         if ([int]$v -lt 3) { return (New-PostureResult 'FAIL' ('LmCompatibilityLevel=' + $v)) }
         if ([int]$v -lt 5) { return (New-PostureResult 'WARN' ('LmCompatibilityLevel=' + $v)) }
         New-PostureResult 'PASS' ('LmCompatibilityLevel=' + $v)

@@ -778,7 +778,7 @@
   "category": "winlocal",
   "sev_fail": "high",
   "sev_warn": "medium",
-  "semantics": "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5."
+  "semantics": "FAIL: LmCompatibilityLevel<3 (LM/NTLMv1 sent); WARN: 3-4 or unset; PASS: 5; ERR: value outside 0..5."
  },
  {
   "id": "WIN-CRED-NOLMHASH",
@@ -1064,7 +1064,7 @@
   "category": "ad",
   "sev_fail": "high",
   "sev_warn": "medium",
-  "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS)."
+  "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable or a value outside 0..2 (never a false PASS)."
  },
  {
   "id": "AD-TRUSTS",

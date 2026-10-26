@@ -318,7 +318,8 @@ def test_windows_ldap_signing_grades_both_policies(tmp_path):
     # R2: signing required alone is not compliant -- channel binding is graded too, and
     # PASS needs both. An absent CBT value on a DC is "not enforced" (FAIL), not NA.
     body = _lib(r"""
-foreach ($c in @(@($null,$null), @(2,$null), @(2,0), @(2,1), @(2,2), @(1,2), @(0,$null))) {
+foreach ($c in @(@($null,$null), @(2,$null), @(2,0), @(2,1), @(2,2), @(1,2), @(0,$null),
+                 @(2,3), @(2,-1), @(3,2), @(-1,2))) {
   $r = Resolve-LdapSigningStatus $c[0] $c[1]
   'ROW|' + [string]$c[0] + '|' + [string]$c[1] + '|' + $r.AranumPostureStatus
 }
@@ -327,7 +328,9 @@ foreach ($c in @(@($null,$null), @(2,$null), @(2,0), @(2,1), @(2,2), @(1,2), @(0
     assert proc.returncode == 0, proc.stderr
     rows = [ln.split("|")[1:] for ln in proc.stdout.splitlines() if ln.startswith("ROW|")]
     assert rows == [["", "", "NA"], ["2", "", "FAIL"], ["2", "0", "FAIL"], ["2", "1", "WARN"],
-                    ["2", "2", "PASS"], ["1", "2", "FAIL"], ["0", "", "FAIL"]]
+                    ["2", "2", "PASS"], ["1", "2", "FAIL"], ["0", "", "FAIL"],
+                    # round 2: out-of-domain enum values are ERR, never a fall-through PASS
+                    ["2", "3", "ERR"], ["2", "-1", "ERR"], ["3", "2", "ERR"], ["-1", "2", "ERR"]]
 
 
 def test_windows_get_regvalue_separates_absent_from_error(tmp_path):
@@ -370,6 +373,26 @@ Invoke-HostPostureChecks -Context $ctx
         assert got[cid][0] == "ERR", (cid, got[cid])
     passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
     assert passed == ["WIN-PATCH-AGE"], passed     # the only non-registry PASS in this fixture
+
+
+@pytest.mark.parametrize("val,want", [(7, "ERR"), (-1, "ERR"), (5, "PASS"), (4, "WARN"), (2, "FAIL")])
+def test_windows_lmcompat_out_of_domain_is_err(tmp_path, val, want):
+    # Round 2 sweep (enumerated policy, fall-through PASS): LmCompatibilityLevel is 0..5;
+    # anything else is ERR, never graded as the PASS end of the scale.
+    body = _lib(r"""
+function Get-RegValue { param([string]$Path, [string]$Name)
+  if ($Name -eq 'LmCompatibilityLevel') { return %d }
+  return $null }
+function Get-Service { param([string]$Name) [pscustomobject]@{ Name=$Name; Status='Running' } }
+function Get-HotFix { @([pscustomobject]@{ InstalledOn = (Get-Date).AddDays(-3) }) }
+function Get-CimInstance { param($ClassName,$Namespace,$Filter) throw 'no cim' }
+$ctx = @{ ComputerName='WS01'; PartOfDomain=$false; Domain='WORKGROUP'; IsDC=$false; Build=19045; Caption='Windows 10'; ProductType=1 }
+Invoke-HostPostureChecks -Context $ctx
+""" % val)
+    proc = _pwsh_file(tmp_path, body)
+    assert proc.returncode == 0, proc.stderr
+    got = {c: st for c, st, _ in _posture_lines(proc.stdout)}
+    assert got["WIN-CRED-LMCOMPAT"] == want, got.get("WIN-CRED-LMCOMPAT")
 
 
 def test_windows_rootdse_uses_the_bounded_searcher(tmp_path):
@@ -476,7 +499,8 @@ def test_windows_collector_and_payload_pass_pssa_51_profiles(tmp_path):
                            str(canary), str(WINPS), str(payload)],
                           capture_output=True, text=True, timeout=600)
     if "PSSA_MISSING" in proc.stdout:
-        pytest.skip("PSScriptAnalyzer not installed -- 5.1 profile check inconclusive")
+        pytest.fail("PSScriptAnalyzer missing: the 5.1 profile gate is required whenever pwsh is "
+                    "present (Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser)")
     assert proc.returncode == 0, proc.stderr
     rows = {r.split("|")[1]: r.split("|")[2:] for r in proc.stdout.splitlines() if r.startswith("PSSA|")}
     assert set(rows["canary.ps1"][1].split(",")) == {
