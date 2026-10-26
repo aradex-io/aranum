@@ -183,7 +183,10 @@ def _add_default_output(args: Sequence[str], output: Path) -> list[str]:
 
 
 def _copy_report_artifacts(raw: Path, reports: Path) -> None:
-    for name in ("findings.json", "report.md", "report.html"):
+    # posture.json carries the structured host-posture result (D1.6); copy it
+    # alongside the findings/report artifacts when a collector produced one so
+    # it survives to the reports dir. Absent on a pure service scan — skipped.
+    for name in ("findings.json", "report.md", "report.html", "posture.json"):
         src = raw / name
         if src.is_file():
             shutil.copy2(src, reports / name)

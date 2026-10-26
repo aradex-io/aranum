@@ -1992,6 +1992,45 @@ def _to_sarif(findings: list[dict], label: str) -> dict:
     }
 
 
+# ---------------------------------------------------- shared collector (D1.6)
+class Collection(NamedTuple):
+    """The one structured result both report.main and report-dashboard render
+    from, so neither re-implements collection and they cannot diverge.
+
+    S1 populates `findings`, `per_host`, `mode`, and `diagnostics`. `posture`
+    and `domains` are filled by S3 (host posture + AD rollups); `layout` carries
+    the mixed-tree sub-counts (S4/D4.4). The field list never changes — a later
+    sprint constructs a Collection with a field S1 leaves `None`; consumers read
+    `collection.posture or {}`. (A NamedTuple, like Rule, so the module loads
+    cleanly however a test imports it.)"""
+    findings: "list[dict]"
+    per_host: "dict | None"
+    mode: str                                        # auto-enum | bulk-enum | mixed
+    layout: "dict | None" = None
+    posture: "dict | None" = None
+    domains: "dict | None" = None
+    diagnostics: "list[dict] | None" = None
+
+
+def collect(out_dir: Path, rules, service_metadata: "dict | None" = None,
+            *, diagnostics: "list[dict] | None" = None) -> Collection:
+    """Walk, grade, attribute, and dedup one output tree into a Collection.
+
+    This is the single collection path. `report.main` and
+    `report-dashboard.build_index` both call it; neither detects bulk layout or
+    walks findings on its own."""
+    diags = diagnostics if diagnostics is not None else []
+    if service_metadata is None:
+        service_metadata = _load_service_metadata(out_dir)
+    if _is_bulk_enum_dir(out_dir):
+        findings = finalize_findings(
+            out_dir, walk_findings_bulk(out_dir, rules, service_metadata, diags))
+        return Collection(findings=findings, per_host=_per_host_verdicts(findings),
+                          mode="bulk-enum", diagnostics=diags)
+    findings = finalize_findings(out_dir, walk_findings(out_dir, rules, service_metadata))
+    return Collection(findings=findings, per_host=None, mode="auto-enum", diagnostics=diags)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -2020,17 +2059,15 @@ def main() -> int:
     redactor = Redactor(args.redact)
     label = args.label or out_dir.name
 
-    # Auto-detect bulk-enum vs auto-enum layout
-    bulk_mode = _is_bulk_enum_dir(out_dir)
+    # Single shared collection path (D1.6): collect() detects layout, walks,
+    # grades, attributes, and dedups into one structured result.
     report_diagnostics: list[dict] = []
+    collection = collect(out_dir, rules, service_metadata, diagnostics=report_diagnostics)
+    findings = collection.findings
+    per_host = collection.per_host
+    bulk_mode = collection.mode == "bulk-enum"
     if bulk_mode:
-        print(_c(f"[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
-        findings = finalize_findings(out_dir, walk_findings_bulk(
-            out_dir, rules, service_metadata, report_diagnostics))
-        per_host = _per_host_verdicts(findings)
-    else:
-        findings = finalize_findings(out_dir, walk_findings(out_dir, rules, service_metadata))
-        per_host = None
+        print(_c("[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
 
     summary = _summary(findings, out_dir)
 
@@ -2040,7 +2077,7 @@ def main() -> int:
         "label":         label,
         "generated_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "redacted":      args.redact,
-        "mode":          "bulk-enum" if bulk_mode else "auto-enum",
+        "mode":          collection.mode,
         "summary":       summary,
         "findings":      findings,
     }
