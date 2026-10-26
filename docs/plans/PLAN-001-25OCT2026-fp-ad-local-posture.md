@@ -486,6 +486,33 @@ The three impacket-family methods (wmiexec, smbexec, psexec) run a command throu
 
 **Blast radius:** a new orchestrator, CLI dispatch + arg partitioning, the mixed-tree collector. **Rollback:** revert the squash; the new command and flag are additive.
 
+### S4 Phase-8 benefit (measured 26OCT2026, M8 harness, base `41860c8`)
+
+M8 counts access pathways runnable via the `--local` layer, by capability tier.
+Harness: `docs/test-strategy/harness/m8_pathways.py` (written at the S4 base before
+any S4 code; `local`(full) runs a real self-scan, the rest are dry-run PLAN checks).
+Raw: `docs/test-strategy/raw/s4-base-41860c8/m8-baseline.txt` (base) and `raw/s4-head/`.
+
+| M8 tier | Baseline (`41860c8`) | After (S4 head) | Target | Δ | Provenance |
+|---|---|---|---|---|---|
+| full (local, linux-ssh, windows-ssh, windows-winrm) | 0/4 | **4/4** | 4 | +4 | measured |
+| compact (wmiexec, smbexec, psexec) | 0/3 | **2/3** | see erratum | +2 | measured |
+| desktop (rdp, vnc) | 0/2 | 0/2 | S5 | 0 | measured (S5 scope) |
+| **M8 total** | **0/9** | **6/9** | 6 (S4) | **+6** | measured |
+
+At the base SHA the `local` command does not exist, so every pathway is 0/9 regardless
+of harness scoring; the baseline is unaffected by the harness's refinement.
+
+**Erratum — compact tier is 2/3, by design, not 3/3.** The pre-registered M8 row listed
+wmiexec/smbexec/psexec as the compact tier without stating per-method capacity. Measured
+on the S4 code: the compact-probe *core* (helpers + `whoami /priv` + first check) is 7146
+chars. That fits wmiexec (ceiling 8000, carries 2 checks) and smbexec (7800, 1 check) but
+is ~1.8× psexec's 4000 ceiling, so **psexec carries no posture and the builder refuses**,
+routing the operator to winrm/ssh. psexec remains a valid *access* pathway; it is not a
+*posture* pathway. This is the "refuse over truncate" contract (ADR-007 D4) exercised, not
+a regression — `psexec` is a correct M8 FAIL. S4 target restated: full 4/4 + compact 2/3 =
+**6/9**. Detail: ADR-007 erratum (26OCT2026).
+
 ---
 
 ## S5 — Desktop transports (G19)

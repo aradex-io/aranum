@@ -521,6 +521,42 @@ Both bulk enumerators take `--with-posture`, which runs a read-only host-posture
 
 `report.py` grades FAIL/WARN as findings at the check's KB severity, with test and fix guidance from `network/finding-kb.json`. It records every status, including PASS, in `posture.json`. AD checks seen from several hosts become one finding per domain, and each observer's own result is kept. ERR means the check could not be evaluated, for example as non-root; it is never a pass. A malformed or unknown line is quarantined (`posture_quarantine` in `findings.json`) rather than graded. The collectors also run standalone on a host you are logged in to.
 
+### Local access layer — `--local` (PLAN-001 S4 / ADR-007)
+
+[`aranum local`](aranumtoolkit/network/local-enum.py) enumerates the posture of every
+machine you have access to, over whichever pathway is richest. It is a thin orchestrator:
+`ssh`/`winrm` carry the whole host-posture collector; the Windows `exec` tier (operator's
+choice of `wmiexec`/`smbexec`/`psexec` via impacket) carries a **compact probe** built from
+the collector's own checks. Per host it tries, richest-first, **winrm → ssh → exec**
+(Windows) or **ssh** (Linux).
+
+```bash
+aranum local --self -report                              # posture of THIS box, then report + dashboard
+aranum local --targets hosts.txt --creds creds.txt -report
+aranum local --targets hosts.txt --dry-run               # PLAN rows only; opens no connection
+aranum run scan.gnmap --local --creds creds.txt -report  # auto-enum + access layer, one mixed report
+```
+
+- **Targets** come from `--targets` (`[user@]host[:port] [os=…] [via=ssh,winrm,…] [user=NAME]`),
+  `--from-inventory inventory.json` (seeded automatically by `run --local`), or `--self`.
+  OS is taken from product evidence first, then ports.
+- **Credentials** are operator-supplied only (`-u`/`-p`/`--key`, or a `--creds` file of
+  `<host|*> <user> <secret>` where a secret is an SSH key file, `nt:<hash>`, or a password).
+  Discovered credentials are never auto-used.
+- **The compact probe refuses, it never truncates.** It carries the framing helpers,
+  `whoami /priv`, and as many verbatim host checks as fit the method's command ceiling
+  (measured: wmiexec 2, smbexec 1, psexec 0 — psexec's ceiling is too small for even the
+  core, so it is refused and you are routed to winrm/ssh). Every check the probe did not
+  carry is recorded as `NA` in `winenum.txt` and `_meta.json`, so the posture matrix shows
+  the gap rather than hiding it.
+- **Writes are gated.** `--self`, ssh, and winrm write nothing to a target. The exec methods
+  write via their own service/process mechanism (torn down by the method) and are refused
+  unless you pass both `--win-exec <method>` and `--use-smb-admin`. rdp/vnc desktop
+  pathways are refused until S5. There is no listener, upload endpoint, or phone-home.
+
+`run --local` runs auto-enum and then the access layer over the **same** output tree and
+produces one report over the resulting mixed tree (service findings + per-host posture).
+
 ## Bulk-enum overhaul — password auth, transports, triage (iteration 28JUL / ADR-006)
 
 See [`aranumtoolkit/docs/ADR-006-28JUL2026-bulk-enum-overhaul.md`](aranumtoolkit/docs/ADR-006-28JUL2026-bulk-enum-overhaul.md).
