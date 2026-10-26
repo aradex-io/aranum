@@ -45,6 +45,7 @@ def _load(name: str, path: Path):
 le = _load("le_mod", LE)
 report = _load("report_mod_la", REPORT)
 aranum = _load("aranum_mod_la", ARANUM)
+dash = _load("dash_mod_la", REPORT.parent / "report-dashboard.py")
 
 
 # --------------------------------------------------------------------- targets
@@ -339,11 +340,12 @@ class TestExecTransport(unittest.TestCase):
 
 # --------------------------------------------------------------- --ad threading
 class TestADThreading(unittest.TestCase):
-    def _fake_args(self, ad):
+    def _fake_args(self, ad, host_timeout=0):
         ns = mock.Mock()
         ns.ad = ad
         ns.parallel = 4
         ns.connect_timeout = 5
+        ns.host_timeout = host_timeout
         return ns
 
     def _capture_engine_argv(self, ad):
@@ -351,6 +353,7 @@ class TestADThreading(unittest.TestCase):
 
         def fake_run_bounded(argv, **kw):
             captured["argv"] = argv
+            captured["kw"] = kw
             return (0, "", "", False)
 
         with tempfile.TemporaryDirectory() as d, \
@@ -408,6 +411,251 @@ class TestMixedTreeCollect(unittest.TestCase):
             (svc / "banner.txt").write_text("SSH-2.0-OpenSSH_7.4\n")
             col = report.collect(root, report._load_rules(None))
             self.assertEqual(col.mode, "mixed")
+
+
+# ===================================================================
+# REVIEW-011 (Phase-6 peer) fixes — new-behavior coverage (Phase 7b)
+# ===================================================================
+
+class TestCleanExecOutputProbeSpan(unittest.TestCase):
+    """#1: the compact probe reports privilege evidence on `[+]`/`[-]` lines,
+    which collide with impacket's banner prefixes. clean_exec_output must keep
+    everything inside the PROBE_HEADER..PROBE_END span and strip impacket noise
+    only outside it."""
+
+    def test_privilege_lines_survive_inside_probe_span(self):
+        raw = "\n".join([
+            "Impacket v0.13.1 - Copyright Fortra",       # banner (noise, outside)
+            "[*] Requesting shares",                      # impacket status (noise)
+            le.PROBE_HEADER,
+            "[+] SeImpersonatePrivilege (ENABLED)",       # OUR evidence — must stay
+            "[-] SeDebugPrivilege (disabled - can still be enabled)",
+            "POSTURE|KRN-01|PASS|ok",
+            le.PROBE_END,
+            "[-] trailing impacket chatter",              # outside span → noise
+        ])
+        body, noise = le.clean_exec_output(raw)
+        self.assertIn("[+] SeImpersonatePrivilege (ENABLED)", body)
+        self.assertIn("[-] SeDebugPrivilege", body)
+        self.assertIn("POSTURE|KRN-01|PASS|ok", body)
+        # impacket banner/status lines before the header are still removed
+        self.assertNotIn("Impacket v0.13.1", body)
+        self.assertNotIn("Requesting shares", body)
+        self.assertIn("Impacket v0.13.1 - Copyright Fortra", noise)
+        # the line after PROBE_END is outside the span → classified as noise
+        self.assertIn("trailing impacket chatter", noise)
+
+
+class TestExecSupersededByFullEngine(unittest.TestCase):
+    """#2: when a full-engine pathway (winrm/ssh) already claims a host, the
+    executor routes by pathways[0] and never runs the compact probe. plan_host
+    must keep pathways honest (no dead exec entry) and label the visibility row
+    'superseded' rather than advertising it will run."""
+
+    def test_winrm_primary_supersedes_exec(self):
+        spec = le.HostSpec(host="192.0.2.21", os="windows")
+        cred = le.Cred(user="admin", password="pw")
+        probe, _ = _probe_or_refuse("wmiexec")
+        hp = le.plan_host(spec, cred, {"winrm", "exec"}, "wmiexec", probe)
+        self.assertEqual(hp.pathways, ["winrm"])  # exec not a dead pathway
+        row = next(r.line() for r in hp.rows if "|wmiexec|compact|" in r.line())
+        self.assertIn("superseded", row)
+
+    def test_exec_sole_pathway_still_runs(self):
+        # Regression guard: when exec is the only usable pathway it is appended
+        # and the row advertises fits=yes (unchanged behavior).
+        spec = le.HostSpec(host="192.0.2.21", os="windows")
+        cred = le.Cred(user="admin", password="pw")
+        probe, _ = _probe_or_refuse("wmiexec")
+        hp = le.plan_host(spec, cred, {"exec"}, "wmiexec", probe)
+        self.assertEqual(hp.pathways, ["wmiexec"])
+        row = next(r.line() for r in hp.rows if "|wmiexec|compact|" in r.line())
+        self.assertIn("fits=yes", row)
+        self.assertNotIn("superseded", row)
+
+
+class TestWindowsEngineHostTimeoutCap(unittest.TestCase):
+    """#3: bulk-enum-windows.py has no --host-timeout; the orchestrator must
+    enforce it as a subprocess wall-clock cap = host_timeout * group_size (0 =
+    unbounded)."""
+
+    def _cap_for(self, host_timeout, n_hosts):
+        captured = {}
+
+        def fake_run_bounded(argv, **kw):
+            captured["timeout"] = kw.get("timeout")
+            return (0, "", "", False)
+
+        args = mock.Mock(ad=False, parallel=4, connect_timeout=5,
+                         host_timeout=host_timeout)
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(le, "run_bounded", side_effect=fake_run_bounded), \
+                mock.patch.object(le, "_collect_engine_dirs", return_value={}):
+            grp = [le.HostPlan(le.HostSpec(host=f"192.0.2.{i}", os="windows"),
+                               le.Cred(user="a", password="pw")) for i in range(n_hosts)]
+            le.run_windows_engine(grp, le.Cred(user="a", password="pw"),
+                                  ["winrm"], False, Path(d), 0, args)
+        return captured["timeout"]
+
+    def test_cap_scales_with_group_size(self):
+        self.assertEqual(self._cap_for(5, 3), 15)
+
+    def test_zero_host_timeout_stays_unbounded(self):
+        self.assertEqual(self._cap_for(0, 3), 0)
+
+
+class TestRunBoundedExitRace(unittest.TestCase):
+    """#10: a first-signal ProcessLookupError (the group exited between the
+    timeout and the kill) must still reap buffered output, not raise
+    UnboundLocalError."""
+
+    def test_processlookup_returns_bound_output(self):
+        calls = {"n": 0}
+
+        class FakeProc:
+            pid = 4242
+            returncode = 0
+
+            def communicate(self, input=None, timeout=None):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise subprocess.TimeoutExpired(cmd="x", timeout=timeout)
+                return (b"partial-out", b"partial-err")
+
+        with mock.patch.object(le.subprocess, "Popen", return_value=FakeProc()), \
+                mock.patch.object(le.os, "killpg", side_effect=ProcessLookupError):
+            rc, out, err, to = le.run_bounded(["x"], timeout=1)
+        self.assertTrue(to)
+        self.assertEqual(rc, 124)
+        self.assertEqual(out, "partial-out")
+        self.assertEqual(err, "partial-err")
+
+
+class TestSelfScanCollectorError(unittest.TestCase):
+    """#4: the linux self-scan must fold a non-zero collector rc into status,
+    not report OK when the collector failed."""
+
+    def test_missing_collector_script_is_collector_err(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            missing = str(Path(d) / "does-not-exist.sh")
+            args = mock.Mock(host_timeout=0, linux_posture_script=missing,
+                             linux_script=missing, windows_script=None, ad=False)
+            rc = le.run_self_scan(out, args, le.Cred())
+            self.assertEqual(rc, 0)
+            meta = json.loads((out / "linux" / "localhost" / "_meta.json").read_text())
+            self.assertEqual(meta["status"], "COLLECTOR_ERR")
+            self.assertNotEqual(meta["rc"], 0)
+
+
+class TestWindowsSelfScanScriptOverride(unittest.TestCase):
+    """#8: the windows self-scan must honor --windows-script, symmetric with the
+    linux --linux-script override."""
+
+    def test_windows_script_override_is_read(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            override = Path(d) / "my-privesc.ps1"
+            override.write_text("# SENTINEL-OVERRIDE-PRIVESC\n", encoding="utf-8")
+            seen = {}
+
+            def fake_payload(privesc_src, posture_src, ad=False):
+                seen["privesc_src"] = privesc_src
+                return "payload"
+
+            args = mock.Mock(host_timeout=0, windows_script=str(override), ad=False)
+            with mock.patch.object(le, "_self_scan_os", return_value="windows"), \
+                    mock.patch.object(le, "_which_powershell", return_value="pwsh"), \
+                    mock.patch.object(le.WE, "build_posture_payload",
+                                      side_effect=fake_payload), \
+                    mock.patch.object(le, "run_bounded",
+                                      return_value=(0, "", "", False)):
+                le.run_self_scan(out, args, le.Cred())
+            self.assertIn("SENTINEL-OVERRIDE-PRIVESC", seen["privesc_src"])
+
+
+class TestSkippedHostRecord(unittest.TestCase):
+    """#5: a planned host with no usable pathway must leave a SKIPPED per-host
+    record so an unreachable machine appears in the inventory."""
+
+    def test_no_pathway_host_gets_skipped_meta(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            hp = le.HostPlan(le.HostSpec(host="192.0.2.99", os="linux"), le.Cred())
+            hp.skip = "no-credentials"
+            le.execute_plans([hp], out, {"ssh"}, None, None, False, mock.Mock())
+            meta = json.loads((out / "linux" / "192.0.2.99" / "_meta.json").read_text())
+            self.assertEqual(meta["status"], "SKIPPED")
+            self.assertIn("no-credentials", meta["fail_reason"])
+
+
+class TestExecPortWarning(unittest.TestCase):
+    """#6: a non-default port on a host routed to an exec method is ignored by
+    impacket; the tool must warn rather than silently connect to 445."""
+
+    def test_nondefault_port_warns(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            spec = le.HostSpec(host="192.0.2.21", os="windows", port=139)
+            hp = le.HostPlan(spec, le.Cred(user="admin", password="pw"))
+            hp.pathways = ["wmiexec"]
+            probe, _ = _probe_or_refuse("wmiexec")
+            warned = []
+            with mock.patch.object(le, "warn", side_effect=warned.append), \
+                    mock.patch.object(le, "run_exec_probe",
+                                      return_value={"status": "DEP_MISSING"}):
+                le.execute_plans([hp], out, {"exec"}, "wmiexec", probe, False,
+                                 mock.Mock())
+            self.assertTrue(any("139" in w and "ignored" in w for w in warned))
+
+
+class TestMixedHostServiceEvidence(unittest.TestCase):
+    """#7: in a mixed tree a host that is both a bulk-posture host and an
+    auto-enum service host must resolve its service card's evidence from the
+    service dir, not be overridden by the bulk-posture files."""
+
+    def test_service_card_resolves_service_dir_not_bulk(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            # bulk-posture host "192.0.2.50"
+            linux = root / "linux"
+            (linux / "192.0.2.50").mkdir(parents=True)
+            (linux / le.BULK_ROOT_MARKER).write_text(
+                json.dumps({"writer": "local-enum.py", "os": "linux"}))
+            (linux / "192.0.2.50" / "_meta.json").write_text(
+                json.dumps({"status": "OK", "host": "192.0.2.50"}))
+            (linux / "192.0.2.50" / "linenum.txt").write_text(
+                "POSTURE|KRN-01|PASS|ok\n")
+            # same host, a genuine ssh service dir
+            svc = root / "ssh" / "192.0.2.50"
+            svc.mkdir(parents=True)
+            (svc / "banner.txt").write_text("SSH-2.0-OpenSSH_7.4\n")
+            model = dash.build_index(root, bulk=True, rules_path=None)
+            ssh_rows = [r for r in model["inventory"]
+                        if r["host"] == "192.0.2.50" and r["service"] == "ssh"]
+            self.assertTrue(ssh_rows, "expected an ssh inventory row for the host")
+            ev = ssh_rows[0]["evidence_files"]
+            self.assertTrue(any("ssh/192.0.2.50/banner.txt" in e for e in ev))
+            self.assertFalse(any("linenum.txt" in e for e in ev),
+                             "ssh card must not show bulk-posture files")
+
+
+class TestPartitionLocalEquals(unittest.TestCase):
+    """#9: _partition_local must route `--opt=value` forms, not only separate
+    tokens."""
+
+    def test_opt_equals_value_routes_like_separate_tokens(self):
+        auto, local = aranum._partition_local(
+            ["scan.gnmap", "--targets=hosts.txt", "--transport=ssh",
+             "--only=http", "-u=jay"])
+        # local-only value flag in =value form
+        self.assertIn("--targets=hosts.txt", local)
+        self.assertNotIn("--targets=hosts.txt", auto)
+        self.assertIn("--transport=ssh", local)
+        self.assertNotIn("--transport=ssh", auto)
+        # auto-only flag unknown to the local layer
+        self.assertIn("--only=http", auto)
+        self.assertNotIn("--only=http", local)
 
 
 if __name__ == "__main__":
