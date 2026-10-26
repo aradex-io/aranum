@@ -418,36 +418,63 @@ foreach ($c in @(@('absent', $null), @('two', 2), @('twostr', ' 2 '), @('three',
 
 @pytest.mark.parametrize("fuzz", ["99", "-1", "'x'"])
 def test_gate_out_of_domain_registry_values_never_grade_pass(tmp_path, fuzz):
-    # GATE (REVIEW-010 round-3 escalation, structural): with EVERY registry value set
-    # outside any documented domain, no registry-backed host check may grade PASS. This
-    # decides the "enumerated policy with fall-through PASS" class for every current and
-    # future check, instead of patching checks one by one.
+    # GATE (REVIEW-010 round-3 escalation, structural). Every registry read the host
+    # checks make is discovered at run time, then fuzzed ONE AT A TIME out of domain
+    # while every other read is absent (always valid) -- so an early throw can never
+    # mask a later read. For each read: some check must grade ERR naming that value,
+    # and no check may PASS that did not already PASS with everything absent.
     body = _lib(r"""
-function Get-RegValue { param([string]$Path, [string]$Name) return %(f)s }
-function Get-ItemProperty { param($LiteralPath, $Name, $ErrorAction) [pscustomobject]@{ AutoAdminLogon = %(f)s } }
+$script:fuzzKey = ''
+$script:keys = New-Object System.Collections.ArrayList
+function Get-RegValue { param([string]$Path, [string]$Name)
+  $k = $Path + '!' + $Name
+  if ($script:keys -notcontains $k) { [void]$script:keys.Add($k) }
+  if ($k -eq $script:fuzzKey) { return %(f)s }
+  return $null }
+function Get-ItemProperty { param($LiteralPath, $Name, $ErrorAction)
+  $k = [string]$LiteralPath + '!AutoAdminLogon'
+  if ($script:keys -notcontains $k) { [void]$script:keys.Add($k) }
+  if ($k -eq $script:fuzzKey) { return [pscustomobject]@{ AutoAdminLogon = %(f)s } }
+  return [pscustomobject]@{} }
 function Get-Service { param([string]$Name) [pscustomobject]@{ Name=$Name; Status='Running' } }
 function Get-HotFix { @([pscustomobject]@{ InstalledOn = (Get-Date).AddDays(-3) }) }
 function Get-CimInstance { param($ClassName,$Namespace,$Filter) throw 'no cim' }
+function Get-ChildItem { param($LiteralPath, $ErrorAction) @() }
 $ctx = @{ ComputerName='WS01'; PartOfDomain=$true; Domain='corp.local'; IsDC=$false; Build=19045; Caption='Windows 10'; ProductType=1 }
-Invoke-HostPostureChecks -Context $ctx
+function Invoke-Run { $script:AranumPostureSeen = @{}; @(Invoke-HostPostureChecks -Context $ctx | Where-Object { $_ -like 'POSTURE|*' }) }
+foreach ($l in (Invoke-Run)) { 'BASE|' + $l }
+foreach ($k in @($script:keys)) {
+  $script:fuzzKey = $k
+  foreach ($l in (Invoke-Run)) { 'FUZZ|' + $k + '|' + $l }
+}
 """ % {"f": fuzz})
     proc = _pwsh_file(tmp_path, body)
     assert proc.returncode == 0, proc.stderr
-    got = {c: (st, d) for c, st, d in _posture_lines(proc.stdout)}
-    assert len(got) == 41
-    passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
-    # Only non-registry evidence may PASS: the stubbed hotfix date, and -- for a
-    # numeric fuzz -- PS-V2, where "99" is a real (non-2.x) engine version.
-    allowed = {"WIN-PATCH-AGE"} | ({"WIN-PS-V2"} if fuzz == "99" else set())
-    assert set(passed) <= allowed, passed
-    # Anti-vacuous: the checks round 3 reproduced as fall-through PASS are now ERR, and
-    # the gate actually drove the registry path (a floor of ERR results).
-    for cid in ("WIN-LDAP-CLISIGN", "WIN-UAC-CONSENT", "WIN-LAPS", "WIN-ANON-RESTRICT",
-                "WIN-CRED-WDIGEST", "WIN-UAC-LATFP", "WIN-AIE", "WIN-CRED-LMCOMPAT",
-                "WIN-CRED-NOLMHASH", "WIN-UAC-LUA", "WIN-AUTOLOGON"):
-        assert got[cid][0] == "ERR", (cid, got[cid])
-        assert "outside documented values" in got[cid][1] or "is not a version" in got[cid][1], got[cid]
-    assert sum(st == "ERR" for st, _ in got.values()) >= 25
+    base, runs = {}, {}
+    for ln in proc.stdout.splitlines():
+        if ln.startswith("BASE|POSTURE|"):
+            _, _, cid, st, d = ln.split("|", 4)
+            base[cid] = st
+        elif ln.startswith("FUZZ|"):
+            _, key, _, cid, st, d = ln.split("|", 5)
+            runs.setdefault(key, {})[cid] = (st, d)
+    assert len(base) == 41
+    # Anti-vacuous: the discovery really saw the registry surface (37 policy reads,
+    # PowerShellVersion, UBR, AutoAdminLogon), including fallback/second reads.
+    assert len(runs) >= 39, sorted(runs)
+    for must in ("HKCU:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer!AlwaysInstallElevated",
+                 "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WSMAN\\Service!allow_unencrypted"):
+        assert must in runs, must
+    shown = {"99": "99", "-1": "-1", "'x'": "x"}[fuzz]
+    for key, got in runs.items():
+        name = key.split("!", 1)[1]
+        if name == "UBR":          # informational build suffix in a detail, never graded
+            continue
+        errs = [c for c, (st, d) in got.items()
+                if st == "ERR" and (name + "=" + shown) in d and "outside documented values" in d]
+        assert errs, (key, {c: v for c, v in got.items() if v[0] != base.get(c)})
+        new_pass = sorted(c for c, (st, _) in got.items() if st == "PASS" and base.get(c) != "PASS")
+        assert new_pass == [], (key, new_pass)
 
 
 def test_windows_rootdse_uses_the_bounded_searcher(tmp_path):

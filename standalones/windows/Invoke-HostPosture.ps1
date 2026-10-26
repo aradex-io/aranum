@@ -490,7 +490,8 @@ function Invoke-HostPostureChecks {
     $psPol = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell'
     Invoke-PostureCheck 'WIN-PS-V2' {
         $v = Get-RegValue 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine' 'PowerShellVersion'
-        if ($null -ne $v -and -not ([string]$v -match '^[0-9]+(\.[0-9]+)*$')) { throw ('PowerShellVersion=' + [string]$v + ' is not a version') }
+        # The PowerShell\1 engine key only ever holds the 1.0/2.0 engine.
+        if ($null -ne $v -and @('1.0', '2.0') -notcontains ([string]$v).Trim()) { throw ('PowerShellVersion=' + [string]$v + ' outside documented values (1.0,2.0)') }
         if ($v -and ([string]$v).StartsWith('2')) { return (New-PostureResult 'WARN' ('PowerShell ' + $v + ' engine installed')) }
         New-PostureResult 'PASS' 'PowerShell 2.0 engine not installed'
     }
