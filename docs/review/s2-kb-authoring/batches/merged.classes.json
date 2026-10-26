@@ -1,0 +1,4426 @@
+{
+ "all-s-s-all-s-all-46200da3": {
+  "category": "linlocal",
+  "title": "Unrestricted sudo access",
+  "why": "A sudoers rule granting (ALL:ALL) ALL allows the affected user to execute any command as any user or group. This is effectively full root access, so defenders must verify that the grant is intentional and tightly controlled.",
+  "test": [
+   {
+    "label": "List effective sudo rules",
+    "cmd": "sudo -l -U <user>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Apply least privilege",
+    "text": "Replace the unrestricted rule with an explicit allowlist of required commands, target users, and groups; remove the rule entirely if it is unnecessary."
+   }
+  ],
+  "refs": [
+   "https://www.sudo.ws/docs/man/sudoers.man/",
+   "https://attack.mitre.org/techniques/T1548/003/"
+  ]
+ },
+ "alwaysinstallelevated-enabled-6495dbaa": {
+  "category": "winlocal",
+  "title": "AlwaysInstallElevated enabled",
+  "why": "When AlwaysInstallElevated is enabled in both the machine and user policy hives, Windows Installer packages can run with elevated privileges. A local user may therefore obtain SYSTEM-level execution by launching a malicious MSI package.",
+  "test": [
+   {
+    "label": "Query machine installer policy",
+    "cmd": "reg query \"HKLM\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+   },
+   {
+    "label": "Query user installer policy",
+    "cmd": "reg query \"HKCU\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable machine policy",
+    "cmd": "reg add \"HKLM\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated /t REG_DWORD /d 0 /f"
+   },
+   {
+    "label": "Disable user policy",
+    "cmd": "reg add \"HKCU\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated /t REG_DWORD /d 0 /f"
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/win32/msi/alwaysinstallelevated",
+   "https://attack.mitre.org/techniques/T1548/002/"
+  ]
+ },
+ "b-release-agent-notify-on-release-core-pattern-sysrq-tr-a3f639e8": {
+  "category": "linlocal",
+  "title": "Writable kernel control interface",
+  "why": "A non-root user can write a sensitive kernel or cgroup control such as release_agent, notify_on_release, core_pattern, or sysrq-trigger. Depending on the interface and surrounding isolation, this can alter privileged execution behavior, expose host control, or destabilize the system.",
+  "test": [
+   {
+    "label": "Inspect matched control permissions",
+    "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+   },
+   {
+    "label": "Resolve path and mount context",
+    "cmd": "findmnt -T <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict ownership and writes",
+    "text": "Make the control root-owned and remove write access from untrusted users; also prevent sensitive host procfs, sysfs, and cgroup paths from being mounted writable inside containers."
+   }
+  ],
+  "refs": [
+   "https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/notify_on_release.html",
+   "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html"
+  ]
+ },
+ "bcap-net-raw-net-bind-service-kill-sys-rawio-b-ep-5d5ddc68": {
+  "category": "linlocal",
+  "title": "Executable has elevated Linux capabilities",
+  "why": "The executable carries an effective capability such as raw networking, privileged-port binding, process signaling, or raw device I/O. If the program is unnecessary, writable, or can invoke user-controlled behavior, that capability may enable traffic manipulation, service impersonation, process interference, or hardware access.",
+  "test": [
+   {
+    "label": "Read file capabilities",
+    "cmd": "getcap -v <evidence_path>"
+   },
+   {
+    "label": "Inspect file ownership and mode",
+    "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove unnecessary capabilities",
+    "cmd": "setcap -r <evidence_path>"
+   },
+   {
+    "label": "Constrain required capability use",
+    "text": "If the capability is required, use a narrowly scoped service account, protect the executable and its dependencies from modification, and restrict execution to authorized users."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man7/capabilities.7.html",
+   "https://attack.mitre.org/techniques/T1548/001/"
+  ]
+ },
+ "bcap-setuid-setgid-dac-read-search-dac-override-sys-adm-8660c37c": {
+  "category": "linlocal",
+  "title": "Executable has high-impact capabilities",
+  "why": "The executable has an effective capability that can bypass file permissions, alter identities, trace processes, load modules, administer the system, or access raw devices. A flaw or user-controlled execution path in that binary can turn the delegated capability into local privilege escalation or sensitive-data access.",
+  "test": [
+   {
+    "label": "Read assigned capabilities",
+    "cmd": "getcap -v <evidence_path>"
+   },
+   {
+    "label": "Check executable integrity controls",
+    "cmd": "namei -l <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove file capabilities",
+    "cmd": "setcap -r <evidence_path>"
+   },
+   {
+    "label": "Replace broad delegation",
+    "text": "Use a dedicated privileged service or a minimal capability set instead of granting broad capabilities to a general-purpose executable."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man7/capabilities.7.html",
+   "https://attack.mitre.org/techniques/T1548/001/"
+  ]
+ },
+ "bcap-setuid-setgid-dac-read-search-dac-override-sys-adm-e867ba82": {
+  "category": "linlocal",
+  "title": "Dangerous effective file capability",
+  "why": "An executable is effective with a powerful capability covering identity changes, discretionary-access bypass, system administration, tracing, module loading, ownership changes, or network administration. These privileges can cross important security boundaries and should not be attached to general-purpose or user-modifiable programs.",
+  "test": [
+   {
+    "label": "Confirm effective capabilities",
+    "cmd": "getcap -v <evidence_path>"
+   },
+   {
+    "label": "Inspect the complete path",
+    "cmd": "namei -l <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove the capability assignment",
+    "cmd": "setcap -r <evidence_path>"
+   },
+   {
+    "label": "Redesign privileged operation",
+    "text": "Delegate only the minimum required operation through a protected service, and ensure the executable, libraries, configuration, and parent directories are not writable by untrusted users."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man7/capabilities.7.html",
+   "https://attack.mitre.org/techniques/T1548/001/"
+  ]
+ },
+ "bcap-sys-admin-held-b-blooks-privileged-b-9c8a77ca": {
+  "category": "linlocal",
+  "title": "Container holds broad host capability",
+  "why": "CAP_SYS_ADMIN is an exceptionally broad capability associated with mounts, namespaces, and many kernel administration operations; a privileged container commonly holds still more authority. If the container is compromised, weak isolation or exposed host resources can make host compromise substantially easier.",
+  "test": [
+   {
+    "label": "Read current capability masks",
+    "cmd": "grep -E '^Cap(Inh|Prm|Eff|Bnd|Amb):' /proc/self/status"
+   },
+   {
+    "label": "Decode effective capabilities",
+    "cmd": "capsh --decode=$(awk '/^CapEff:/{print $2}' /proc/self/status)"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Drop broad capabilities",
+    "text": "Run the workload without privileged mode, drop all capabilities by default, and add back only capabilities proven necessary; never grant CAP_SYS_ADMIN unless the workload is fully trusted."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man7/capabilities.7.html",
+   "https://docs.docker.com/engine/containers/run/#runtime-privilege-and-linux-capabilities"
+  ]
+ },
+ "bdocker-sock-present-b-01283762": {
+  "category": "linlocal",
+  "title": "Docker control socket exposed",
+  "why": "Access to the Docker daemon socket permits control of containers and commonly provides a path to host-level root authority. Exposing the socket inside a workload turns compromise of that workload into compromise of the container-management plane.",
+  "test": [
+   {
+    "label": "Inspect socket permissions",
+    "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+   },
+   {
+    "label": "Query daemon information",
+    "cmd": "docker -H unix://<evidence_path> info"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove socket exposure",
+    "text": "Do not mount the Docker socket into containers. Where management access is unavoidable, use a narrowly authorized proxy and restrict socket membership to trusted administrators."
+   }
+  ],
+  "refs": [
+   "https://docs.docker.com/engine/security/",
+   "https://attack.mitre.org/techniques/T1611/"
+  ]
+ },
+ "bno-all-squash-b-862fbcde": {
+  "category": "linlocal",
+  "title": "NFS export preserves client identities",
+  "why": "An NFS export using no_all_squash preserves client-supplied user identities rather than mapping every request to an anonymous account. In environments without strong NFS authentication, matching or spoofed numeric UIDs can grant unintended access to exported data.",
+  "test": [
+   {
+    "label": "List effective NFS exports",
+    "cmd": "exportfs -v"
+   },
+   {
+    "label": "Read configured export options",
+    "cmd": "grep -Rns -- 'no_all_squash' /etc/exports /etc/exports.d"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Map untrusted clients",
+    "text": "Use all_squash with a dedicated anonymous UID/GID for untrusted clients, restrict each export to necessary client networks, and use Kerberos-secured NFS where identity assurance is required."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man5/exports.5.html",
+   "https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/configuring_and_using_network_file_services/deploying-an-nfs-server_configuring-and-using-network-file-services"
+  ]
+ },
+ "bno-root-squash-b-b4bfb72e": {
+  "category": "linlocal",
+  "title": "NFS root squashing disabled",
+  "why": "An NFS export with no_root_squash accepts client root as root on the exported filesystem. A compromised or attacker-controlled authorized client can create root-owned files, alter executable content, or plant privileged configuration consumed by the server.",
+  "test": [
+   {
+    "label": "List effective export options",
+    "cmd": "exportfs -v"
+   },
+   {
+    "label": "Locate unsafe configuration",
+    "cmd": "grep -Rns -- 'no_root_squash' /etc/exports /etc/exports.d"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable root squashing",
+    "text": "Remove no_root_squash or explicitly use root_squash, restrict the export to required clients, and reload the export table with exportfs -ra."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man5/exports.5.html",
+   "https://attack.mitre.org/techniques/T1021/002/"
+  ]
+ },
+ "bpossible-host-pid-namespace-b-dbd24c2f": {
+  "category": "linlocal",
+  "title": "Possible host PID namespace sharing",
+  "why": "A container that shares the host PID namespace can enumerate and potentially interact with host processes subject to its capabilities and other controls. This weakens process isolation and can expose command lines, environment data, signals, or debugging interfaces.",
+  "test": [
+   {
+    "label": "Inspect visible process namespace",
+    "cmd": "readlink /proc/1/ns/pid && ps -eo pid,user,comm,args"
+   },
+   {
+    "label": "Inspect current process capabilities",
+    "cmd": "grep -E '^Cap(Eff|Bnd):' /proc/self/status"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restore PID isolation",
+    "text": "Disable host PID sharing for the workload, retain the runtime's private PID namespace, and drop process-control capabilities such as SYS_PTRACE and KILL unless explicitly required."
+   }
+  ],
+  "refs": [
+   "https://docs.docker.com/engine/containers/run/#pid-settings---pid",
+   "https://attack.mitre.org/techniques/T1611/"
+  ]
+ },
+ "bse-backup-restore-takeownership-managevolume-security-75436e54": {
+  "category": "winlocal",
+  "title": "High-impact Windows privilege enabled",
+  "why": "The current token has an enabled privilege capable of bypassing file ACLs, restoring protected content, taking ownership, managing volumes, or accessing security auditing functions. Abuse can expose protected credentials or let a compromised process alter security-sensitive resources.",
+  "test": [
+   {
+    "label": "List token privileges",
+    "cmd": "whoami /priv"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict user-right assignments",
+    "text": "Remove the account from the corresponding User Rights Assignment unless operationally required, and run backup, restore, storage, and security-management duties through dedicated, monitored service accounts."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/win32/secauthz/privilege-constants",
+   "https://attack.mitre.org/techniques/T1134/"
+  ]
+ },
+ "bse-impersonate-assignprimarytoken-debug-backup-restore-5c02ab8b": {
+  "category": "winlocal",
+  "title": "Dangerous Windows privilege assigned",
+  "why": "A sensitive privilege is present in the process token but currently disabled. Windows may enable an assigned privilege when an authorized operation requests it, so assignment still expands the impact of process compromise and warrants least-privilege review.",
+  "test": [
+   {
+    "label": "Review assigned token privileges",
+    "cmd": "whoami /priv"
+   },
+   {
+    "label": "Review account group membership",
+    "cmd": "whoami /groups"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove unnecessary assignments",
+    "text": "Use Local Security Policy or Group Policy to remove unneeded sensitive user rights from the account and its groups; separate administrative duties into dedicated identities."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/win32/secauthz/privileges",
+   "https://attack.mitre.org/techniques/T1134/"
+  ]
+ },
+ "bse-impersonate-assignprimarytoken-debug-tcb-createtoke-6ff3ed2a": {
+  "category": "winlocal",
+  "title": "Critical Windows privilege enabled",
+  "why": "The current token has an enabled privilege permitting impersonation, primary-token assignment, debugging, trusted-computing-base behavior, token creation, or driver loading. These rights can cross user and kernel trust boundaries and frequently make compromise of the process equivalent to full system compromise.",
+  "test": [
+   {
+    "label": "Confirm enabled token privileges",
+    "cmd": "whoami /priv"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove sensitive user rights",
+    "text": "Remove the affected rights from ordinary users and services through Group Policy, use dedicated service identities, and grant only the specific right required by the application."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/win32/secauthz/privilege-constants",
+   "https://attack.mitre.org/techniques/T1134/"
+  ]
+ },
+ "bwritable-b-etc-cron-78249dc5": {
+  "category": "linlocal",
+  "title": "Writable system cron configuration",
+  "why": "An untrusted user can modify a system cron file or directory whose jobs may execute as root or another privileged account. Injected commands would then run automatically under that job's security context.",
+  "test": [
+   {
+    "label": "Inspect matched path permissions",
+    "cmd": "namei -l <evidence_path>"
+   },
+   {
+    "label": "List cron ownership and modes",
+    "cmd": "find /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.monthly /etc/cron.weekly -maxdepth 1 -printf '%M %u:%g %p\\n'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restore protected permissions",
+    "cmd": "chown root:root <evidence_path> && chmod go-w <evidence_path>"
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man5/crontab.5.html",
+   "https://attack.mitre.org/techniques/T1053/003/"
+  ]
+ },
+ "bwritable-b-etc-systemd-f4b4a67c": {
+  "category": "linlocal",
+  "title": "Writable systemd configuration",
+  "why": "An untrusted user can modify a systemd unit, override, or related configuration under /etc/systemd. If a privileged unit is started, restarted, or reloaded, attacker-controlled directives may execute with that unit's privileges.",
+  "test": [
+   {
+    "label": "Inspect matched path permissions",
+    "cmd": "namei -l <evidence_path>"
+   },
+   {
+    "label": "Show unit definition",
+    "cmd": "systemctl cat <service>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Protect systemd files",
+    "cmd": "chown root:root <evidence_path> && chmod go-w <evidence_path>"
+   },
+   {
+    "label": "Review unit integrity",
+    "text": "Compare the unit and all drop-ins with trusted package or configuration-management sources, then run systemctl daemon-reload after correcting them."
+   }
+  ],
+  "refs": [
+   "https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html",
+   "https://attack.mitre.org/techniques/T1543/002/"
+  ]
+ },
+ "docker-sock-ca319bcd": {
+  "category": "linlocal",
+  "title": "Docker socket accessible",
+  "why": "The Docker API socket is present in the assessed environment. Any user or workload able to access it can often create or alter containers with host mounts and elevated settings, effectively obtaining host-level control.",
+  "test": [
+   {
+    "label": "Inspect socket access",
+    "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+   },
+   {
+    "label": "Perform read-only daemon query",
+    "cmd": "docker -H unix://<evidence_path> version"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Limit daemon access",
+    "text": "Remove the socket from containers, restrict membership in the docker group to trusted administrators, and use an authorization proxy when applications require limited API access."
+   }
+  ],
+  "refs": [
+   "https://docs.docker.com/engine/security/",
+   "https://attack.mitre.org/techniques/T1611/"
+  ]
+ },
+ "env-keep-ld-preload-library-path-f389f6e9": {
+  "category": "linlocal",
+  "title": "Sudo preserves dynamic-loader variables",
+  "why": "A sudoers env_keep rule preserves LD_PRELOAD or LD_LIBRARY_PATH across a privilege boundary. When the invoked program honors these variables, user-selected libraries may be loaded into a privileged process and execute with elevated rights.",
+  "test": [
+   {
+    "label": "Show effective sudo policy",
+    "cmd": "sudo -l -U <user>"
+   },
+   {
+    "label": "Locate loader-variable exceptions",
+    "cmd": "grep -RnsE 'env_keep.*LD_(PRELOAD|LIBRARY_PATH)' /etc/sudoers /etc/sudoers.d"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove loader variables",
+    "text": "Delete LD_PRELOAD and LD_LIBRARY_PATH from sudoers env_keep entries, retain env_reset, and validate the resulting policy with visudo -c."
+   }
+  ],
+  "refs": [
+   "https://www.sudo.ws/docs/man/sudoers.man/",
+   "https://attack.mitre.org/techniques/T1574/006/"
+  ]
+ },
+ "etc-apt-sources-list-writable-3e435145": {
+  "category": "linlocal",
+  "title": "Writable APT repository configuration",
+  "why": "An untrusted user can alter an APT source definition and redirect package retrieval to an attacker-controlled repository. A later privileged update or installation could introduce untrusted software, especially where repository-signing controls are weak or misconfigured.",
+  "test": [
+   {
+    "label": "Inspect source-list permissions",
+    "cmd": "stat -Lc '%A %a %U:%G %n' /etc/apt/sources.list"
+   },
+   {
+    "label": "Inspect path components",
+    "cmd": "namei -l /etc/apt/sources.list"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Protect repository configuration",
+    "cmd": "chown root:root /etc/apt/sources.list && chmod 0644 /etc/apt/sources.list"
+   },
+   {
+    "label": "Verify repository trust",
+    "text": "Review configured repository URLs and signing-key scopes, remove unknown entries, and use Signed-By with a dedicated keyring for each external repository."
+   }
+  ],
+  "refs": [
+   "https://manpages.debian.org/apt/sources.list.5",
+   "https://wiki.debian.org/DebianRepository/UseThirdParty"
+  ]
+ },
+ "etc-usr-lib-lib64-sbin-bin-s-s-s-world-writable-0e6b08c2": {
+  "category": "linlocal",
+  "title": "World-writable system path",
+  "why": "A file or directory beneath a trusted system path is writable by every local user. Attackers may replace executables, libraries, configuration, or scripts that privileged users and services rely upon, creating a durable privilege-escalation path.",
+  "test": [
+   {
+    "label": "Inspect the matched path",
+    "cmd": "namei -l <evidence_path>"
+   },
+   {
+    "label": "Read ownership and mode",
+    "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove world write access",
+    "cmd": "chmod o-w <evidence_path>"
+   },
+   {
+    "label": "Restore trusted ownership",
+    "text": "Set ownership to the package- or service-appropriate administrative account and verify the file against the operating-system package database or a trusted baseline."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1574/",
+   "https://refspecs.linuxfoundation.org/FHS_3.0/fhs/index.html"
+  ]
+ },
+ "glibc-s-s-s-in-vulnerable-window-s-2-34-2-38-s-s-looney-5edd47d9": {
+  "category": "linlocal",
+  "title": "Potential Looney Tunables exposure",
+  "why": "The detected glibc release falls in the upstream version range associated with CVE-2023-4911, an ld.so environment-variable parsing flaw that can permit local privilege escalation through set-user-ID programs. Distribution packages may contain backported fixes, so the vendor package revision must be checked rather than relying only on the upstream version.",
+  "test": [
+   {
+    "label": "Read glibc runtime version",
+    "cmd": "ldd --version"
+   },
+   {
+    "label": "Read installed package revision",
+    "cmd": "dpkg-query -W -f='${Package} ${Version}\\n' libc6"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Install vendor-fixed glibc",
+    "text": "Apply the distribution's security update for CVE-2023-4911 and restart affected long-running services or reboot according to vendor guidance."
+   }
+  ],
+  "refs": [
+   "https://nvd.nist.gov/vuln/detail/CVE-2023-4911",
+   "https://www.openwall.com/lists/oss-security/2023/10/03/2"
+  ]
+ },
+ "groups-services-scheduledtasks-datasources-printers-dri-6642dd0f": {
+  "category": "winlocal",
+  "title": "Group Policy Preferences file exposed",
+  "why": "A legacy Group Policy Preferences XML file was found in SYSVOL or a local policy cache. Such files can disclose account names and configuration details, and older entries containing cpassword values expose reversibly encrypted credentials to any domain user who can read SYSVOL.",
+  "test": [
+   {
+    "label": "Inspect the matched policy file",
+    "cmd": "powershell -NoProfile -Command \"Get-Item -LiteralPath '<evidence_path>' | Select-Object FullName,Length,LastWriteTime\""
+   },
+   {
+    "label": "Check for legacy password fields",
+    "cmd": "powershell -NoProfile -Command \"Select-String -LiteralPath '<evidence_path>' -Pattern 'cpassword|userName|accountName'\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove embedded credentials",
+    "text": "Delete legacy cpassword-bearing preference items, rotate every referenced credential, purge stale copies from SYSVOL, and deploy managed service accounts or LAPS instead."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/troubleshoot/windows-server/group-policy/cpassword-known-issue",
+   "https://attack.mitre.org/techniques/T1552/006/"
+  ]
+ },
+ "hardening-ptrace-scope-0-unprivileged-bpf-disabled-0-su-3c34f507": {
+  "category": "linlocal",
+  "title": "Weak Linux kernel hardening setting",
+  "why": "One or more kernel controls permit broad process tracing, unprivileged BPF use, or dumpable privileged processes. These settings enlarge the local attack surface and can expose process memory, kernel interfaces, or sensitive crash data after another foothold is obtained.",
+  "test": [
+   {
+    "label": "Read relevant kernel controls",
+    "cmd": "sysctl kernel.yama.ptrace_scope kernel.unprivileged_bpf_disabled fs.suid_dumpable"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Apply hardened sysctl values",
+    "text": "Set kernel.yama.ptrace_scope to at least 1, kernel.unprivileged_bpf_disabled to the vendor-recommended restrictive value, and fs.suid_dumpable to 0 unless a documented operational need exists."
+   }
+  ],
+  "refs": [
+   "https://www.kernel.org/doc/html/latest/admin-guide/LSM/Yama.html",
+   "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/fs.html"
+  ]
+ },
+ "io-uring-reachable-to-current-user-s-s-known-cve-surfac-de45adbf": {
+  "category": "linlocal",
+  "title": "io_uring available to unprivileged users",
+  "why": "The current unprivileged user can reach the io_uring kernel subsystem, which has historically contained several locally exploitable memory-safety flaws. Availability is not proof of a vulnerability, but it increases kernel attack surface and should be restricted where applications do not require it.",
+  "test": [
+   {
+    "label": "Read io_uring restriction policy",
+    "cmd": "sysctl kernel.io_uring_disabled"
+   },
+   {
+    "label": "Check kernel version",
+    "cmd": "uname -r"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable unused io_uring",
+    "text": "Patch to the vendor-supported kernel and set kernel.io_uring_disabled=2 when io_uring is not required, or use the supported restrictive mode and authorized group where available."
+   }
+  ],
+  "refs": [
+   "https://docs.kernel.org/admin-guide/sysctl/kernel.html",
+   "https://attack.mitre.org/techniques/T1068/"
+  ]
+ },
+ "kernel-s-s-s-in-ubuntu-hwe-cve-2023-0386-vulnerable-d094a0e0": {
+  "category": "linlocal",
+  "title": "Ubuntu kernel vulnerable to CVE-2023-0386",
+  "why": "The detected Ubuntu HWE kernel appears to fall within the vulnerable range for CVE-2023-0386, an OverlayFS flaw that can allow a local user to gain elevated privileges. Vendor package revisions must be checked because Ubuntu fixes are backported without necessarily changing the upstream version family.",
+  "test": [
+   {
+    "label": "Read running kernel release",
+    "cmd": "uname -r"
+   },
+   {
+    "label": "Read installed Ubuntu kernel package",
+    "cmd": "dpkg-query -W -f='${Package} ${Version}\\n' 'linux-image-*' | grep \"$(uname -r)\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Install a fixed Ubuntu kernel",
+    "text": "Apply the Ubuntu security update for CVE-2023-0386, reboot into the fixed kernel, and remove unsupported old kernels after confirming successful operation."
+   }
+  ],
+  "refs": [
+   "https://ubuntu.com/security/CVE-2023-0386",
+   "https://nvd.nist.gov/vuln/detail/CVE-2023-0386"
+  ]
+ },
+ "linux-s-s-s-2-3-4-5-0-9-1-0-5-3ce6a6fb": {
+  "category": "linlocal",
+  "title": "Legacy Linux kernel detected",
+  "why": "The running kernel belongs to an old major or minor family frequently outside normal security support. Unsupported kernels accumulate publicly documented local privilege-escalation and isolation flaws, although the exact risk depends on vendor backports and lifecycle status.",
+  "test": [
+   {
+    "label": "Read kernel and platform details",
+    "cmd": "uname -a"
+   },
+   {
+    "label": "Read operating-system release",
+    "cmd": "cat /etc/os-release"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Upgrade to a supported kernel",
+    "text": "Move to a vendor-supported OS and kernel stream, install all security updates, reboot into the updated kernel, and verify the old kernel is no longer running."
+   }
+  ],
+  "refs": [
+   "https://www.kernel.org/category/releases.html",
+   "https://attack.mitre.org/techniques/T1068/"
+  ]
+ },
+ "nopasswd-4f47cfff": {
+  "category": "linlocal",
+  "title": "Passwordless sudo rule",
+  "why": "A sudoers NOPASSWD rule allows the affected user to execute one or more commands without reauthentication. Broad commands, interpreters, editors, package managers, or writable command paths can make this equivalent to immediate privilege escalation.",
+  "test": [
+   {
+    "label": "List passwordless sudo grants",
+    "cmd": "sudo -l -U <user>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authentication and narrow scope",
+    "text": "Remove NOPASSWD unless noninteractive execution is essential, then allowlist only fixed root-owned commands with constrained arguments and use a dedicated service identity."
+   }
+  ],
+  "refs": [
+   "https://www.sudo.ws/docs/man/sudoers.man/",
+   "https://attack.mitre.org/techniques/T1548/003/"
+  ]
+ },
+ "os-s-microsoft-windows-7-server-2008-server-2012-b-d3cd5385": {
+  "category": "winlocal",
+  "title": "Unsupported Windows release",
+  "why": "The host runs Windows 7, Windows Server 2008, or Windows Server 2012, releases that are outside standard support. Unless covered by an applicable extended security program, newly discovered vulnerabilities may remain unpatched and modern security controls may be unavailable.",
+  "test": [
+   {
+    "label": "Read Windows version",
+    "cmd": "powershell -NoProfile -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Migrate to a supported release",
+    "text": "Upgrade or replace the host with a supported Windows version, apply current cumulative updates, and isolate the system with compensating controls until migration is complete."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/lifecycle/products/",
+   "https://attack.mitre.org/techniques/T1068/"
+  ]
+ },
+ "polkit-s-s-s-s-0-120-s-s-pwnkit-vulnerable-candidate-11f39eeb": {
+  "category": "linlocal",
+  "title": "Potential PwnKit vulnerability",
+  "why": "The installed polkit version is a candidate for CVE-2021-4034, a pkexec memory-corruption flaw that permits local privilege escalation to root. Because distributions backported fixes, the complete package revision and vendor advisory determine whether the host is actually vulnerable.",
+  "test": [
+   {
+    "label": "Read pkexec version",
+    "cmd": "pkexec --version"
+   },
+   {
+    "label": "Read installed polkit package revision",
+    "cmd": "dpkg-query -W -f='${Package} ${Version}\\n' policykit-1"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Install vendor-fixed polkit",
+    "text": "Apply the distribution security update for CVE-2021-4034. If immediate patching is impossible, follow vendor guidance for temporarily removing the set-user-ID bit from pkexec."
+   }
+  ],
+  "refs": [
+   "https://nvd.nist.gov/vuln/detail/CVE-2021-4034",
+   "https://ubuntu.com/security/CVE-2021-4034"
+  ]
+ },
+ "privileged-s-true-bdcd4765": {
+  "category": "linlocal",
+  "title": "Container runs in privileged mode",
+  "why": "Privileged mode grants a container nearly all Linux capabilities and broad access to host devices while weakening normal isolation controls. Compromise of the container can therefore provide a direct route to host control.",
+  "test": [
+   {
+    "label": "Inspect container privilege setting",
+    "cmd": "docker inspect --format '{{.HostConfig.Privileged}}' <service>"
+   },
+   {
+    "label": "Read effective capability mask",
+    "cmd": "grep '^CapEff:' /proc/self/status"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove privileged mode",
+    "text": "Recreate the workload without privileged mode, drop all capabilities by default, add only required capabilities, and expose only explicitly needed devices and host paths."
+   }
+  ],
+  "refs": [
+   "https://docs.docker.com/engine/containers/run/#runtime-privilege-and-linux-capabilities",
+   "https://attack.mitre.org/techniques/T1611/"
+  ]
+ },
+ "rw-r-rw-s-etc-passwd-shadow-sudoers-sudoers-d-6acf62fc": {
+  "category": "linlocal",
+  "title": "Writable account security file",
+  "why": "An untrusted account can write /etc/passwd, /etc/shadow, /etc/sudoers, or a sudoers include file. Modification can create privileged users, replace password hashes, or grant unrestricted sudo access, resulting in direct root compromise.",
+  "test": [
+   {
+    "label": "Inspect matched file permissions",
+    "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+   },
+   {
+    "label": "Inspect parent-directory controls",
+    "cmd": "namei -l <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restore secure ownership and mode",
+    "text": "Restore root ownership and vendor-recommended permissions, remove unauthorized ACLs, validate sudoers with visudo -c where applicable, and review the file for unauthorized changes."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man5/passwd.5.html",
+   "https://www.sudo.ws/docs/man/sudoers.man/"
+  ]
+ },
+ "rws-b-s-bash-sh-dash-ksh-zsh-csh-tcsh-less-more-vi-vim-5cb6db9a": {
+  "category": "linlocal",
+  "title": "Dangerous program has setuid root",
+  "why": "A shell, interpreter, editor, transfer utility, debugger, or other general-purpose program has the set-user-ID bit. Many such programs can execute commands, load files, or preserve privileges, so a root-owned instance may provide a straightforward path to root.",
+  "test": [
+   {
+    "label": "Confirm owner and setuid mode",
+    "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+   },
+   {
+    "label": "Identify package ownership",
+    "cmd": "dpkg-query -S <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove setuid",
+    "cmd": "chmod u-s <evidence_path>"
+   },
+   {
+    "label": "Restore trusted package state",
+    "text": "If the bit was not intentionally deployed, reinstall or verify the owning package and investigate how the permission changed."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man2/chmod.2.html",
+   "https://attack.mitre.org/techniques/T1548/001/"
+  ]
+ },
+ "rws-de23ca2d": {
+  "category": "linlocal",
+  "title": "Setuid executable present",
+  "why": "A set-user-ID executable runs with its file owner's effective identity, commonly root. The bit may be legitimate, but vulnerable, obsolete, unexpected, or user-modifiable setuid programs can provide local privilege escalation.",
+  "test": [
+   {
+    "label": "Inventory setuid files",
+    "cmd": "find / -xdev -type f -perm -4000 -exec stat -Lc '%A %a %U:%G %n' {} +"
+   },
+   {
+    "label": "Inspect matched executable",
+    "cmd": "file <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove unnecessary setuid bit",
+    "cmd": "chmod u-s <evidence_path>"
+   },
+   {
+    "label": "Review legitimate exceptions",
+    "text": "Keep only vendor-supported, root-owned setuid programs that are operationally required; patch them and ensure neither the executable nor its path is writable by untrusted users."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man2/setuid.2.html",
+   "https://attack.mitre.org/techniques/T1548/001/"
+  ]
+ },
+ "s-a-za-z-program-files-s-startmode-b57c099c": {
+  "category": "winlocal",
+  "title": "Privileged Windows service candidate",
+  "why": "A Windows service executable under Program Files was identified together with its start mode. This is a privilege-escalation candidate when the service runs as a privileged account and its executable, directory, configuration, or unquoted path is modifiable by a lower-privileged user.",
+  "test": [
+   {
+    "label": "Read service configuration",
+    "cmd": "sc.exe qc <service>"
+   },
+   {
+    "label": "Inspect executable ACL",
+    "cmd": "icacls \"<evidence_path>\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Harden the service",
+    "text": "Quote paths containing spaces, remove untrusted write permissions from the executable and parent directories, use a low-privilege service account, and disable the service if unnecessary."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/win32/services/service-security-and-access-rights",
+   "https://attack.mitre.org/techniques/T1574/009/"
+  ]
+ },
+ "s-s-docker-lxd-lxc-disk-shadow-adm-b-1d99aa01": {
+  "category": "linlocal",
+  "title": "Membership in a sensitive local group",
+  "why": "The account belongs to a group such as docker, lxd, lxc, disk, shadow, or adm. These groups can expose container-management authority, raw storage, password hashes, or sensitive logs and may provide root-equivalent access or valuable credential material.",
+  "test": [
+   {
+    "label": "List account groups",
+    "cmd": "id <user>"
+   },
+   {
+    "label": "Read sensitive group membership",
+    "cmd": "getent group docker lxd lxc disk shadow adm"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove unnecessary memberships",
+    "cmd": "gpasswd -d <user> <service>"
+   },
+   {
+    "label": "Separate administrative duties",
+    "text": "Grant sensitive group membership only to dedicated administrative identities and monitor changes to those groups."
+   }
+  ],
+  "refs": [
+   "https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user",
+   "https://attack.mitre.org/techniques/T1069/001/"
+  ]
+ },
+ "seimpersonate-dcom-reachable-roguepotato-e8db2689": {
+  "category": "winlocal",
+  "title": "Impersonation privilege with DCOM reachability",
+  "why": "The process holds SeImpersonatePrivilege and can reach the local DCOM endpoint mapper, a combination associated with named-pipe and COM token-impersonation escalation paths. No exploit is required to establish the risk: compromise of this service context may enable elevation to SYSTEM on affected configurations.",
+  "test": [
+   {
+    "label": "Confirm impersonation privilege",
+    "cmd": "whoami /priv"
+   },
+   {
+    "label": "Check local DCOM endpoint",
+    "cmd": "powershell -NoProfile -Command \"Test-NetConnection -ComputerName 127.0.0.1 -Port 135 -InformationLevel Detailed\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove or isolate impersonation rights",
+    "text": "Run the service under a minimally privileged identity without SeImpersonatePrivilege where possible, apply current Windows updates, and restrict unnecessary DCOM/RPC exposure."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/impersonate-a-client-after-authentication",
+   "https://attack.mitre.org/techniques/T1134/001/"
+  ]
+ },
+ "seimpersonate-spooler-running-printspoofer-a2b0d2aa": {
+  "category": "winlocal",
+  "title": "Impersonation privilege with active Spooler",
+  "why": "The process has SeImpersonatePrivilege while the Print Spooler is running. This combination expands local token-impersonation attack surface and can allow a compromised service account to reach SYSTEM on susceptible configurations.",
+  "test": [
+   {
+    "label": "Confirm token privilege",
+    "cmd": "whoami /priv"
+   },
+   {
+    "label": "Read Print Spooler status",
+    "cmd": "powershell -NoProfile -Command \"Get-Service -Name Spooler | Select-Object Name,Status,StartType\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable unnecessary Spooler",
+    "cmd": "powershell -NoProfile -Command \"Stop-Service Spooler; Set-Service Spooler -StartupType Disabled\""
+   },
+   {
+    "label": "Reduce service privilege",
+    "text": "Remove SeImpersonatePrivilege from service identities that do not require it and apply current Windows security updates."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/impersonate-a-client-after-authentication",
+   "https://attack.mitre.org/techniques/T1134/001/"
+  ]
+ },
+ "serviceaccount-token-b-7f1ea010": {
+  "category": "winlocal",
+  "title": "Service-account token file exposed",
+  "why": "A service-account token path is present, commonly indicating a workload credential mounted into the filesystem. Any process able to read the token may authenticate as that service account and exercise its assigned API permissions.",
+  "test": [
+   {
+    "label": "Inspect token metadata",
+    "cmd": "powershell -NoProfile -Command \"Get-Item -LiteralPath '<evidence_path>' | Select-Object FullName,Length,LastWriteTime\""
+   },
+   {
+    "label": "Inspect token ACL",
+    "cmd": "icacls \"<evidence_path>\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict and rotate the token",
+    "text": "Remove unnecessary token mounts, restrict file access to the workload identity, use short-lived projected tokens, minimize service-account RBAC permissions, and rotate any token that may have been exposed."
+   }
+  ],
+  "refs": [
+   "https://kubernetes.io/docs/concepts/security/service-accounts/",
+   "https://attack.mitre.org/techniques/T1528/"
+  ]
+ },
+ "sudo-version-1-8-0-9-1-8-1-0-9-1-8-2-0-9-1-8-31p1-1-9-0-6ec6c06d": {
+  "category": "linlocal",
+  "title": "Potentially vulnerable sudo version",
+  "why": "The detected sudo version falls in a range containing multiple historical local privilege-escalation flaws. Version matching is only a candidate signal because distributions frequently backport security fixes; the complete package revision must be compared with the vendor advisory.",
+  "test": [
+   {
+    "label": "Read sudo version and build",
+    "cmd": "sudo --version"
+   },
+   {
+    "label": "Read installed package revision",
+    "cmd": "dpkg-query -W -f='${Package} ${Version}\\n' sudo"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Upgrade sudo",
+    "text": "Install the latest vendor-supported sudo package, review the vendor changelog for backported fixes, and retest the effective sudoers policy after upgrading."
+   }
+  ],
+  "refs": [
+   "https://www.sudo.ws/security/advisories/",
+   "https://nvd.nist.gov/vuln/detail/CVE-2021-3156"
+  ]
+ },
+ "system-network-service-administrators-2af202a3": {
+  "category": "winlocal",
+  "title": "Service runs under privileged identity",
+  "why": "A discovered service or process runs as SYSTEM, NETWORK SERVICE, or an administrator-class principal. If its executable, configuration, plugins, or control permissions are weak, a lower-privileged user may influence code that executes in this powerful context.",
+  "test": [
+   {
+    "label": "Read service account and path",
+    "cmd": "powershell -NoProfile -Command \"Get-CimInstance Win32_Service -Filter \\\"Name='<service>'\\\" | Select-Object Name,StartName,State,PathName\""
+   },
+   {
+    "label": "Inspect service security descriptor",
+    "cmd": "sc.exe sdshow <service>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Apply service least privilege",
+    "text": "Use a dedicated virtual account or gMSA with only required rights, harden service-control permissions, and remove untrusted write access from executables, configuration, and plugin directories."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/win32/services/service-user-accounts",
+   "https://attack.mitre.org/techniques/T1543/003/"
+  ]
+ },
+ "unattend-ed-xml-sysprep-xml-inf-unattend-xml-inf-txt-d7be63e8": {
+  "category": "winlocal",
+  "title": "Unattended-install file exposed",
+  "why": "An unattended Windows setup or Sysprep file was found on disk. These files can contain administrator credentials, product keys, domain-join details, and deployment configuration that remain readable after installation.",
+  "test": [
+   {
+    "label": "Inspect file metadata and ACL",
+    "cmd": "powershell -NoProfile -Command \"Get-Item -LiteralPath '<evidence_path>'; Get-Acl -LiteralPath '<evidence_path>' | Format-List\""
+   },
+   {
+    "label": "Search for credential fields",
+    "cmd": "powershell -NoProfile -Command \"Select-String -LiteralPath '<evidence_path>' -Pattern 'Password|Credentials|AutoLogon|DomainAdmin|ProductKey'\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove secrets and stale files",
+    "text": "Delete unattended-install artifacts when no longer required, remove plaintext credentials from deployment templates, restrict remaining files to administrators, and rotate every credential found."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/update-windows-settings-and-scripts-create-your-own-answer-file-sxs",
+   "https://attack.mitre.org/techniques/T1552/001/"
+  ]
+ },
+ "unshare-ru-succeeded-s-s-unprivileged-userns-creation-w-b96b8d69": {
+  "category": "linlocal",
+  "title": "Unprivileged user namespaces enabled",
+  "why": "An ordinary user can create a new user namespace and map itself to namespace root. This is intentional on some systems, but it exposes additional kernel namespace and filesystem code to unprivileged users and has been a prerequisite for numerous local privilege-escalation flaws.",
+  "test": [
+   {
+    "label": "Read user-namespace policy",
+    "cmd": "sysctl kernel.unprivileged_userns_clone user.max_user_namespaces"
+   },
+   {
+    "label": "Check running kernel",
+    "cmd": "uname -r"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict namespace creation",
+    "text": "If applications do not require unprivileged user namespaces, disable them using the distribution-supported sysctl or set user.max_user_namespaces to 0; otherwise keep the kernel fully patched and confine namespace-using applications."
+   }
+  ],
+  "refs": [
+   "https://man7.org/linux/man-pages/man7/user_namespaces.7.html",
+   "https://attack.mitre.org/techniques/T1068/"
+  ]
+ },
+ "writable-a-za-z-30aabd46": {
+  "category": "winlocal",
+  "title": "Writable Windows path",
+  "why": "A local path is writable by the assessed principal. If a privileged service, scheduled task, installer, or administrator later loads content from that location, an attacker may substitute executable or configuration data and inherit the consumer's privileges.",
+  "test": [
+   {
+    "label": "Read effective path ACL",
+    "cmd": "icacls \"<evidence_path>\""
+   },
+   {
+    "label": "Inspect owner and access rules",
+    "cmd": "powershell -NoProfile -Command \"Get-Acl -LiteralPath '<evidence_path>' | Format-List Owner,AccessToString\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove untrusted write access",
+    "text": "Restrict Modify, Write, Create Files, and Create Folders rights to the owning service or administrators, and review privileged consumers of the path before changing inherited ACLs."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/security/identity-protection/access-control/access-control",
+   "https://attack.mitre.org/techniques/T1574/"
+  ]
+ },
+ "writable-binary-921ba2b9": {
+  "category": "winlocal",
+  "title": "Writable privileged executable",
+  "why": "A service or other privileged executable can be modified by a lower-privileged principal. Replacing or patching that binary can cause attacker-controlled code to run when the service or task next starts.",
+  "test": [
+   {
+    "label": "Inspect executable ACL",
+    "cmd": "icacls \"<evidence_path>\""
+   },
+   {
+    "label": "Read file owner and access rules",
+    "cmd": "powershell -NoProfile -Command \"Get-Acl -LiteralPath '<evidence_path>' | Format-List Owner,AccessToString\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Harden executable permissions",
+    "text": "Remove write and modify rights for non-administrative principals, restore ownership to TrustedInstaller or Administrators as appropriate, and replace the binary from a trusted signed source if integrity is uncertain."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/security/identity-protection/access-control/access-control",
+   "https://attack.mitre.org/techniques/T1574/010/"
+  ]
+ },
+ "writable-pipe-1c761405": {
+  "category": "winlocal",
+  "title": "Writable named pipe",
+  "why": "A named pipe permits access from a lower-privileged principal. If a privileged service trusts clients, fails to authenticate peers, or performs impersonation incorrectly, an attacker may inject requests, capture sensitive data, or influence privileged behavior.",
+  "test": [
+   {
+    "label": "List writable named pipes",
+    "cmd": "accesschk64.exe -nobanner -w \\pipe\\*"
+   },
+   {
+    "label": "List active pipe names",
+    "cmd": "powershell -NoProfile -Command \"Get-ChildItem -Path '\\\\.\\pipe\\' | Select-Object Name\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Harden pipe authorization",
+    "text": "Configure the server to create the pipe with an explicit restrictive security descriptor, authenticate each client, validate impersonation levels, and reject anonymous or unnecessary low-privilege access."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights",
+   "https://attack.mitre.org/techniques/T1559/"
+  ]
+ },
+ "writable-root-runs-scripts-from-here-on-apt-operations-45cf6e05": {
+  "category": "linlocal",
+  "title": "Writable APT privileged script location",
+  "why": "A writable location supplies scripts or hooks that root executes during APT operations. An untrusted local user can alter that content and obtain root code execution when an administrator or automated updater next invokes APT.",
+  "test": [
+   {
+    "label": "Inspect matched path permissions",
+    "cmd": "namei -l <evidence_path>"
+   },
+   {
+    "label": "Review configured APT hooks",
+    "cmd": "grep -RnsE 'DPkg::Pre-Invoke|DPkg::Post-Invoke|APT::Update::Pre-Invoke|APT::Update::Post-Invoke' /etc/apt/apt.conf /etc/apt/apt.conf.d"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Protect hook content",
+    "cmd": "chown -R root:root <evidence_path> && chmod -R go-w <evidence_path>"
+   },
+   {
+    "label": "Review APT hook integrity",
+    "text": "Remove unnecessary hook directives, compare remaining scripts with trusted package or configuration-management sources, and investigate any unauthorized modifications."
+   }
+  ],
+  "refs": [
+   "https://manpages.debian.org/apt/apt.conf.5",
+   "https://attack.mitre.org/techniques/T1053/"
+  ]
+ },
+ "b-deprecated-read-only-kubelet-b-ec66886f": {
+  "category": "data",
+  "title": "Kubelet read-only port exposed",
+  "why": "The deprecated kubelet read-only port can disclose pod specifications, node metadata, environment details, and workload topology without authentication. Attackers can use this information to identify secrets, privileged workloads, and paths for lateral movement.",
+  "test": [
+   {
+    "label": "List pods through the read-only endpoint",
+    "cmd": "curl -fsS http://<host>:<port>/pods"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable the read-only port",
+    "text": "Set the kubelet option --read-only-port=0 and expose only the authenticated HTTPS endpoint with authorization enabled."
+   },
+   {
+    "label": "Restrict kubelet access",
+    "text": "Permit the secure kubelet port only from authorized control-plane and monitoring networks."
+   }
+  ],
+  "refs": [
+   "https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/",
+   "https://attack.mitre.org/techniques/T1552/001/"
+  ]
+ },
+ "b-jenkins-gitlab-sonarqube-grafana-prometheus-detected-27a0349d": {
+  "category": "web",
+  "title": "Development or monitoring service exposed",
+  "why": "An externally reachable Jenkins, GitLab, SonarQube, Grafana, or Prometheus instance expands the administrative attack surface and may disclose software versions or operational metadata. Weak authentication, unsafe defaults, or unpatched components can turn simple discovery into credential theft or infrastructure compromise.",
+  "test": [
+   {
+    "label": "Identify the exposed service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   },
+   {
+    "label": "Inspect the HTTP response",
+    "cmd": "curl -fsSI http://<host>:<port>/"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Limit management-plane exposure",
+    "text": "Place the service behind a VPN, identity-aware proxy, or management network and allow access only from approved sources."
+   },
+   {
+    "label": "Harden the application",
+    "text": "Enable strong authentication and MFA where supported, remove anonymous access, and keep the application and plugins patched."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1046/",
+   "https://owasp.org/www-project-application-security-verification-standard/"
+  ]
+ },
+ "balg-none-b-4f564b03": {
+  "category": "web",
+  "title": "JWT accepts or advertises alg=none",
+  "why": "A JSON Web Token using the none algorithm has no cryptographic signature. If the application accepts such tokens where signed tokens are required, an attacker can forge identity or authorization claims.",
+  "test": [
+   {
+    "label": "Decode the captured JWT header",
+    "cmd": "python3 -c \"import base64,json,pathlib; t=pathlib.Path('<evidence_path>').read_text().strip(); h=t.split('.')[0]; print(json.loads(base64.urlsafe_b64decode(h+'='*(-len(h)%4))))\""
+   },
+   {
+    "label": "Replay the supplied token against a read-only endpoint",
+    "cmd": "curl -fsS -H \"Authorization: Bearer $(tr -d '\\r\\n' < <evidence_path>)\" http://<host>:<port>/"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enforce an algorithm allowlist",
+    "text": "Configure the JWT library to accept only the explicitly intended signing algorithm and reject none regardless of the token header."
+   },
+   {
+    "label": "Validate every security claim",
+    "text": "Verify the signature, issuer, audience, expiration, and not-before claims before trusting token content."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc8725.html",
+   "https://www.rfc-editor.org/rfc/rfc7519.html#section-6"
+  ]
+ },
+ "banon-auth-b-465b30a5": {
+  "category": "data",
+  "title": "Anonymous service authentication enabled",
+  "why": "The service permits access without an accountable user identity, potentially exposing files, metadata, or administrative functionality. Attackers can inventory or retrieve accessible content without obtaining credentials, while defenders lose reliable attribution.",
+  "test": [
+   {
+    "label": "Test anonymous FTP listing",
+    "cmd": "curl -fsS --user 'anonymous:anonymous' ftp://<host>:<port>/"
+   },
+   {
+    "label": "Identify the authentication service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable anonymous authentication",
+    "text": "Require named accounts backed by a managed identity store and grant each account only the minimum required read or write permissions."
+   },
+   {
+    "label": "Restrict network access",
+    "text": "Expose the service only to approved clients and management networks."
+   }
+  ],
+  "refs": [
+   "https://cwe.mitre.org/data/definitions/306.html",
+   "https://attack.mitre.org/techniques/T1133/"
+  ]
+ },
+ "bcassandra-unauth-cql-ac0e71d3": {
+  "category": "data",
+  "title": "Cassandra CQL accepts unauthenticated access",
+  "why": "An unauthenticated Cassandra native transport endpoint may allow remote users to enumerate keyspaces and read application data. Depending on role permissions and configuration, the same access could also permit destructive database operations.",
+  "test": [
+   {
+    "label": "Enumerate keyspaces without credentials",
+    "cmd": "cqlsh <host> <port> -e 'DESCRIBE KEYSPACES'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable Cassandra authentication",
+    "text": "Configure PasswordAuthenticator or an approved external authenticator, enable authorization, and replace permissive default roles."
+   },
+   {
+    "label": "Restrict native transport",
+    "text": "Allow the CQL port only from application and administration networks and enable client-to-node TLS."
+   }
+  ],
+  "refs": [
+   "https://cassandra.apache.org/doc/latest/cassandra/operating/security.html",
+   "https://cassandra.apache.org/doc/latest/cassandra/managing/configuration/cass_yaml_file.html"
+  ]
+ },
+ "bconsul-unauth-agent-api-7a30187a": {
+  "category": "data",
+  "title": "Consul agent API allows anonymous access",
+  "why": "The Consul agent API can disclose node identity, services, checks, datacenter details, and network topology. Some agent endpoints can change local state, so anonymous reachability also indicates a potentially broader control-plane exposure.",
+  "test": [
+   {
+    "label": "Read agent metadata without a token",
+    "cmd": "curl -fsS http://<host>:<port>/v1/agent/self"
+   },
+   {
+    "label": "List registered services",
+    "cmd": "curl -fsS http://<host>:<port>/v1/agent/services"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable Consul ACL enforcement",
+    "text": "Enable ACLs with default_policy set to deny, remove anonymous-token privileges, and issue narrowly scoped tokens to workloads."
+   },
+   {
+    "label": "Bind and filter the API",
+    "text": "Bind HTTP interfaces to trusted addresses and restrict access with host firewalls or security groups."
+   }
+  ],
+  "refs": [
+   "https://developer.hashicorp.com/consul/docs/secure/acl",
+   "https://developer.hashicorp.com/consul/api-docs/agent"
+  ]
+ },
+ "bconsul-unauth-kv-dump-high-value-7158887e": {
+  "category": "data",
+  "title": "Consul key-value data exposed anonymously",
+  "why": "Anonymous callers can retrieve Consul KV entries, which commonly contain service configuration, endpoints, tokens, or credentials. A recursive dump can provide an attacker with high-value secrets and a detailed map of internal systems.",
+  "test": [
+   {
+    "label": "List accessible KV keys",
+    "cmd": "curl -fsS 'http://<host>:<port>/v1/kv/?keys=true'"
+   },
+   {
+    "label": "Read accessible KV records",
+    "cmd": "curl -fsS 'http://<host>:<port>/v1/kv/?recurse=true'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Deny anonymous KV access",
+    "text": "Enable Consul ACLs with a deny-by-default policy and grant prefix-specific read access only to required workloads."
+   },
+   {
+    "label": "Rotate exposed secrets",
+    "text": "Treat credentials found in anonymously readable KV records as compromised, rotate them, and move secrets to an appropriate secrets manager."
+   }
+  ],
+  "refs": [
+   "https://developer.hashicorp.com/consul/docs/secure/acl",
+   "https://developer.hashicorp.com/consul/api-docs/kv"
+  ]
+ },
+ "bcritical-jenkins-groovy-script-console-reachable-d6f1e955": {
+  "category": "web",
+  "title": "Jenkins Groovy script console reachable",
+  "why": "The Jenkins script console executes Groovy inside the controller process and is effectively operating-system-level administrative access. If an unauthorized or compromised administrator can reach it, the controller, stored credentials, agents, and build environment may all be compromised.",
+  "test": [
+   {
+    "label": "Check script-console authorization",
+    "cmd": "curl -fsS -u '<user>:<pass>' http://<host>:<port>/script"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict administrative access",
+    "text": "Limit Overall/Administer permission to a small administrator group protected by MFA and restrict controller access to a management network."
+   },
+   {
+    "label": "Monitor console use",
+    "text": "Enable audit logging and alert on script-console requests; investigate any use that is not tied to an approved administrative change."
+   }
+  ],
+  "refs": [
+   "https://www.jenkins.io/doc/book/managing/script-console/",
+   "https://www.jenkins.io/doc/book/security/"
+  ]
+ },
+ "bcritical-unauth-clickhouse-b-72d2b408": {
+  "category": "data",
+  "title": "ClickHouse accepts unauthenticated queries",
+  "why": "An unauthenticated ClickHouse endpoint may expose databases, schemas, and analytical data to any reachable client. Permissions available to the anonymous or default user may also enable costly queries or changes, increasing confidentiality and availability risk.",
+  "test": [
+   {
+    "label": "Query the server version without credentials",
+    "cmd": "curl -fsS 'http://<host>:<port>/?query=SELECT%20version%28%29'"
+   },
+   {
+    "label": "List visible databases",
+    "cmd": "curl -fsS 'http://<host>:<port>/?query=SHOW%20DATABASES'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authenticated users",
+    "text": "Disable passwordless remote use of the default account and create named users with strong authentication and least-privilege profiles."
+   },
+   {
+    "label": "Restrict and encrypt access",
+    "text": "Limit ClickHouse interfaces to trusted networks and enable TLS for client connections."
+   }
+  ],
+  "refs": [
+   "https://clickhouse.com/docs/operations/access-rights",
+   "https://clickhouse.com/docs/operations/server-configuration-parameters/settings"
+  ]
+ },
+ "bcritical-unauth-nats-b-fcf83e67": {
+  "category": "data",
+  "title": "NATS broker permits unauthenticated clients",
+  "why": "A NATS broker without authentication may allow any reachable client to inspect account information and interact with subjects. Unauthorized subscriptions can disclose messages, while unauthorized publishing can affect applications and control flows.",
+  "test": [
+   {
+    "label": "Request broker information without credentials",
+    "cmd": "nats --server nats://<host>:<port> server info"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable NATS authentication",
+    "text": "Require NKeys, JWT-based accounts, credentials, or mutual TLS and apply subject-level publish and subscribe permissions."
+   },
+   {
+    "label": "Restrict broker reachability",
+    "text": "Expose client, cluster, and monitoring ports only to explicitly authorized networks."
+   }
+  ],
+  "refs": [
+   "https://docs.nats.io/running-a-nats-service/configuration/securing_nats/auth_intro",
+   "https://docs.nats.io/running-a-nats-service/configuration/securing_nats/authorization"
+  ]
+ },
+ "bcve-2022-0543-candidate-b-ec7e6cec": {
+  "category": "data",
+  "title": "Redis CVE-2022-0543 candidate",
+  "why": "The detected Redis instance appears potentially affected by the Debian-specific Lua sandbox escape CVE-2022-0543. A reachable EVAL capability on a vulnerable package can let an authenticated Redis user escape the Lua sandbox, but version and package provenance must be confirmed before declaring vulnerability.",
+  "test": [
+   {
+    "label": "Read Redis build and version details",
+    "cmd": "redis-cli -h <host> -p <port> INFO server"
+   },
+   {
+    "label": "Confirm whether EVAL is available",
+    "cmd": "redis-cli -h <host> -p <port> COMMAND INFO EVAL"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Install the vendor-fixed package",
+    "text": "Upgrade Redis using the supported Debian or Ubuntu security repository to a package version listed as fixed by the distribution."
+   },
+   {
+    "label": "Reduce Redis exposure",
+    "text": "Require authentication, bind Redis to trusted interfaces, enforce network filtering, and remove EVAL permissions from users that do not need scripting."
+   }
+  ],
+  "refs": [
+   "https://security-tracker.debian.org/tracker/CVE-2022-0543",
+   "https://nvd.nist.gov/vuln/detail/CVE-2022-0543"
+  ]
+ },
+ "beval-scripting-reachable-b-69a50af1": {
+  "category": "web",
+  "title": "Redis EVAL scripting is remotely available",
+  "why": "Redis Lua scripting is available to the tested client, increasing the impact of compromised credentials or an exposed Redis service. Scripting is legitimate functionality, but vulnerable versions and overly broad command permissions can turn it into a code-execution or availability risk.",
+  "test": [
+   {
+    "label": "Inspect EVAL command availability",
+    "cmd": "redis-cli -h <host> -p <port> -a '<pass>' COMMAND INFO EVAL"
+   },
+   {
+    "label": "Read the Redis server version",
+    "cmd": "redis-cli -h <host> -p <port> -a '<pass>' INFO server"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove unnecessary scripting rights",
+    "text": "Use Redis ACLs to deny EVAL and EVALSHA to application identities that do not explicitly require server-side Lua."
+   },
+   {
+    "label": "Patch and isolate Redis",
+    "text": "Run a supported Redis release and permit connections only from trusted application and administration networks."
+   }
+  ],
+  "refs": [
+   "https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/",
+   "https://redis.io/docs/latest/commands/eval/"
+  ]
+ },
+ "bhadoop-jmx-endpoint-exposed-dd698ded": {
+  "category": "web",
+  "title": "Hadoop JMX endpoint exposed",
+  "why": "Hadoop JMX endpoints reveal detailed runtime, host, filesystem, queue, and cluster metrics. This information helps attackers map the environment and may expose sensitive configuration values or operational identifiers.",
+  "test": [
+   {
+    "label": "Read exposed Hadoop JMX data",
+    "cmd": "curl -fsS 'http://<host>:<port>/jmx?qry=Hadoop:*'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict the HTTP management interface",
+    "text": "Permit Hadoop web and JMX endpoints only from authenticated monitoring systems and management networks."
+   },
+   {
+    "label": "Enable secure Hadoop operation",
+    "text": "Use Kerberos-secured Hadoop, TLS, service authorization, and an authenticated proxy where web access is required."
+   }
+  ],
+  "refs": [
+   "https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/SecureMode.html",
+   "https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/HttpAuthentication.html"
+  ]
+ },
+ "bhadoop-namenode-ui-exposed-a60d53ee": {
+  "category": "web",
+  "title": "Hadoop NameNode UI exposed",
+  "why": "The NameNode web interface can disclose filesystem paths, node inventory, storage capacity, cluster health, and software versions. Public reachability gives attackers valuable reconnaissance and may expose additional unauthenticated administrative endpoints.",
+  "test": [
+   {
+    "label": "Read the NameNode overview",
+    "cmd": "curl -fsS http://<host>:<port>/"
+   },
+   {
+    "label": "Read NameNode JMX metadata",
+    "cmd": "curl -fsS 'http://<host>:<port>/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Move the UI to a management boundary",
+    "text": "Restrict NameNode web interfaces to administrators and monitoring systems through firewall rules or an authenticated reverse proxy."
+   },
+   {
+    "label": "Enable Hadoop web authentication",
+    "text": "Configure Kerberos/SPNEGO authentication and TLS for Hadoop web consoles."
+   }
+  ],
+  "refs": [
+   "https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/HttpAuthentication.html",
+   "https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/SecureMode.html"
+  ]
+ },
+ "bhmac-brute-the-secret-b-23317e71": {
+  "category": "web",
+  "title": "JWT uses a brute-forceable HMAC signature",
+  "why": "HMAC-signed tokens rely on one shared secret for both signing and verification. If that secret is weak, an attacker who obtains a token can test guesses offline and then forge arbitrary identity or authorization claims.",
+  "test": [
+   {
+    "label": "Inspect the captured JWT algorithm",
+    "cmd": "python3 -c \"import base64,json,pathlib; t=pathlib.Path('<evidence_path>').read_text().strip(); h=t.split('.')[0]; print(json.loads(base64.urlsafe_b64decode(h+'='*(-len(h)%4))))\""
+   }
+  ],
+  "fix": [
+   {
+    "label": "Replace weak signing secrets",
+    "text": "Generate a high-entropy secret with an approved cryptographic random generator, store it in a secrets manager, and rotate all tokens after replacement."
+   },
+   {
+    "label": "Consider asymmetric signatures",
+    "text": "Use an approved asymmetric JWT algorithm when multiple services verify tokens so verifiers do not need access to the signing key."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc8725.html#section-3.5",
+   "https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html"
+  ]
+ },
+ "binfluxdb-unauth-query-api-fc5f9a20": {
+  "category": "data",
+  "title": "InfluxDB query API allows anonymous access",
+  "why": "An unauthenticated InfluxDB query endpoint can disclose database names, measurements, infrastructure telemetry, and application metrics. Operational data often reveals internal hosts, credentials embedded in tags, and behavior useful for further attacks.",
+  "test": [
+   {
+    "label": "List databases without credentials",
+    "cmd": "curl -fsS 'http://<host>:<port>/query?q=SHOW%20DATABASES'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authenticated API access",
+    "text": "Enable authentication and issue narrowly scoped tokens or users for each writer, reader, and monitoring integration."
+   },
+   {
+    "label": "Restrict the query port",
+    "text": "Allow InfluxDB API access only from approved application and administration networks and use TLS."
+   }
+  ],
+  "refs": [
+   "https://docs.influxdata.com/influxdb/v1/administration/authentication_and_authorization/",
+   "https://docs.influxdata.com/influxdb/v2/admin/security/"
+  ]
+ },
+ "binsecure-apiserver-b-d69cfcc5": {
+  "category": "data",
+  "title": "Kubernetes insecure API server exposed",
+  "why": "An insecure Kubernetes API endpoint accepts requests without normal authentication and authorization protections. Reachability can expose cluster objects and, depending on enabled methods, may permit full cluster takeover.",
+  "test": [
+   {
+    "label": "Read API server version anonymously",
+    "cmd": "curl -fsS http://<host>:<port>/version"
+   },
+   {
+    "label": "List the API root anonymously",
+    "cmd": "curl -fsS http://<host>:<port>/api"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable insecure serving",
+    "text": "Remove obsolete insecure-port and insecure-bind-address settings and serve the API only over authenticated TLS."
+   },
+   {
+    "label": "Enforce authorization and network controls",
+    "text": "Use RBAC or another supported authorization mode and restrict API server reachability to approved clients."
+   }
+  ],
+  "refs": [
+   "https://kubernetes.io/docs/reference/access-authn-authz/authentication/",
+   "https://kubernetes.io/docs/reference/access-authn-authz/authorization/"
+  ]
+ },
+ "bjenkins-user-enumeration-exposed-77ad88c0": {
+  "category": "web",
+  "title": "Jenkins user enumeration exposed",
+  "why": "The Jenkins interface reveals valid account identifiers to unauthenticated or low-privilege users. Confirmed usernames improve password-spraying and phishing accuracy and may expose personal or organizational naming conventions.",
+  "test": [
+   {
+    "label": "Query the Jenkins people API",
+    "cmd": "curl -fsS 'http://<host>:<port>/asynchPeople/api/json?tree=people[user[id]]'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authentication for user data",
+    "text": "Disable anonymous read access and ensure account and people endpoints require an authorized Jenkins identity."
+   },
+   {
+    "label": "Strengthen account defenses",
+    "text": "Use centralized authentication, MFA where supported, rate limiting, and monitoring for failed-login patterns."
+   }
+  ],
+  "refs": [
+   "https://www.jenkins.io/doc/book/security/access-control/",
+   "https://attack.mitre.org/techniques/T1589/003/"
+  ]
+ },
+ "bkafka-unauth-broker-94c84874": {
+  "category": "data",
+  "title": "Kafka broker permits unauthenticated access",
+  "why": "An unauthenticated Kafka broker exposes cluster metadata and topic names to any reachable client. If authorization is also absent or permissive, attackers may consume sensitive messages or publish data that disrupts downstream applications.",
+  "test": [
+   {
+    "label": "Read broker and topic metadata",
+    "cmd": "kcat -b <host>:<port> -L"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable broker authentication",
+    "text": "Configure SASL or mutual TLS for every listener and remove plaintext unauthenticated listeners."
+   },
+   {
+    "label": "Enforce Kafka ACLs",
+    "text": "Enable an authorizer, deny access by default, and grant topic and consumer-group rights only to required principals."
+   }
+  ],
+  "refs": [
+   "https://kafka.apache.org/documentation/#security",
+   "https://kafka.apache.org/documentation/#security_authz"
+  ]
+ },
+ "bkibana-api-responds-b-416b14a3": {
+  "category": "web",
+  "title": "Kibana API reachable",
+  "why": "A reachable Kibana API exposes a management surface associated with Elasticsearch data and saved objects. Even when authentication is present, external exposure and version disclosure increase the opportunity for credential attacks and exploitation of unpatched components.",
+  "test": [
+   {
+    "label": "Read Kibana status",
+    "cmd": "curl -fsS http://<host>:<port>/api/status"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict Kibana exposure",
+    "text": "Place Kibana behind an authenticated proxy or VPN and permit access only from approved user and management networks."
+   },
+   {
+    "label": "Enable Elastic security controls",
+    "text": "Require authentication, apply least-privilege Kibana roles, use TLS, and keep Kibana aligned with a supported Elasticsearch release."
+   }
+  ],
+  "refs": [
+   "https://www.elastic.co/guide/en/kibana/current/security-settings-kb.html",
+   "https://www.elastic.co/guide/en/kibana/current/xpack-security.html"
+  ]
+ },
+ "blua-rce-cve-2024-31449-candidate-b-81dadca3": {
+  "category": "data",
+  "title": "Redis CVE-2024-31449 candidate",
+  "why": "The Redis version and available Lua functionality indicate possible exposure to CVE-2024-31449, a stack overflow in Lua bit-library commands that may lead to code execution. The finding is a candidate until the exact Redis version is compared with vendor-fixed releases; no exploit attempt is necessary.",
+  "test": [
+   {
+    "label": "Read the Redis server version",
+    "cmd": "redis-cli -h <host> -p <port> -a '<pass>' INFO server"
+   },
+   {
+    "label": "Confirm Lua scripting availability",
+    "cmd": "redis-cli -h <host> -p <port> -a '<pass>' COMMAND INFO EVAL"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Upgrade to a fixed Redis release",
+    "text": "Upgrade to Redis 6.2.16, 7.2.6, 7.4.1, or a later supported release containing the vendor fix."
+   },
+   {
+    "label": "Constrain scripting access",
+    "text": "Use Redis ACLs to deny EVAL and EVALSHA to identities that do not require Lua and restrict Redis to trusted networks."
+   }
+  ],
+  "refs": [
+   "https://github.com/redis/redis/security/advisories/GHSA-whxg-wx83-85p5",
+   "https://nvd.nist.gov/vuln/detail/CVE-2024-31449"
+  ]
+ },
+ "bmqtt-unauth-broker-b-2c618f3f": {
+  "category": "data",
+  "title": "MQTT broker permits anonymous clients",
+  "why": "An MQTT broker accepting anonymous clients may expose telemetry and operational topics to unauthorized subscribers. If publish permissions are also open, attackers could inject commands or falsified sensor data into connected systems.",
+  "test": [
+   {
+    "label": "Read the broker version topic anonymously",
+    "cmd": "mosquitto_sub -h <host> -p <port> -t '$SYS/broker/version' -C 1 -W 5"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable anonymous clients",
+    "text": "Set anonymous access off and require password, certificate, or external identity authentication."
+   },
+   {
+    "label": "Apply topic ACLs",
+    "text": "Grant each client only the publish and subscribe topics it requires and use TLS for client connections."
+   }
+  ],
+  "refs": [
+   "https://mosquitto.org/documentation/authentication-methods/",
+   "https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html"
+  ]
+ },
+ "bneo4j-default-cred-neo4j-neo4j-worked-f215aaf6": {
+  "category": "data",
+  "title": "Neo4j default credentials accepted",
+  "why": "The built-in neo4j/neo4j credentials are still valid, allowing anyone who knows the product defaults to authenticate. Database contents, relationships, and potentially administrative procedures are exposed according to that account's privileges.",
+  "test": [
+   {
+    "label": "Run a harmless query with default credentials",
+    "cmd": "cypher-shell -a bolt://<host>:<port> -u neo4j -p neo4j 'RETURN 1'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Replace the default password",
+    "text": "Set a unique, high-entropy administrator password immediately and invalidate any sessions or credentials derived from the default account."
+   },
+   {
+    "label": "Apply least privilege",
+    "text": "Use separate named accounts and roles for applications and administrators, and restrict Bolt and HTTP access to trusted networks."
+   }
+  ],
+  "refs": [
+   "https://neo4j.com/docs/operations-manual/current/authentication-authorization/",
+   "https://cwe.mitre.org/data/definitions/1392.html"
+  ]
+ },
+ "bneo4j-unauth-http-api-58500a90": {
+  "category": "data",
+  "title": "Neo4j HTTP API exposed without authentication",
+  "why": "The Neo4j HTTP interface responds without requiring an authenticated identity. Depending on version and endpoint permissions, attackers may enumerate database metadata or submit read queries against graph data.",
+  "test": [
+   {
+    "label": "Check the legacy database API anonymously",
+    "cmd": "curl -fsS http://<host>:<port>/db/data/"
+   },
+   {
+    "label": "Inspect the Neo4j HTTP service root",
+    "cmd": "curl -fsS http://<host>:<port>/"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require Neo4j authentication",
+    "text": "Enable authentication, remove anonymous access, and assign least-privilege roles to application identities."
+   },
+   {
+    "label": "Restrict HTTP and Bolt listeners",
+    "text": "Bind database interfaces to trusted addresses, filter them at the network boundary, and enable TLS."
+   }
+  ],
+  "refs": [
+   "https://neo4j.com/docs/operations-manual/current/authentication-authorization/",
+   "https://neo4j.com/docs/operations-manual/current/security/"
+  ]
+ },
+ "boracle-tns-sids-discovered-85744d13": {
+  "category": "data",
+  "title": "Oracle TNS service identifiers exposed",
+  "why": "The Oracle listener disclosed valid service names or SIDs, confirming a reachable database service and reducing the uncertainty required for later authentication attempts. Service identifiers, versions, and listener details help attackers target specific databases and known vulnerabilities.",
+  "test": [
+   {
+    "label": "Confirm the listener service",
+    "cmd": "nmap -Pn -sV -p <port> --script oracle-tns-version <host>"
+   },
+   {
+    "label": "Confirm a supplied service with authorized credentials",
+    "cmd": "printf 'set heading off feedback off\\nselect instance_name from v$instance;\\nexit\\n' | sqlplus -s '<user>/<pass>@//<host>:<port>/<service>'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict Oracle listener access",
+    "text": "Permit the listener port only from authorized application and administration hosts and disable unnecessary listener services."
+   },
+   {
+    "label": "Reduce listener disclosure",
+    "text": "Apply current Oracle security updates, configure secure listener registration, and avoid exposing detailed service information to untrusted networks."
+   }
+  ],
+  "refs": [
+   "https://docs.oracle.com/en/database/oracle/oracle-database/19/dbseg/configuring-network-data-encryption-and-integrity.html",
+   "https://attack.mitre.org/techniques/T1046/"
+  ]
+ },
+ "bredis-sentinel-b-master-topology-6723368b": {
+  "category": "data",
+  "title": "Redis Sentinel topology exposed",
+  "why": "Redis Sentinel reveals monitored master names, addresses, replica topology, and failover state. This disclosure maps high-value Redis nodes and may enable unauthorized Sentinel control operations if authentication and ACLs are also weak.",
+  "test": [
+   {
+    "label": "List monitored Redis masters",
+    "cmd": "redis-cli -h <host> -p <port> SENTINEL MASTERS"
+   },
+   {
+    "label": "Read Sentinel runtime information",
+    "cmd": "redis-cli -h <host> -p <port> INFO sentinel"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Authenticate Sentinel clients",
+    "text": "Configure supported Redis ACL or password authentication for Sentinel and require authentication between Sentinel and Redis nodes."
+   },
+   {
+    "label": "Isolate Sentinel ports",
+    "text": "Allow Sentinel traffic only among approved Redis, Sentinel, and administrative hosts."
+   }
+  ],
+  "refs": [
+   "https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/",
+   "https://redis.io/docs/latest/operate/oss_and_stack/management/security/"
+  ]
+ },
+ "brsync-high-value-module-exposed-daedaa19": {
+  "category": "data",
+  "title": "High-value rsync module exposed",
+  "why": "A reachable rsync module can expose directory names and files without requiring a filesystem login. High-value modules may contain backups, source code, configuration, keys, or other sensitive data suitable for credential theft and lateral movement.",
+  "test": [
+   {
+    "label": "List exported rsync modules",
+    "cmd": "rsync rsync://<host>:<port>/"
+   },
+   {
+    "label": "List a supplied module without downloading",
+    "cmd": "rsync rsync://<host>:<port>/<service>/"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Limit module access",
+    "text": "Use hosts allow and hosts deny controls, require authentication, and expose only directories explicitly needed by approved clients."
+   },
+   {
+    "label": "Remove sensitive content",
+    "text": "Do not export secrets, private keys, unrestricted backups, or writable deployment paths through rsync modules."
+   }
+  ],
+  "refs": [
+   "https://download.samba.org/pub/rsync/rsyncd.conf.5",
+   "https://attack.mitre.org/techniques/T1530/"
+  ]
+ },
+ "bsolr-cores-exposed-ceb00229": {
+  "category": "web",
+  "title": "Solr core inventory exposed",
+  "why": "The Solr administration API exposes core names, instance directories, document counts, and status information. Core names and deployment details assist reconnaissance and may reveal additional query or administrative endpoints.",
+  "test": [
+   {
+    "label": "Read Solr core status",
+    "cmd": "curl -fsS 'http://<host>:<port>/solr/admin/cores?action=STATUS&wt=json'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable Solr authentication and authorization",
+    "text": "Protect administrative and collection APIs with supported authentication plugins and least-privilege authorization rules."
+   },
+   {
+    "label": "Restrict the Solr administration surface",
+    "text": "Permit Solr access only from required applications and management networks; do not publish the admin UI directly."
+   }
+  ],
+  "refs": [
+   "https://solr.apache.org/guide/solr/latest/deployment-guide/security.html",
+   "https://solr.apache.org/guide/solr/latest/configuration-guide/coreadmin-api.html"
+  ]
+ },
+ "bspark-ui-applications-api-exposed-cb7d2b93": {
+  "category": "web",
+  "title": "Spark applications API exposed",
+  "why": "The Spark monitoring API can disclose application names, users, job stages, executor hosts, logs, and performance details. This operational metadata maps internal compute resources and may contain sensitive arguments or paths.",
+  "test": [
+   {
+    "label": "List Spark applications",
+    "cmd": "curl -fsS http://<host>:<port>/api/v1/applications"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authenticated UI access",
+    "text": "Place Spark UIs and history servers behind an authenticated proxy and configure appropriate access-control filters."
+   },
+   {
+    "label": "Restrict monitoring ports",
+    "text": "Allow UI and REST API access only from approved user, monitoring, and management networks."
+   }
+  ],
+  "refs": [
+   "https://spark.apache.org/docs/latest/monitoring.html",
+   "https://spark.apache.org/docs/latest/security.html"
+  ]
+ },
+ "bsplunk-mgmt-api-unauth-aab28122": {
+  "category": "data",
+  "title": "Splunk management API allows anonymous access",
+  "why": "The Splunk management API can disclose server configuration, indexes, applications, users, and deployment details. Anonymous access may expose security telemetry itself and, if broader endpoints are open, create a path to administrative compromise.",
+  "test": [
+   {
+    "label": "Read Splunk server information anonymously",
+    "cmd": "curl -kfsS 'https://<host>:<port>/services/server/info?output_mode=json'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require management API authentication",
+    "text": "Remove anonymous capabilities, enforce strong named-account authentication, and apply least-privilege Splunk roles."
+   },
+   {
+    "label": "Isolate the management port",
+    "text": "Restrict port 8089 or the configured management port to administrators and trusted Splunk components."
+   }
+  ],
+  "refs": [
+   "https://docs.splunk.com/Documentation/Splunk/latest/Security/Secureyouradminaccount",
+   "https://docs.splunk.com/Documentation/Splunk/latest/RESTUM/RESTusing"
+  ]
+ },
+ "bstorage-iscsi-target-exposed-48ec7863": {
+  "category": "data",
+  "title": "iSCSI target exposed",
+  "why": "An exposed iSCSI target reveals storage target names and portal topology to remote initiators. If access controls or CHAP are weak, unauthorized systems may connect to block devices, risking data disclosure, corruption, and filesystem damage.",
+  "test": [
+   {
+    "label": "Perform target discovery without logging in",
+    "cmd": "iscsiadm -m discovery -t sendtargets -p <host>:<port>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict initiators and networks",
+    "text": "Use target ACLs and network filtering so only approved initiator IQNs and storage-network addresses can reach the target."
+   },
+   {
+    "label": "Authenticate storage sessions",
+    "text": "Enable mutual CHAP or IPsec where supported and keep iSCSI traffic on a dedicated, non-routed storage network."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc3720.html",
+   "https://attack.mitre.org/techniques/T1046/"
+  ]
+ },
+ "bstorage-minio-ceph-radosgw-object-gateway-ceph-monitor-35dacc88": {
+  "category": "data",
+  "title": "Storage management service reachable",
+  "why": "A reachable MinIO, Ceph/RADOSGW, Ceph monitor, or Gluster management interface exposes a high-value storage control or data plane. Version and topology disclosure aid reconnaissance, while weak authentication could expose buckets, objects, cluster state, or administrative operations.",
+  "test": [
+   {
+    "label": "Identify the reachable storage service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Segment storage interfaces",
+    "text": "Limit data and management ports to explicitly authorized application, storage, and administration networks."
+   },
+   {
+    "label": "Enforce service authentication",
+    "text": "Use unique service identities, least-privilege policies, TLS, and supported authentication mechanisms; remove default or anonymous access."
+   }
+  ],
+  "refs": [
+   "https://min.io/docs/minio/linux/operations/security.html",
+   "https://docs.ceph.com/en/latest/rados/configuration/network-config-ref/"
+  ]
+ },
+ "bunauth-couchbase-mgmt-b-b4140a91": {
+  "category": "data",
+  "title": "Couchbase management API exposed anonymously",
+  "why": "Anonymous Couchbase management access can disclose cluster nodes, buckets, services, memory allocation, and software versions. If privileged management endpoints share the same exposure, attackers may gain control over database configuration and data availability.",
+  "test": [
+   {
+    "label": "Read cluster pool information",
+    "cmd": "curl -fsS http://<host>:<port>/pools"
+   },
+   {
+    "label": "Read default pool details",
+    "cmd": "curl -fsS http://<host>:<port>/pools/default"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require Couchbase authentication",
+    "text": "Enable role-based access control, remove anonymous management access, and use separate least-privilege accounts for applications and administrators."
+   },
+   {
+    "label": "Restrict management ports",
+    "text": "Expose Couchbase administration interfaces only to a dedicated management network and enable TLS."
+   }
+  ],
+  "refs": [
+   "https://docs.couchbase.com/server/current/learn/security/authorization-overview.html",
+   "https://docs.couchbase.com/server/current/manage/manage-security/manage-security-settings.html"
+  ]
+ },
+ "bunauth-docker-etcd-v2-keys-kubelet-apiserver-b-fafceec3": {
+  "category": "data",
+  "title": "Container control-plane API exposed anonymously",
+  "why": "An unauthenticated Docker, etcd, kubelet, or Kubernetes API exposes sensitive workload and cluster state to any reachable client. These interfaces can contain secrets and frequently include state-changing operations, so anonymous access may lead to host or cluster compromise.",
+  "test": [
+   {
+    "label": "Check an unauthenticated Docker API",
+    "cmd": "curl -fsS http://<host>:<port>/version"
+   },
+   {
+    "label": "Read etcd v2 key metadata",
+    "cmd": "curl -fsS 'http://<host>:<port>/v2/keys/?recursive=true'"
+   },
+   {
+    "label": "Check a Kubernetes API root",
+    "cmd": "curl -fsS http://<host>:<port>/api"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authenticated TLS",
+    "text": "Disable plaintext or anonymous listeners and require client authentication plus authorization for every control-plane API."
+   },
+   {
+    "label": "Isolate control-plane ports",
+    "text": "Permit API access only among approved cluster components and administrative systems."
+   },
+   {
+    "label": "Rotate exposed secrets",
+    "text": "Review anonymously accessible API output and rotate any service-account tokens, credentials, or certificates it exposed."
+   }
+  ],
+  "refs": [
+   "https://docs.docker.com/engine/security/protect-access/",
+   "https://kubernetes.io/docs/concepts/security/api-server-bypass-risks/"
+  ]
+ },
+ "bunauth-gitlab-api-exposed-ca3c738d": {
+  "category": "web",
+  "title": "GitLab API exposes data anonymously",
+  "why": "The GitLab API returns project, user, version, or instance information without authentication. Even when some public access is intentional, the exposed metadata can reveal repositories, namespaces, account names, and software versions useful for targeted attacks.",
+  "test": [
+   {
+    "label": "List anonymously visible projects",
+    "cmd": "curl -fsS 'http://<host>:<port>/api/v4/projects?visibility=public&per_page=1'"
+   },
+   {
+    "label": "Check the exposed API version endpoint",
+    "cmd": "curl -fsS http://<host>:<port>/api/v4/version"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Review anonymous visibility",
+    "text": "Disable public visibility where it is not a business requirement and require authentication for internal projects, users, and instance metadata."
+   },
+   {
+    "label": "Restrict and patch GitLab",
+    "text": "Limit administrative interfaces to trusted networks, enforce MFA for privileged users, and maintain a supported GitLab release."
+   }
+  ],
+  "refs": [
+   "https://docs.gitlab.com/api/rest/authentication/",
+   "https://docs.gitlab.com/administration/settings/visibility_and_access_controls/"
+  ]
+ },
+ "bunauth-grafana-datasources-exposed-a6f19bc3": {
+  "category": "web",
+  "title": "Grafana data sources exposed anonymously",
+  "why": "The Grafana API exposes configured data-source names, types, URLs, and identifiers without authentication. This maps internal monitoring and database systems and may reveal stored secrets on vulnerable or misconfigured versions.",
+  "test": [
+   {
+    "label": "List Grafana data sources anonymously",
+    "cmd": "curl -fsS http://<host>:<port>/api/datasources"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable anonymous API access",
+    "text": "Disable anonymous authentication unless explicitly required and ensure data-source administration requires a privileged role."
+   },
+   {
+    "label": "Rotate potentially exposed credentials",
+    "text": "Patch Grafana, inspect the response for sensitive values, and rotate any data-source credentials that may have been disclosed."
+   }
+  ],
+  "refs": [
+   "https://grafana.com/docs/grafana/latest/setup-grafana/configure-security/configure-authentication/anonymous-auth/",
+   "https://grafana.com/docs/grafana/latest/developers/http_api/data_source/"
+  ]
+ },
+ "bunauth-jenkins-api-exposed-ebd449e2": {
+  "category": "web",
+  "title": "Jenkins API exposed anonymously",
+  "why": "Anonymous Jenkins API access can disclose jobs, builds, nodes, plugins, parameters, and repository details. This information aids credential attacks and supply-chain targeting, while overly permissive anonymous permissions may expose build artifacts or trigger capabilities.",
+  "test": [
+   {
+    "label": "Read Jenkins controller metadata anonymously",
+    "cmd": "curl -fsS 'http://<host>:<port>/api/json?tree=nodeName,mode,numExecutors'"
+   },
+   {
+    "label": "List visible jobs",
+    "cmd": "curl -fsS 'http://<host>:<port>/api/json?tree=jobs[name,url]'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove anonymous permissions",
+    "text": "Use a supported authorization strategy and grant anonymous users no access unless a narrowly documented public use case exists."
+   },
+   {
+    "label": "Protect Jenkins access",
+    "text": "Place Jenkins on a management network, require strong centralized authentication, and keep the controller and plugins patched."
+   }
+  ],
+  "refs": [
+   "https://www.jenkins.io/doc/book/security/access-control/",
+   "https://www.jenkins.io/doc/book/using/remote-access-api/"
+  ]
+ },
+ "bunauth-jira-serverinfo-exposed-a75ffe0d": {
+  "category": "web",
+  "title": "Jira server information exposed",
+  "why": "The Jira REST API discloses product version, deployment type, build number, and base URL without authentication. Exact version data lets attackers quickly select relevant advisories and tailor social-engineering or exploitation attempts.",
+  "test": [
+   {
+    "label": "Read Jira server information anonymously",
+    "cmd": "curl -fsS http://<host>:<port>/rest/api/2/serverInfo"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Limit anonymous REST access",
+    "text": "Require authentication for server metadata where supported and restrict Jira to intended user networks or an authenticated access proxy."
+   },
+   {
+    "label": "Maintain a supported Jira release",
+    "text": "Apply Atlassian security updates promptly and avoid exposing detailed version headers through proxies or error pages."
+   }
+  ],
+  "refs": [
+   "https://developer.atlassian.com/server/jira/platform/rest-apis/",
+   "https://confluence.atlassian.com/security/"
+  ]
+ },
+ "bunauth-prometheus-config-exposed-9ee7e88d": {
+  "category": "web",
+  "title": "Prometheus configuration exposed",
+  "why": "The Prometheus status API exposes scrape targets, job definitions, file paths, remote endpoints, and configuration structure without authentication. The data maps internal services and may reveal embedded credentials or bearer-token locations.",
+  "test": [
+   {
+    "label": "Read the active Prometheus configuration",
+    "cmd": "curl -fsS http://<host>:<port>/api/v1/status/config"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Protect Prometheus with an access layer",
+    "text": "Restrict the listener to trusted networks or place it behind a reverse proxy providing authentication and TLS."
+   },
+   {
+    "label": "Remove secrets from exposed configuration",
+    "text": "Use protected secret files or a secrets manager, minimize configuration visibility, and rotate any credentials disclosed by the endpoint."
+   }
+  ],
+  "refs": [
+   "https://prometheus.io/docs/operating/security/",
+   "https://prometheus.io/docs/prometheus/latest/querying/api/#config"
+  ]
+ },
+ "bunauth-redis-b-1a97399e": {
+  "category": "data",
+  "title": "Redis accepts unauthenticated clients",
+  "why": "A Redis server that accepts unauthenticated commands may expose cached data, sessions, queues, keys, and server configuration. Depending on command permissions and deployment hardening, attackers could also alter data or abuse dangerous administrative features.",
+  "test": [
+   {
+    "label": "Confirm unauthenticated connectivity",
+    "cmd": "redis-cli -h <host> -p <port> PING"
+   },
+   {
+    "label": "Read server metadata",
+    "cmd": "redis-cli -h <host> -p <port> INFO server"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable Redis ACL authentication",
+    "text": "Disable or tightly constrain the default user and create named ACL users with strong credentials and command/key restrictions."
+   },
+   {
+    "label": "Restrict and encrypt Redis traffic",
+    "text": "Bind Redis to trusted interfaces, enforce firewall rules, enable protected mode, and use TLS where traffic crosses host boundaries."
+   }
+  ],
+  "refs": [
+   "https://redis.io/docs/latest/operate/oss_and_stack/management/security/",
+   "https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/"
+  ]
+ },
+ "bunauth-rethinkdb-b-5b87cecc": {
+  "category": "data",
+  "title": "RethinkDB exposed without authentication",
+  "why": "An unauthenticated RethinkDB service may reveal databases, tables, cluster nodes, and administrative state. If query or web-administration access is unrestricted, attackers may read or change application data and cluster configuration.",
+  "test": [
+   {
+    "label": "Open the web administration interface",
+    "cmd": "curl -fsS http://<host>:<port>/"
+   },
+   {
+    "label": "Identify the exposed RethinkDB service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require RethinkDB authentication",
+    "text": "Set a strong admin password, create least-privilege application users, and remove passwordless accounts."
+   },
+   {
+    "label": "Bind interfaces securely",
+    "text": "Do not bind the driver, cluster, or web administration ports to untrusted interfaces; enforce firewall filtering and TLS."
+   }
+  ],
+  "refs": [
+   "https://rethinkdb.com/docs/security/",
+   "https://rethinkdb.com/docs/permissions-and-accounts/"
+  ]
+ },
+ "bunauth-sonarqube-system-info-exposed-10a47127": {
+  "category": "web",
+  "title": "SonarQube system information exposed",
+  "why": "The SonarQube API discloses system status, edition, version, plugins, or runtime details without authentication. This information supports vulnerability matching and reveals the structure of an important source-code analysis system.",
+  "test": [
+   {
+    "label": "Read SonarQube system status",
+    "cmd": "curl -fsS http://<host>:<port>/api/system/status"
+   },
+   {
+    "label": "Check system information exposure",
+    "cmd": "curl -fsS http://<host>:<port>/api/system/info"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authenticated API access",
+    "text": "Disable force-authentication exceptions that are not required and limit system-information permissions to administrators."
+   },
+   {
+    "label": "Restrict and patch SonarQube",
+    "text": "Expose SonarQube only to intended development networks and keep it on a supported, fully patched release."
+   }
+  ],
+  "refs": [
+   "https://docs.sonarsource.com/sonarqube-server/instance-administration/authentication/overview/",
+   "https://docs.sonarsource.com/sonarqube-server/extension-guide/web-api/"
+  ]
+ },
+ "bunauth-tomcat-host-manager-exposed-8a74679c": {
+  "category": "web",
+  "title": "Tomcat Host Manager exposed anonymously",
+  "why": "The Tomcat Host Manager controls virtual hosts and is intended only for trusted administrators. Anonymous access indicates a severe authorization failure that may expose host configuration and administrative operations.",
+  "test": [
+   {
+    "label": "Request the Host Manager interface anonymously",
+    "cmd": "curl -fsS http://<host>:<port>/host-manager/html"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove or restrict Host Manager",
+    "text": "Undeploy the host-manager application when unused; otherwise require a dedicated strong account with only the necessary host-manager role."
+   },
+   {
+    "label": "Limit management-network access",
+    "text": "Apply Tomcat RemoteCIDRValve or equivalent network controls so only approved administration hosts can reach the interface."
+   }
+  ],
+  "refs": [
+   "https://tomcat.apache.org/tomcat-10.1-doc/host-manager-howto.html",
+   "https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html"
+  ]
+ },
+ "bunauth-tomcat-manager-exposed-004a31c6": {
+  "category": "web",
+  "title": "Tomcat Manager exposed anonymously",
+  "why": "Tomcat Manager provides application inventory, deployment, session, and lifecycle functions. Anonymous access can disclose deployed applications and may expose deployment operations capable of compromising the entire Tomcat host.",
+  "test": [
+   {
+    "label": "Request the Manager interface anonymously",
+    "cmd": "curl -fsS http://<host>:<port>/manager/html"
+   },
+   {
+    "label": "Read the text application list if exposed",
+    "cmd": "curl -fsS http://<host>:<port>/manager/text/list"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove or secure Manager",
+    "text": "Undeploy the manager application when unnecessary; otherwise require a strong dedicated account and grant only the specific manager role needed."
+   },
+   {
+    "label": "Restrict management access",
+    "text": "Allow Manager access only from approved administration addresses using Tomcat valves and network firewalls."
+   }
+  ],
+  "refs": [
+   "https://tomcat.apache.org/tomcat-10.1-doc/manager-howto.html",
+   "https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html"
+  ]
+ },
+ "bzookeeper-4lw-exposed-103b92c9": {
+  "category": "data",
+  "title": "ZooKeeper four-letter commands exposed",
+  "why": "ZooKeeper four-letter-word commands disclose health, client connections, watches, environment details, and cluster state without using the normal data authorization model. The information can map dependent systems, and some commands may impose unnecessary server load.",
+  "test": [
+   {
+    "label": "Check ZooKeeper health",
+    "cmd": "printf 'ruok' | nc -w 3 <host> <port>"
+   },
+   {
+    "label": "Read server statistics",
+    "cmd": "printf 'stat' | nc -w 3 <host> <port>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Allowlist required commands",
+    "text": "Set 4lw.commands.whitelist to the smallest required set, typically only health checks, and disable commands that expose detailed state."
+   },
+   {
+    "label": "Restrict client-port access",
+    "text": "Limit ZooKeeper connectivity to ensemble members and authorized application or monitoring hosts."
+   }
+  ],
+  "refs": [
+   "https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_zkCommands",
+   "https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_authOptions"
+  ]
+ },
+ "bzookeeper-config-exposed-high-value-7ed7fd76": {
+  "category": "data",
+  "title": "ZooKeeper configuration exposed",
+  "why": "The ZooKeeper conf command reveals server paths, ports, timing settings, quorum configuration, and other high-value deployment details. Attackers can use this information to map the ensemble and identify adjacent management or data services.",
+  "test": [
+   {
+    "label": "Read exposed ZooKeeper configuration",
+    "cmd": "printf 'conf' | nc -w 3 <host> <port>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable the conf command",
+    "text": "Remove conf from 4lw.commands.whitelist and retain only commands explicitly required for health monitoring."
+   },
+   {
+    "label": "Isolate ZooKeeper",
+    "text": "Restrict client and quorum ports to trusted systems and enable supported client authentication and TLS."
+   }
+  ],
+  "refs": [
+   "https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_zkCommands",
+   "https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_authOptions"
+  ]
+ },
+ "solr-reachable-1-2-3-4-5-6-7-8-0-9-8-10-8-11-0-3-d71e68f0": {
+  "category": "web",
+  "title": "Legacy Apache Solr version reachable",
+  "why": "The reachable Solr instance reports a legacy release in the detected version range, including versions that are end-of-life or missing later security fixes. Exposure of an obsolete search service increases the likelihood that known authentication, information-disclosure, or code-execution vulnerabilities are applicable.",
+  "test": [
+   {
+    "label": "Read the reported Solr version",
+    "cmd": "curl -fsS 'http://<host>:<port>/solr/admin/info/system?wt=json'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Upgrade to a supported Solr release",
+    "text": "Plan and test an upgrade to a currently supported Solr major and patch release, including compatible Java, configuration, and client changes."
+   },
+   {
+    "label": "Protect Solr during migration",
+    "text": "Enable authentication and authorization, restrict network access, and review Apache Solr security advisories for the exact installed version."
+   }
+  ],
+  "refs": [
+   "https://solr.apache.org/downloads",
+   "https://solr.apache.org/security.html"
+  ]
+ },
+ "baggressive-mode-psk-hash-harvested-0f76f82f": {
+  "category": "network",
+  "title": "IKEv1 aggressive-mode PSK hash exposed",
+  "why": "The VPN completed IKEv1 aggressive-mode negotiation and disclosed material that permits offline guessing of the group pre-shared key. Recovering a weak PSK can enable unauthorized VPN negotiation and compromise every peer sharing that secret.",
+  "test": [
+   {
+    "label": "Repeat one aggressive-mode handshake",
+    "cmd": "ike-scan --aggressive --id=<user> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable aggressive mode",
+    "text": "Disable IKEv1 aggressive mode and migrate peers to IKEv2 with certificate-based authentication."
+   },
+   {
+    "label": "Rotate the exposed PSK",
+    "text": "Replace the shared secret with a long random value after disabling the weak exchange, and use unique credentials for separate peer groups."
+   }
+  ],
+  "refs": [
+   "https://csrc.nist.gov/pubs/sp/800/77/r1/final",
+   "https://www.rfc-editor.org/rfc/rfc7296"
+  ]
+ },
+ "bajp-responding-without-auth-b-ecbc49c7": {
+  "category": "network",
+  "title": "Unauthenticated AJP connector exposed",
+  "why": "The AJP connector accepts requests without a connector secret and is reachable outside its trusted reverse-proxy tier. AJP permits greater manipulation of application-server request attributes than HTTP, and vulnerable or permissive configurations can expose application files or backend functionality.",
+  "test": [
+   {
+    "label": "Check AJP authentication and response",
+    "cmd": "nmap -sV -p <port> --script ajp-auth,ajp-headers <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict and authenticate AJP",
+    "text": "Bind the connector to a private or loopback address, restrict it to authorized proxy addresses, and configure a strong AJP secret with secretRequired enabled."
+   },
+   {
+    "label": "Remove unnecessary AJP",
+    "text": "Disable the AJP connector when the deployment does not require it, and keep Tomcat or the applicable servlet container fully patched."
+   }
+  ],
+  "refs": [
+   "https://tomcat.apache.org/tomcat-9.0-doc/config/ajp.html",
+   "https://www.cve.org/CVERecord?id=CVE-2020-1938"
+  ]
+ },
+ "bauth-bypass-b-749346eb": {
+  "category": "network",
+  "title": "Authentication bypass detected",
+  "why": "The collected evidence indicates that a protected service or operation can be reached without satisfying its intended authentication check. Because this rule is product-neutral, defenders should identify the affected component and validate the precise bypass condition before determining its full impact.",
+  "test": [
+   {
+    "label": "Review the captured bypass evidence",
+    "cmd": "sed -n '1,200p' <evidence_path>"
+   },
+   {
+    "label": "Confirm the exposed product and version",
+    "cmd": "nmap -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Apply the product-specific correction",
+    "text": "Identify the exact product, version, and bypass path from the evidence; apply the vendor patch or configuration correction and invalidate any sessions or credentials that may have been exposed."
+   },
+   {
+    "label": "Add a trusted enforcement layer",
+    "text": "Restrict the service to approved networks and ensure authorization is enforced server-side for every protected operation, not only in a client or reverse-proxy interface."
+   }
+  ],
+  "refs": [
+   "https://cwe.mitre.org/data/definitions/288.html",
+   "https://attack.mitre.org/techniques/T1190/"
+  ]
+ },
+ "bcipher-0-b-bcd10171": {
+  "category": "network",
+  "title": "IPMI cipher suite 0 enabled",
+  "why": "The BMC accepts IPMI 2.0 cipher suite 0, which provides no authentication or integrity protection and can permit access using a valid username without its password. BMC access can bypass operating-system controls and expose console, virtual-media, firmware, and power-management functions.",
+  "test": [
+   {
+    "label": "Probe cipher-suite-zero support",
+    "cmd": "nmap -sU -p <port> --script ipmi-cipher-zero <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable cipher suite 0",
+    "text": "Disable cipher suite 0 for every IPMI privilege level using the BMC vendor's management interface, then verify it remains disabled after firmware upgrades or resets."
+   },
+   {
+    "label": "Isolate BMC interfaces",
+    "text": "Place BMCs on a dedicated management network, filter UDP 623 to authorized administration systems, update firmware, and rotate BMC credentials."
+   }
+  ],
+  "refs": [
+   "https://nmap.org/nsedoc/scripts/ipmi-cipher-zero.html",
+   "https://www.dmtf.org/sites/default/files/standards/documents/DSP0114.pdf"
+  ]
+ },
+ "bcors-b-breflect-04062725": {
+  "category": "network",
+  "title": "CORS origin reflection",
+  "why": "The application reflects an arbitrary Origin value in its CORS response, indicating an overly broad trust policy. If credentialed cross-origin requests are also allowed and sensitive responses are readable, an attacker-controlled site can access data using a victim's authenticated browser session.",
+  "test": [
+   {
+    "label": "Inspect CORS response headers",
+    "cmd": "curl -ksS -D - -o /dev/null -H 'Origin: https://attacker.example.invalid' <service>://<host>:<port>/<evidence_path>"
+   },
+   {
+    "label": "Compare a second untrusted origin",
+    "cmd": "curl -ksS -D - -o /dev/null -H 'Origin: https://different.example.invalid' <service>://<host>:<port>/<evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Use an exact origin allowlist",
+    "text": "Return Access-Control-Allow-Origin only for explicitly approved origins; parse and compare the complete scheme, host, and port instead of reflecting request input or matching loose suffixes."
+   },
+   {
+    "label": "Limit credentialed CORS",
+    "text": "Disable Access-Control-Allow-Credentials unless it is required, and exclude sensitive endpoints and response headers from cross-origin access."
+   }
+  ],
+  "refs": [
+   "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS",
+   "https://cwe.mitre.org/data/definitions/942.html"
+  ]
+ },
+ "bcritical-radius-access-accept-to-bogus-credential-0c62414f": {
+  "category": "network",
+  "title": "RADIUS accepts invalid credentials",
+  "why": "The RADIUS server returned Access-Accept for a deliberately invalid identity, indicating a fail-open policy, incorrect identity-store mapping, or unsafe catch-all rule. Any network access device relying on this policy may admit unauthorized users to VPN, wireless, or administrative networks.",
+  "test": [
+   {
+    "label": "Send one controlled nonexistent-user request",
+    "cmd": "printf 'User-Name = \"aranum-audit-nonexistent\"\\nUser-Password = \"invalid-audit-value\"\\n' | radclient -x -r 1 -t 3 <host>:<port> auth <pass>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Correct the authorization policy",
+    "text": "Default to Access-Reject when the identity is unknown, the credential check fails, or an upstream identity source is unavailable; remove catch-all acceptance rules."
+   },
+   {
+    "label": "Test policy regressions",
+    "text": "Add automated negative tests using nonexistent users and invalid passwords for each RADIUS virtual server, realm, and network-access policy."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc2865",
+   "https://cwe.mitre.org/data/definitions/636.html"
+  ]
+ },
+ "bcups-unauth-518ab9d3": {
+  "category": "network",
+  "title": "Unauthenticated CUPS service exposed",
+  "why": "A remote client can access the CUPS service without authentication and enumerate server or printer information. Depending on operation policies, the exposure can reveal queues and jobs or permit unauthorized printing and administrative actions.",
+  "test": [
+   {
+    "label": "Read the CUPS landing page",
+    "cmd": "curl -ksS -D - <service>://<host>:<port>/ -o /dev/null"
+   },
+   {
+    "label": "List advertised printers",
+    "cmd": "curl -ksS <service>://<host>:<port>/printers/"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict remote access",
+    "text": "Bind CUPS only to required interfaces and use cupsd location rules or a firewall to permit trusted print clients and administrators only."
+   },
+   {
+    "label": "Require protected operations",
+    "text": "Require authentication for printer management and sensitive IPP operations, disable remote administration when unnecessary, and use TLS for authenticated connections."
+   }
+  ],
+  "refs": [
+   "https://www.cups.org/doc/security.html",
+   "https://www.cups.org/doc/policies.html"
+  ]
+ },
+ "bcups-unauth-and-potentially-vuln-b-40d34d81": {
+  "category": "network",
+  "title": "CUPS exposure with vulnerable-version signal",
+  "why": "The unauthenticated CUPS endpoint reported a version associated with the 2024 cups-browsed vulnerability chain. A version banner alone does not prove exploitability because distribution backports and UDP 631 reachability matter, but an affected cups-browsed deployment can accept untrusted printer advertisements that lead to malicious printer configuration and code execution when used.",
+  "test": [
+   {
+    "label": "Confirm the reported CUPS version",
+    "cmd": "nmap -sV -p <port> --script cups-info <host>"
+   },
+   {
+    "label": "Check UDP 631 exposure without exploitation",
+    "cmd": "nmap -sU -sV -p 631 <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Update the affected packages",
+    "text": "Install vendor-fixed cups-browsed, cups-filters, libcupsfilters, and libppd packages; use the distribution advisory rather than upstream version strings to account for backports."
+   },
+   {
+    "label": "Disable legacy browsing",
+    "text": "Stop and disable cups-browsed if automatic remote-printer discovery is not required, and block inbound UDP 631 from untrusted networks."
+   }
+  ],
+  "refs": [
+   "https://openprinting.github.io/libcupsfilters%2C-libppd%2C-cups-filters-2.1.0-Releases-including-vulnerability-fix",
+   "https://www.cve.org/CVERecord?id=CVE-2024-47176"
+  ]
+ },
+ "bcve-d-4-d-4-7-b-b-candidate-vulnerable-signal-b-b9afbb09": {
+  "category": "network",
+  "title": "CVE candidate or vulnerable-version signal",
+  "why": "A scanner associated the observed product or version with a published CVE, but the generic signal does not by itself establish that the vulnerable code path is present or unpatched. Defenders should account for product edition, configuration, platform, and vendor backports before declaring the vulnerability confirmed.",
+  "test": [
+   {
+    "label": "Review the CVE and version evidence",
+    "cmd": "sed -n '1,200p' <evidence_path>"
+   },
+   {
+    "label": "Repeat passive service fingerprinting",
+    "cmd": "nmap -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Validate against the vendor advisory",
+    "text": "Map the detected build and configuration to the exact affected and fixed versions in the vendor advisory, including operating-system package backports."
+   },
+   {
+    "label": "Patch or mitigate",
+    "text": "Apply the vendor update or documented workaround, restrict the affected service while remediation is pending, and repeat the non-destructive version check afterward."
+   }
+  ],
+  "refs": [
+   "https://www.cve.org/",
+   "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+  ]
+ },
+ "bfinger-responds-with-user-info-b-03a48456": {
+  "category": "network",
+  "title": "Finger service discloses user information",
+  "why": "The Finger service returns account, login, or activity information to unauthenticated remote clients. Attackers can use the disclosed usernames and host activity to improve password attacks, social engineering, and targeting.",
+  "test": [
+   {
+    "label": "Query Finger information",
+    "cmd": "nmap -sV -p <port> --script finger <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable the legacy service",
+    "text": "Disable fingerd or its inetd/systemd socket activation unless there is a documented business requirement."
+   },
+   {
+    "label": "Restrict required access",
+    "text": "If Finger must remain available, filter TCP 79 to specific management systems and configure the daemon to minimize user details."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc1288",
+   "https://attack.mitre.org/techniques/T1087/"
+  ]
+ },
+ "bflexnet-flexlm-license-server-reachable-3e87f151": {
+  "category": "network",
+  "title": "FlexNet license server reachable",
+  "why": "A FlexNet/FLEXlm license manager is reachable from the tested network. Even without confirmed data disclosure, the service identifies valuable engineering software infrastructure and exposes an administrative protocol that is normally intended for controlled internal clients.",
+  "test": [
+   {
+    "label": "Confirm the FlexNet service banner",
+    "cmd": "nmap -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Limit license-service reachability",
+    "text": "Use host firewalls and network ACLs to allow only approved license clients and administration systems to reach lmgrd and every vendor-daemon port."
+   },
+   {
+    "label": "Pin vendor-daemon ports",
+    "text": "Configure fixed vendor-daemon ports so firewall rules cover the entire license path, and update lmgrd, vendor daemons, and administration utilities."
+   }
+  ],
+  "refs": [
+   "https://docs.revenera.com/fnp/2025r2/LicAdmin_Guide/Content/helplibrary/Command_Line_Utilities.htm"
+  ]
+ },
+ "bflexnet-unauth-lmstat-disclosure-fb2ca9fa": {
+  "category": "network",
+  "title": "Unauthenticated FlexNet lmstat disclosure",
+  "why": "The license server answers lmstat queries without authenticating the requester, exposing licensed products, feature names, users, and client hostnames. This information maps high-value engineering systems and supplies valid identity and workstation data for subsequent attacks.",
+  "test": [
+   {
+    "label": "Request license status read-only",
+    "cmd": "lmutil lmstat -a -c <port>@<host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enforce network isolation",
+    "text": "FlexNet deployments commonly rely on network controls rather than request authentication; restrict lmgrd and vendor-daemon ports to approved client subnets and administration hosts."
+   },
+   {
+    "label": "Reduce exposed user data",
+    "text": "Use supported secure utilities or no-user-information options where available, review INCLUDE and EXCLUDE policies, and avoid exposing the service across user or perimeter networks."
+   }
+  ],
+  "refs": [
+   "https://docs.revenera.com/fnp/2020r4/pdf/fnp_LicAdmin.pdf",
+   "https://docs.revenera.com/fnp/2025r2/LicAdmin_Guide/Content/helplibrary/Command_Line_Utilities.htm"
+  ]
+ },
+ "bimap-plaintext-auth-allowed-auth-success-8d8ff4b1": {
+  "category": "network",
+  "title": "IMAP permits plaintext password authentication",
+  "why": "The IMAP service advertises or accepted a password-based authentication exchange that is not adequately protected by transport encryption. Network observers can capture reusable mailbox credentials, which are often also valid for webmail, directory, or single-sign-on services.",
+  "test": [
+   {
+    "label": "Inspect IMAP capabilities",
+    "cmd": "nmap -sV -p <port> --script imap-capabilities <host>"
+   },
+   {
+    "label": "Validate credentials only through required TLS",
+    "cmd": "curl --ssl-reqd --url imap://<host>:<port>/ --user '<user>:<pass>'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require encrypted transport",
+    "text": "Disable cleartext authentication before TLS, require STARTTLS or implicit TLS, and reject authentication when encryption negotiation fails."
+   },
+   {
+    "label": "Retire legacy authentication",
+    "text": "Prefer modern token or challenge-based authentication where supported, disable unused IMAP service exposure, and rotate credentials that may have crossed plaintext links."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc8314",
+   "https://www.rfc-editor.org/rfc/rfc9051"
+  ]
+ },
+ "bjetdirect-pjl-unauth-a6716c58": {
+  "category": "network",
+  "title": "Unauthenticated JetDirect/PJL interface",
+  "why": "The raw printing port accepts PJL commands without authenticating the client. PJL can disclose device identity, configuration, status, and sometimes filesystem or stored-job information; writable operations may also alter printer behavior.",
+  "test": [
+   {
+    "label": "Read the PJL ready message",
+    "cmd": "nmap -sV -p <port> --script pjl-ready-message <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict raw printing",
+    "text": "Allow TCP 9100 only from authorized print servers and client networks, and disable JetDirect/raw printing when IPP through a controlled print server is sufficient."
+   },
+   {
+    "label": "Harden the printer",
+    "text": "Update printer firmware, disable unused PJL filesystem and job-retention features, set administrative credentials, and clear unneeded stored jobs."
+   }
+  ],
+  "refs": [
+   "https://nmap.org/nsedoc/scripts/pjl-ready-message.html",
+   "https://attack.mitre.org/techniques/T1046/"
+  ]
+ },
+ "blpd-reachable-45a47068": {
+  "category": "network",
+  "title": "Legacy LPD printing service reachable",
+  "why": "The legacy Line Printer Daemon protocol is reachable from the tested network. LPD generally lacks modern authentication and encryption, so unnecessary exposure can permit queue enumeration, unauthorized job submission, or interception of print metadata depending on server policy.",
+  "test": [
+   {
+    "label": "Query LPD service information",
+    "cmd": "nmap -sV -p <port> --script lpd-info <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Replace or restrict LPD",
+    "text": "Disable LPD where possible and use authenticated IPP over TLS; otherwise restrict TCP 515 to designated print servers and approved clients."
+   },
+   {
+    "label": "Constrain printer queues",
+    "text": "Remove unused queues, prevent anonymous remote administration, and configure queue-level host and user allowlists."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc1179",
+   "https://www.cups.org/doc/sharing.html"
+  ]
+ },
+ "bnagios-nrpe-reachable-397121a9": {
+  "category": "network",
+  "title": "Nagios NRPE service reachable",
+  "why": "The Nagios Remote Plugin Executor is reachable from the tested network, exposing a privileged monitoring agent and its implementation details. Reachability alone is not command execution, but weak allowed-host rules, unsafe command definitions, or obsolete NRPE versions can turn this into sensitive-data disclosure or remote command risk.",
+  "test": [
+   {
+    "label": "Confirm the NRPE listener",
+    "cmd": "nmap -sV -p <port> <host>"
+   },
+   {
+    "label": "Request the NRPE version handshake",
+    "cmd": "check_nrpe -H <host> -p <port>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict monitoring clients",
+    "text": "Set allowed_hosts to only the authorized Nagios servers and enforce the same restriction with host and network firewalls."
+   },
+   {
+    "label": "Harden NRPE commands",
+    "text": "Update NRPE, require TLS, disable arbitrary command arguments unless essential, and define narrowly scoped plugins that do not invoke a shell with untrusted input."
+   }
+  ],
+  "refs": [
+   "https://assets.nagios.com/downloads/nagioscore/docs/nrpe/NRPE.pdf",
+   "https://cwe.mitre.org/data/definitions/78.html"
+  ]
+ },
+ "bnats-auth-required-false-b-43f5d2e1": {
+  "category": "network",
+  "title": "NATS server does not require authentication",
+  "why": "The NATS INFO banner states that authentication is not required, allowing anonymous clients to establish sessions. Unless subject permissions or network isolation provide an equivalent boundary, an attacker may observe messaging topology and publish or subscribe to application data.",
+  "test": [
+   {
+    "label": "Read the NATS INFO banner",
+    "cmd": "nmap -sV -p <port> --script banner <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require client authentication",
+    "text": "Configure NATS users, tokens, NKeys, or operator/account JWT credentials so unauthenticated connections are rejected."
+   },
+   {
+    "label": "Apply subject authorization",
+    "text": "Give each application a separate identity with explicit publish and subscribe allowlists, require TLS, and restrict the client and monitoring ports at the network boundary."
+   }
+  ],
+  "refs": [
+   "https://docs.nats.io/learn/security/authentication-basics",
+   "https://docs.nats.io/learn/security/authorization"
+  ]
+ },
+ "bntp-amplification-vector-cve-2013-5211-bcdb9ee1": {
+  "category": "network",
+  "title": "NTP monlist amplification exposed",
+  "why": "The NTP service responded to the legacy mode-7 monlist request associated with CVE-2013-5211. Because a small spoofed UDP request can trigger a much larger response, an attacker can abuse the host as a reflection and amplification source in distributed denial-of-service attacks.",
+  "test": [
+   {
+    "label": "Verify the recorded monlist response",
+    "cmd": "grep -E 'MODE7_MONLIST|CVE-2013-5211|ntp-monlist' <evidence_path>"
+   },
+   {
+    "label": "Read basic NTP variables without monlist",
+    "cmd": "ntpq -c rv <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable monitoring queries",
+    "text": "Upgrade the NTP implementation and disable the legacy monitor/monlist facility; for ntpd, use the vendor-supported equivalent of disable monitor."
+   },
+   {
+    "label": "Prevent reflection",
+    "text": "Permit UDP 123 only where required, block untrusted control queries, and implement source-address validation at network edges."
+   }
+  ],
+  "refs": [
+   "https://www.cve.org/CVERecord?id=CVE-2013-5211",
+   "https://www.cisa.gov/news-events/alerts/2014/01/13/ntp-amplification-attacks-using-cve-2013-5211"
+  ]
+ },
+ "bntp-responds-to-mode-6-readvar-b-80229e5f": {
+  "category": "network",
+  "title": "NTP mode-6 variables remotely readable",
+  "why": "The NTP daemon answers unauthenticated mode-6 readvar control queries. These responses can disclose software versions, system details, reference sources, and peer state that help an attacker fingerprint infrastructure and identify additional weaknesses.",
+  "test": [
+   {
+    "label": "Request system variables",
+    "cmd": "ntpq -c rv <host>"
+   },
+   {
+    "label": "Run the NTP information script",
+    "cmd": "nmap -sU -p <port> --script ntp-info <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict NTP control queries",
+    "text": "Configure the daemon to deny mode-6 control access from untrusted networks while retaining only the time-synchronization traffic required by approved clients."
+   },
+   {
+    "label": "Reduce network exposure",
+    "text": "Filter UDP 123 to approved peers or clients and update the NTP implementation to a supported release."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc5905",
+   "https://www.ntp.org/documentation/4.2.8-series/accopt/"
+  ]
+ },
+ "bopen-proxy-f8b23707": {
+  "category": "network",
+  "title": "Unauthenticated open proxy",
+  "why": "The service forwards traffic for unauthenticated remote clients. Attackers can conceal their source, reach destinations through the organization's trusted address space, consume bandwidth, and cause abusive traffic to be attributed to the proxy owner.",
+  "test": [
+   {
+    "label": "Send one harmless HEAD request through the proxy",
+    "cmd": "curl -sS -I --max-time 10 -x http://<host>:<port> http://example.com/"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authorization",
+    "text": "Require authenticated clients and restrict permitted source networks, destination ports, protocols, and address ranges with explicit allowlists."
+   },
+   {
+    "label": "Block unintended proxying",
+    "text": "Disable the proxy service if it is not required, deny requests to internal and link-local destinations, and restrict the listener with a firewall."
+   }
+  ],
+  "refs": [
+   "https://cwe.mitre.org/data/definitions/441.html",
+   "https://attack.mitre.org/techniques/T1090/"
+  ]
+ },
+ "bopen-relay-candidate-b-a3a3ed2b": {
+  "category": "network",
+  "title": "Potential SMTP open relay",
+  "why": "The SMTP server accepted an external-to-external recipient during a relay test, indicating that unauthenticated clients may be able to relay mail. A confirmed open relay is readily abused for spam and phishing and can cause domain and IP reputation blocklisting.",
+  "test": [
+   {
+    "label": "Test relay acceptance without sending a message",
+    "cmd": "swaks --server <host>:<port> --from audit@example.net --to audit@example.org --quit-after RCPT"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict relay policy",
+    "text": "Permit relaying only for authenticated users or explicitly trusted source networks and accepted local domains; reject all other RCPT TO requests."
+   },
+   {
+    "label": "Retest every listener",
+    "text": "Check IPv4, IPv6, submission, and perimeter SMTP listeners after changing policy, and monitor logs for previous unauthorized relay activity."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc5321",
+   "https://cwe.mitre.org/data/definitions/441.html"
+  ]
+ },
+ "bpop3-plaintext-auth-allowed-auth-success-9f125574": {
+  "category": "network",
+  "title": "POP3 permits plaintext password authentication",
+  "why": "The POP3 service advertises or accepted reusable password authentication without adequate transport encryption. Anyone able to observe the connection can capture mailbox credentials, which may also provide access to other organizational systems.",
+  "test": [
+   {
+    "label": "Inspect POP3 capabilities",
+    "cmd": "nmap -sV -p <port> --script pop3-capabilities <host>"
+   },
+   {
+    "label": "Validate credentials only through required TLS",
+    "cmd": "curl --ssl-reqd --url pop3://<host>:<port>/ --user '<user>:<pass>'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require encrypted transport",
+    "text": "Disable authentication on unencrypted POP3 sessions and require STARTTLS or implicit TLS with valid certificates."
+   },
+   {
+    "label": "Reduce legacy mail exposure",
+    "text": "Disable POP3 when it is not required, prefer modern authentication where supported, and rotate credentials that may have traversed plaintext connections."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc8314",
+   "https://www.rfc-editor.org/rfc/rfc1939"
+  ]
+ },
+ "bradius-blastradius-cve-2024-3596-precondition-32164df1": {
+  "category": "network",
+  "title": "BlastRADIUS message-authenticator gap",
+  "why": "The RADIUS service responded to an Access-Request that did not carry a valid Message-Authenticator, satisfying a key precondition for CVE-2024-3596. On networks where an attacker can intercept and modify RADIUS traffic, this protocol weakness can permit alteration of an Access-Reject into an Access-Accept.",
+  "test": [
+   {
+    "label": "Send one request without Message-Authenticator",
+    "cmd": "printf 'User-Name = \"aranum-audit-nonexistent\"\\nUser-Password = \"invalid-audit-value\"\\n' | radclient -x -r 1 -t 3 <host>:<port> auth <pass>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Install BlastRADIUS updates",
+    "text": "Upgrade every RADIUS server, proxy, and network-access client to vendor-fixed versions; mixed unpatched paths can preserve the vulnerable condition."
+   },
+   {
+    "label": "Require packet authentication",
+    "text": "Require Message-Authenticator on Access-Request packets and enable the vendor's Proxy-State validation control, such as FreeRADIUS require_message_authenticator and limit_proxy_state."
+   }
+  ],
+  "refs": [
+   "https://www.freeradius.org/vul_notifications/2024/07/09/blastradius.html",
+   "https://www.cve.org/CVERecord?id=CVE-2024-3596"
+  ]
+ },
+ "brealvnc-b-bbypass-b-f7c5fe0d": {
+  "category": "network",
+  "title": "RealVNC authentication bypass",
+  "why": "The VNC server appears vulnerable to CVE-2006-2369, in which affected RealVNC releases accept a client-selected security type that bypasses the configured password check. Successful bypass grants interactive access to the remote desktop with the privileges of the logged-in session.",
+  "test": [
+   {
+    "label": "Run the non-destructive bypass check",
+    "cmd": "nmap -p <port> --script realvnc-auth-bypass <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Upgrade RealVNC",
+    "text": "Replace RealVNC 4.1.0 or 4.1.1 with a supported fixed release and verify that the server no longer accepts the None security type."
+   },
+   {
+    "label": "Restrict remote desktop access",
+    "text": "Permit VNC only through a managed VPN or administration network, require strong authentication, and block direct exposure at host and perimeter firewalls."
+   }
+  ],
+  "refs": [
+   "https://www.cve.org/CVERecord?id=CVE-2006-2369",
+   "https://nmap.org/nsedoc/scripts/realvnc-auth-bypass.html"
+  ]
+ },
+ "bremote-command-execution-b-ca19f4c9": {
+  "category": "network",
+  "title": "Remote command-execution condition detected",
+  "why": "The evidence contains a remote-command-execution finding, indicating that network input may cross a trust boundary and execute with service or host privileges. Because this rule is product-neutral, defenders must identify the exact component, affected version, and prerequisites without executing a proof-of-concept payload.",
+  "test": [
+   {
+    "label": "Review the recorded RCE evidence",
+    "cmd": "sed -n '1,200p' <evidence_path>"
+   },
+   {
+    "label": "Confirm product and version only",
+    "cmd": "nmap -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Patch and contain the component",
+    "text": "Apply the vendor fix or remove the affected feature, restrict the service to trusted management paths, and treat the host as potentially compromised if it was exposed to untrusted clients."
+   },
+   {
+    "label": "Investigate for exploitation",
+    "text": "Review service, process, authentication, and network logs for exploitation indicators; rotate reachable secrets and rebuild from trusted media when integrity cannot be established."
+   }
+  ],
+  "refs": [
+   "https://cwe.mitre.org/data/definitions/94.html",
+   "https://attack.mitre.org/techniques/T1210/"
+  ]
+ },
+ "bsip-service-cfa45a0d": {
+  "category": "network",
+  "title": "SIP signaling service exposed",
+  "why": "A SIP endpoint is reachable from the tested network and reveals a voice-signaling attack surface. Exposure alone is not proof of compromise, but permissive registration, weak credentials, verbose responses, or unsafe dial plans can enable extension discovery, toll fraud, call interception, and service disruption.",
+  "test": [
+   {
+    "label": "Enumerate supported SIP methods",
+    "cmd": "nmap -sU -sV -p <port> --script sip-methods <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict SIP sources",
+    "text": "Allow SIP signaling only from approved trunks, session border controllers, phones, and management networks; block direct Internet access when it is not explicitly required."
+   },
+   {
+    "label": "Harden voice authentication",
+    "text": "Require strong per-device credentials, disable anonymous registration and unused methods, constrain dial plans, enable TLS/SRTP where supported, and monitor anomalous call attempts."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc3261",
+   "https://csrc.nist.gov/pubs/sp/800/58/final"
+  ]
+ },
+ "bslp-amplification-vector-cve-2023-29552-301f655f": {
+  "category": "network",
+  "title": "SLP reflection/amplification exposure",
+  "why": "The SLP service produced a disproportionately large discovery response, indicating exposure to the reflection/amplification behavior documented as CVE-2023-29552. An attacker capable of spoofing UDP source addresses can direct amplified traffic at third-party victims and consume the organization's network resources.",
+  "test": [
+   {
+    "label": "Review recorded SLP response evidence",
+    "cmd": "grep -E 'SLP AMPLIFICATION VECTOR|Service Type:' <evidence_path>"
+   },
+   {
+    "label": "Perform one direct SLP information query",
+    "cmd": "nmap -sU -p <port> --script slp-info --script-timeout 10s <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable unnecessary SLP",
+    "text": "Disable SLP on systems that do not require service discovery, especially Internet-facing or management appliances."
+   },
+   {
+    "label": "Filter and patch",
+    "text": "Block UDP and TCP 427 at perimeter boundaries, restrict internal access to required clients, and apply vendor updates or SLP-disablement guidance."
+   }
+  ],
+  "refs": [
+   "https://www.cve.org/CVERecord?id=CVE-2023-29552",
+   "https://www.cisa.gov/news-events/alerts/2023/04/25/abuse-service-location-protocol-may-lead-dos-attacks"
+  ]
+ },
+ "bslp-service-type-list-exposed-high-value-38b641f2": {
+  "category": "network",
+  "title": "SLP service catalog exposed",
+  "why": "The SLP registry disclosed numerous service types without authentication. This catalog can reveal internal printers, storage systems, virtualization infrastructure, management services, and other high-value targets that may not otherwise be discoverable.",
+  "test": [
+   {
+    "label": "List SLP service types",
+    "cmd": "nmap -sU -p <port> --script slp-info,slp-discovery --script-timeout 10s <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Reduce SLP visibility",
+    "text": "Disable SLP where it is unnecessary or bind it only to dedicated management interfaces and required service-discovery networks."
+   },
+   {
+    "label": "Enforce network boundaries",
+    "text": "Filter TCP and UDP 427 between security zones and ensure registered services do not advertise sensitive management endpoints beyond their intended clients."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc2608",
+   "https://www.cve.org/CVERecord?id=CVE-2023-29552"
+  ]
+ },
+ "bssdp-upnp-responder-b-256bafda": {
+  "category": "network",
+  "title": "SSDP/UPnP responder exposed",
+  "why": "The host responds to SSDP discovery and may disclose device type, management URLs, model information, and UPnP services. Exposure across trust boundaries aids reconnaissance and, when reachable from the Internet, may also contribute to UDP reflection abuse.",
+  "test": [
+   {
+    "label": "Query UPnP device information",
+    "cmd": "nmap -sU -p <port> --script upnp-info <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable unnecessary UPnP",
+    "text": "Disable UPnP/SSDP on routers, endpoints, and appliances that do not require automatic local discovery."
+   },
+   {
+    "label": "Confine discovery traffic",
+    "text": "Block UDP 1900 across perimeter and routed trust boundaries, and limit SSDP multicast and unicast responses to the intended local segment."
+   }
+  ],
+  "refs": [
+   "https://openconnectivity.org/developer/specifications/upnp-resources/upnp/",
+   "https://attack.mitre.org/techniques/T1046/"
+  ]
+ },
+ "btelnet-open-device-129976a8": {
+  "category": "network",
+  "title": "Telnet management service exposed",
+  "why": "A Telnet service is reachable on the device, exposing an obsolete remote terminal protocol with no transport encryption or server authentication. Credentials and administrative commands can be observed or altered by anyone positioned on the network path.",
+  "test": [
+   {
+    "label": "Confirm the Telnet banner",
+    "cmd": "nmap -sV -p <port> --script banner <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Replace Telnet with SSH",
+    "text": "Disable the Telnet daemon or device management option and use SSH with modern algorithms, strong credentials, and preferably public-key authentication."
+   },
+   {
+    "label": "Restrict management access",
+    "text": "Place device management interfaces on a dedicated network and permit access only from approved administration hosts."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc854",
+   "https://www.cisa.gov/news-events/news/bad-practices"
+  ]
+ },
+ "bterrapin-ssh-audit-66181601": {
+  "category": "network",
+  "title": "SSH Terrapin attack exposure",
+  "why": "The SSH service supports a vulnerable protocol and algorithm combination associated with CVE-2023-48795, commonly called Terrapin. An active network attacker may truncate portions of the SSH handshake and weaken negotiated security features; the scanner signal should be interpreted alongside the server and client patch levels.",
+  "test": [
+   {
+    "label": "Audit SSH algorithms and strict key exchange",
+    "cmd": "ssh-audit <host>:<port>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Install SSH fixes",
+    "text": "Update SSH servers and clients to vendor-fixed releases that implement strict key exchange, such as OpenSSH 9.6 or a vendor-backported equivalent."
+   },
+   {
+    "label": "Disable vulnerable combinations",
+    "text": "Until all peers are patched, disable ChaCha20-Poly1305 and CBC with Encrypt-then-MAC combinations identified as vulnerable by the vendor, while retaining approved modern alternatives."
+   }
+  ],
+  "refs": [
+   "https://www.cve.org/CVERecord?id=CVE-2023-48795",
+   "https://www.openssh.com/txt/release-9.6"
+  ]
+ },
+ "btftp-readable-config-f856f6cb": {
+  "category": "network",
+  "title": "Configuration file readable over TFTP",
+  "why": "The TFTP server permits unauthenticated retrieval of a configuration file. Network-device and provisioning configurations frequently contain topology details, password hashes, SNMP communities, VPN secrets, or other credentials that enable broader compromise.",
+  "test": [
+   {
+    "label": "Retrieve the known file to standard output",
+    "cmd": "curl --silent --show-error tftp://<host>:<port>/<evidence_path>"
+   },
+   {
+    "label": "Enumerate common TFTP filenames",
+    "cmd": "nmap -sU -p <port> --script tftp-enum <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove sensitive files",
+    "text": "Remove configurations, backups, keys, and credentials from the TFTP root; rotate every secret contained in a file that was anonymously readable."
+   },
+   {
+    "label": "Constrain or replace TFTP",
+    "text": "Restrict TFTP to a dedicated provisioning network and approved clients, enforce a minimal read-only root, or replace it with an authenticated encrypted transfer mechanism."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc1350",
+   "https://nmap.org/nsedoc/scripts/tftp-enum.html"
+  ]
+ },
+ "bunauth-git-daemon-b-39d5d84c": {
+  "category": "network",
+  "title": "Unauthenticated Git repository export",
+  "why": "The Git daemon exposes at least one repository without authenticating readers. Repository history may disclose proprietary source, deleted files, internal infrastructure details, and credentials that remain recoverable from earlier commits.",
+  "test": [
+   {
+    "label": "List remote references without cloning",
+    "cmd": "git ls-remote git://<host>:<port>/<evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Stop anonymous export",
+    "text": "Remove git-daemon-export-ok from private repositories, do not use git daemon --export-all, and disable the daemon if anonymous read access is unnecessary."
+   },
+   {
+    "label": "Use authenticated repository access",
+    "text": "Serve private repositories through authenticated SSH or HTTPS, restrict network access, scan the full history for secrets, and rotate any exposed credentials."
+   }
+  ],
+  "refs": [
+   "https://git-scm.com/docs/git-daemon",
+   "https://cwe.mitre.org/data/definitions/200.html"
+  ]
+ },
+ "bvpn-cisco-anyconnect-asa-ssl-vpn-fortinet-ssl-vpn-palo-ee1ab2b1": {
+  "category": "network",
+  "title": "Internet-facing SSL VPN identified",
+  "why": "The endpoint was fingerprinted as a supported enterprise SSL VPN product, placing a high-value remote-access control plane in scope. Product detection is not itself proof of a vulnerability, but VPN gateways are frequent targets for credential attacks and pre-authentication flaws and should receive expedited version and configuration review.",
+  "test": [
+   {
+    "label": "Confirm the identified portal response",
+    "cmd": "curl -ksS -D - <service>://<host>:<port>/<evidence_path> -o /dev/null"
+   },
+   {
+    "label": "Record service and TLS details",
+    "cmd": "nmap -sV -p <port> --script ssl-cert,ssl-enum-ciphers <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Maintain the edge appliance",
+    "text": "Verify the exact product and build, apply current vendor security updates, remove unsupported versions, and review relevant CISA KEV entries and vendor advisories."
+   },
+   {
+    "label": "Harden remote access",
+    "text": "Require phishing-resistant MFA, disable unused portals and management interfaces, restrict administration to a separate trusted network, and monitor authentication and configuration changes."
+   }
+  ],
+  "refs": [
+   "https://csrc.nist.gov/pubs/sp/800/46/r2/final",
+   "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+  ]
+ },
+ "bvrfy-enabled-b-03eb095d": {
+  "category": "network",
+  "title": "SMTP VRFY command enabled",
+  "why": "The SMTP server processes VRFY requests and may distinguish valid local recipients from nonexistent users. Attackers can use this behavior to build accurate account lists for phishing, password attacks, and business-email-compromise targeting.",
+  "test": [
+   {
+    "label": "Verify one authorized test identity",
+    "cmd": "printf 'EHLO audit.<domain>\\r\\nVRFY <user>\\r\\nQUIT\\r\\n' | nc -w 5 <host> <port>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable useful VRFY responses",
+    "text": "Configure the MTA to reject VRFY or return an identical non-enumerable response for valid and invalid users; for Postfix, enable disable_vrfy_command."
+   },
+   {
+    "label": "Limit account-enumeration signals",
+    "text": "Apply consistent recipient handling, rate limits, and monitoring across VRFY, EXPN, RCPT TO, webmail, and directory interfaces."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc5321#section-3.5",
+   "https://attack.mitre.org/techniques/T1087/"
+  ]
+ },
+ "bx11-open-display-b-ee0898b0": {
+  "category": "network",
+  "title": "Unauthenticated X11 display access",
+  "why": "The X11 display accepts remote client connections without effective authorization. An attacker may be able to observe windows, capture input, inject keyboard or mouse events, or interact with applications running in the victim's graphical session.",
+  "test": [
+   {
+    "label": "Check X11 access control",
+    "cmd": "nmap -p <port> --script x11-access <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable direct TCP X11",
+    "text": "Start the X server with TCP listening disabled and remove display-manager settings that expose ports 6000 and above."
+   },
+   {
+    "label": "Restore access controls",
+    "text": "Remove permissive xhost entries, use per-session Xauthority cookies, and provide necessary remote GUI access through tightly controlled SSH forwarding."
+   }
+  ],
+  "refs": [
+   "https://www.x.org/releases/current/doc/man/man7/Xsecurity.7.xhtml",
+   "https://nmap.org/nsedoc/scripts/x11-access.html"
+  ]
+ },
+ "byarn-resourcemanager-unauth-dda5ab1e": {
+  "category": "network",
+  "title": "Unauthenticated YARN ResourceManager API",
+  "why": "The Hadoop YARN ResourceManager REST API returns cluster information without authenticating the requester. It can disclose cluster topology and configuration, and deployments that also leave administrative APIs unprotected may permit application submission or control with worker-level execution impact.",
+  "test": [
+   {
+    "label": "Read ResourceManager cluster information",
+    "cmd": "curl -fsS <service>://<host>:<port>/ws/v1/cluster/info"
+   },
+   {
+    "label": "List cluster nodes read-only",
+    "cmd": "curl -fsS <service>://<host>:<port>/ws/v1/cluster/nodes"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable Hadoop authentication",
+    "text": "Enable Kerberos-based Hadoop security and SPNEGO for ResourceManager HTTP endpoints, then enforce YARN service-level authorization and queue ACLs."
+   },
+   {
+    "label": "Restrict the management plane",
+    "text": "Expose ResourceManager interfaces only to authorized users, gateway services, and administration networks; block direct access from untrusted segments."
+   }
+  ],
+  "refs": [
+   "https://hadoop.apache.org/docs/r3.4.0/hadoop-yarn/hadoop-yarn-site/ResourceManagerRest.html",
+   "https://hadoop.apache.org/docs/current/hadoop-project-dist/hadoop-common/SecureMode.html"
+  ]
+ },
+ "byarn-unauth-app-inventory-d7eaf3ca": {
+  "category": "network",
+  "title": "YARN application inventory exposed",
+  "why": "Unauthenticated clients can enumerate YARN applications, including names, users, queues, states, and tracking URLs. This reveals active workloads and privileged identities and may expose linked application interfaces or sensitive operational metadata.",
+  "test": [
+   {
+    "label": "List a bounded set of applications",
+    "cmd": "curl -fsS '<service>://<host>:<port>/ws/v1/cluster/apps?limit=10'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Authenticate ResourceManager HTTP access",
+    "text": "Enable Kerberos/SPNEGO authentication and Hadoop authorization for the ResourceManager web and REST interfaces."
+   },
+   {
+    "label": "Limit inventory visibility",
+    "text": "Restrict ResourceManager and tracking URLs to approved networks and users, and review proxy-user and queue ACLs for least privilege."
+   }
+  ],
+  "refs": [
+   "https://hadoop.apache.org/docs/r3.4.0/hadoop-yarn/hadoop-yarn-site/ResourceManagerRest.html",
+   "https://hadoop.apache.org/docs/current/hadoop-project-dist/hadoop-common/SecureMode.html"
+  ]
+ },
+ "bzabbix-agent-unauth-metric-query-9c344bed": {
+  "category": "network",
+  "title": "Unauthenticated Zabbix agent queries",
+  "why": "The Zabbix agent returns metric values to an unauthenticated remote requester. Exposed item keys can reveal operating-system, network, process, filesystem, and application details, and unsafe user parameters or system.run rules can raise the impact substantially.",
+  "test": [
+   {
+    "label": "Read a benign system metric",
+    "cmd": "zabbix_get -s <host> -p <port> -k system.uname"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict permitted servers",
+    "text": "Set the agent Server parameter to only authorized Zabbix servers or proxies and enforce the same source restriction with a host firewall."
+   },
+   {
+    "label": "Require encryption and constrain keys",
+    "text": "Configure TLS with PSK or certificates, allow only required item keys, explicitly deny system.run and sensitive file-reading keys, and remove unsafe user parameters."
+   }
+  ],
+  "refs": [
+   "https://www.zabbix.com/documentation/current/en/manual/appendix/config/zabbix_agentd",
+   "https://www.zabbix.com/documentation/8.0/en/manual/config/items/restrict_checks"
+  ]
+ },
+ "bzabbix-server-reachable-bfba7fc4": {
+  "category": "network",
+  "title": "Zabbix server port reachable",
+  "why": "The Zabbix server listener is reachable from the tested network, exposing a high-value monitoring control-plane component. Reachability alone does not demonstrate unauthenticated access, but unnecessary exposure increases opportunities for version fingerprinting, protocol attacks, and attempts to impersonate trusted agents or proxies.",
+  "test": [
+   {
+    "label": "Confirm the Zabbix server listener",
+    "cmd": "nmap -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict component communication",
+    "text": "Allow the server port only from registered Zabbix proxies, active agents, and required internal components using network and host firewalls."
+   },
+   {
+    "label": "Protect and maintain the server",
+    "text": "Require certificate- or PSK-protected component connections, keep Zabbix supported and patched, and separate the web interface, database, and server listener by role."
+   }
+  ],
+  "refs": [
+   "https://www.zabbix.com/documentation/current/en/manual/appendix/config/zabbix_server",
+   "https://www.zabbix.com/documentation/current/en/manual/encryption"
+  ]
+ },
+ "cve-2024-6387-regresshion-27d5471e": {
+  "category": "network",
+  "title": "OpenSSH regreSSHion candidate",
+  "why": "The SSH banner matches an OpenSSH release range associated with CVE-2024-6387, a pre-authentication race condition in sshd's signal handling that can lead to remote code execution on affected glibc-based systems. Banner matching is only a candidate signal because operating-system vendors may backport fixes without changing the upstream version string, and some platforms are not exploitable.",
+  "test": [
+   {
+    "label": "Record the SSH implementation and algorithms",
+    "cmd": "ssh-audit <host>:<port>"
+   },
+   {
+    "label": "Confirm the network banner",
+    "cmd": "nmap -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Install the vendor-fixed OpenSSH package",
+    "text": "Upgrade to OpenSSH 9.8 or the operating-system vendor's patched package, and verify patch status through the package changelog or advisory rather than the banner alone."
+   },
+   {
+    "label": "Apply temporary containment",
+    "text": "Until patched, restrict SSH to trusted administration sources; setting LoginGraceTime to 0 prevents the vulnerable timeout path but can increase denial-of-service exposure and should be treated only as a temporary vendor-documented mitigation."
+   }
+  ],
+  "refs": [
+   "https://www.openssh.com/txt/release-9.8",
+   "https://www.cve.org/CVERecord?id=CVE-2024-6387"
+  ]
+ },
+ "b-rubrik-cohesity-backup-dell-powerprotect-data-manager-e0232ea0": {
+  "category": "backup",
+  "title": "Enterprise backup management API exposed",
+  "why": "A reachable Rubrik, Cohesity, or Dell PowerProtect API identifies a high-value management plane that commonly holds infrastructure inventories and privileged integration credentials. Attackers target backup systems to steal data and impair recovery before disruptive operations.",
+  "test": [
+   {
+    "label": "Check Rubrik API fingerprint",
+    "cmd": "curl -k -i '<service>://<host>:<port>/api/v1/cluster/me'"
+   },
+   {
+    "label": "Check Cohesity API fingerprint",
+    "cmd": "curl -k -i '<service>://<host>:<port>/irisservices/api/v1/public/cluster'"
+   },
+   {
+    "label": "Check PowerProtect API fingerprint",
+    "cmd": "curl -k -i '<service>://<host>:<port>/api/v2/about'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict management access",
+    "text": "Place the backup API on a dedicated management network and permit access only from approved administration hosts and monitoring systems."
+   },
+   {
+    "label": "Harden administrator authentication",
+    "text": "Require MFA or centralized identity for administrators, remove dormant accounts, rotate integration credentials, and install supported security updates."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1490/",
+   "https://www.dell.com/support/security/en-us"
+  ]
+ },
+ "bartifact-docker-registry-sonatype-nexus-jfrog-artifact-ce6dbbf7": {
+  "category": "devops",
+  "title": "Artifact repository or registry exposed",
+  "why": "An exposed Docker Registry, Nexus, Artifactory, or Harbor service reveals a software-supply-chain management plane and may disclose repository names, versions, or internal package metadata. Compromise of a privileged account could let an attacker obtain proprietary artifacts or tamper with software consumed by deployment pipelines.",
+  "test": [
+   {
+    "label": "Fingerprint the service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   },
+   {
+    "label": "Inspect HTTP response headers",
+    "cmd": "curl -k -i '<service>://<host>:<port>/'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Limit registry reachability",
+    "text": "Expose the service only to authorized developer, CI, and administration networks through firewall rules or an authenticated reverse proxy."
+   },
+   {
+    "label": "Enforce repository controls",
+    "text": "Disable anonymous access unless explicitly required, apply least-privilege repository roles, require MFA for administrators, and use separate scoped CI tokens."
+   }
+  ],
+  "refs": [
+   "https://distribution.github.io/distribution/spec/api/",
+   "https://attack.mitre.org/techniques/T1195/"
+  ]
+ },
+ "bartifact-docker-registry-unauth-catalog-surface-b79f8ff4": {
+  "category": "devops",
+  "title": "Docker Registry catalog allows anonymous access",
+  "why": "The registry catalog can be listed without authentication, exposing repository names and potentially enabling anonymous tag or manifest enumeration. These details reveal internal applications and versions that help attackers identify sensitive images and vulnerable components.",
+  "test": [
+   {
+    "label": "List the anonymous registry catalog",
+    "cmd": "curl -kfsS '<service>://<host>:<port>/v2/_catalog?n=100'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require registry authentication",
+    "text": "Configure the registry or its reverse proxy to require authentication for catalog, repository, tag, manifest, pull, and push operations."
+   },
+   {
+    "label": "Restrict network access",
+    "text": "Limit registry access to approved CI workers, deployment systems, and administrator networks."
+   }
+  ],
+  "refs": [
+   "https://distribution.github.io/distribution/about/deploying/#restricting-access",
+   "https://distribution.github.io/distribution/spec/api/"
+  ]
+ },
+ "bauth-ok-b-18ccdbe4": {
+  "category": "creds",
+  "title": "RabbitMQ management credentials accepted",
+  "why": "Operator-supplied credentials successfully authenticated to the RabbitMQ management API. Depending on their assigned tags and virtual-host permissions, the account may expose users, queues, exchanges, messages, connections, or administrative functions.",
+  "test": [
+   {
+    "label": "Query RabbitMQ overview",
+    "cmd": "curl -kfsS -u '<user>:<pass>' '<service>://<host>:<port>/api/overview'"
+   },
+   {
+    "label": "List authorized virtual hosts",
+    "cmd": "curl -kfsS -u '<user>:<pass>' '<service>://<host>:<port>/api/vhosts'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Review the authenticated account",
+    "text": "Confirm that the account is expected, rotate it if its use is unexplained, and restrict its RabbitMQ tags and virtual-host permissions to the minimum required."
+   },
+   {
+    "label": "Protect the management API",
+    "text": "Restrict management API access to administration networks, require TLS, and use centralized authentication or MFA where supported."
+   }
+  ],
+  "refs": [
+   "https://www.rabbitmq.com/docs/management#http-api",
+   "https://attack.mitre.org/techniques/T1078/"
+  ]
+ },
+ "bbmc-hpe-ilo-dell-idrac-supermicro-ipmi-lenovo-xcc-imm-e5c59b40": {
+  "category": "infra",
+  "title": "Server baseboard management controller exposed",
+  "why": "A reachable iLO, iDRAC, IPMI, XCC, IMM, or CIMC interface provides out-of-band control that can remain available even when the operating system is offline. Administrative compromise may permit console access, power control, virtual-media mounting, firmware changes, or recovery bypass.",
+  "test": [
+   {
+    "label": "Fingerprint the management service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   },
+   {
+    "label": "Query IPMI version information",
+    "cmd": "nmap -Pn -sU -p <port> --script ipmi-version <host>"
+   },
+   {
+    "label": "Inspect the web interface",
+    "cmd": "curl -k -I '<service>://<host>:<port>/'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Isolate out-of-band management",
+    "text": "Move BMC interfaces to a dedicated management network with firewall or jump-host enforcement and no direct Internet or user-LAN access."
+   },
+   {
+    "label": "Harden controller access",
+    "text": "Change default credentials, disable unused legacy protocols, require MFA where supported, install current firmware, and forward audit events to monitoring."
+   }
+  ],
+  "refs": [
+   "https://csrc.nist.gov/publications/detail/sp/800-193/final",
+   "https://attack.mitre.org/techniques/T1133/"
+  ]
+ },
+ "bcommvault-detected-5f2f4842": {
+  "category": "backup",
+  "title": "Commvault management service exposed",
+  "why": "A reachable Commvault web service exposes a backup-management plane with visibility into protected systems, stored data, and operational credentials. Attackers frequently target backup infrastructure to obtain broad access and prevent reliable restoration.",
+  "test": [
+   {
+    "label": "Query the Commvault web-service endpoint",
+    "cmd": "curl -k -i '<service>://<host>:<port>/SearchSvc/CVWebService.svc/'"
+   },
+   {
+    "label": "Fingerprint the listening service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict CommServe access",
+    "text": "Allow the web service only from dedicated administration and backup networks, preferably through a controlled jump host."
+   },
+   {
+    "label": "Harden and update Commvault",
+    "text": "Apply supported maintenance releases, require strong administrator authentication, rotate service credentials, and review roles and audit logs."
+   }
+  ],
+  "refs": [
+   "https://documentation.commvault.com/",
+   "https://attack.mitre.org/techniques/T1490/"
+  ]
+ },
+ "bdefault-cred-6077e4eb": {
+  "category": "creds",
+  "title": "Default credentials accepted",
+  "why": "A service accepted a vendor-default or commonly shipped credential pair. Attackers routinely test these credentials because they can provide immediate administrative access without exploiting a software vulnerability.",
+  "test": [
+   {
+    "label": "Recheck web authentication",
+    "cmd": "curl -k -u '<user>:<pass>' -o /dev/null -w '%{http_code}\\n' '<service>://<host>:<port>/'"
+   },
+   {
+    "label": "Recheck supported network-service credentials",
+    "cmd": "nxc <service> <host> -u <user> -p <pass> -d <domain>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Replace the default credential",
+    "text": "Set a unique, randomly generated password or managed service credential and invalidate every vendor-default account or secret."
+   },
+   {
+    "label": "Check for prior use",
+    "text": "Review authentication and configuration logs for access using the default credential, rotate related secrets, and investigate unexplained activity."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1078/001/",
+   "https://www.cisa.gov/securebydesign"
+  ]
+ },
+ "bdell-avamar-powerprotect-legacy-service-reachable-95e93e9d": {
+  "category": "backup",
+  "title": "Legacy Avamar or PowerProtect service reachable",
+  "why": "A legacy Dell Avamar or PowerProtect service is reachable over the network, increasing the attack surface of a system that stores or controls backups. Older management protocols may lack modern authentication and transport protections and should not be accessible from general-purpose networks.",
+  "test": [
+   {
+    "label": "Confirm and fingerprint the TCP service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict the legacy service",
+    "text": "Allow the port only between documented backup components on a dedicated network and block it from user, guest, and Internet-facing segments."
+   },
+   {
+    "label": "Upgrade or retire the interface",
+    "text": "Install current supported PowerProtect or Avamar releases and disable legacy listeners that are no longer required."
+   }
+  ],
+  "refs": [
+   "https://www.dell.com/support/security/en-us",
+   "https://attack.mitre.org/techniques/T1190/"
+  ]
+ },
+ "bhypervisor-vmware-esxi-host-proxmox-ve-nutanix-prism-d-96b15af5": {
+  "category": "infra",
+  "title": "Hypervisor management plane exposed",
+  "why": "A VMware ESXi, Proxmox VE, or Nutanix Prism management interface is reachable. These systems control many workloads, so stolen administrator access or exploitation can expose virtual disks, consoles, snapshots, credentials, and multiple hosted services at once.",
+  "test": [
+   {
+    "label": "Fingerprint the management service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   },
+   {
+    "label": "Inspect the management web response",
+    "cmd": "curl -k -i '<service>://<host>:<port>/'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Segment hypervisor management",
+    "text": "Permit access only from a dedicated management network and approved jump hosts; block direct access from user networks and the Internet."
+   },
+   {
+    "label": "Harden privileged access",
+    "text": "Require MFA or centralized identity, remove unused local administrators, apply security updates, and alert on privileged logins and configuration changes."
+   }
+  ],
+  "refs": [
+   "https://core.vmware.com/security-configuration-guide",
+   "https://attack.mitre.org/techniques/T1133/"
+  ]
+ },
+ "bkey-only-b-adfd43e9": {
+  "category": "creds",
+  "title": "SSH permits public-key authentication only",
+  "why": "The SSH server advertises public-key authentication but not password or keyboard-interactive authentication. This reduces password-spraying risk, but defenders must still protect private keys, constrain authorized keys, and remove stale access because possession of a trusted key may be sufficient for login.",
+  "test": [
+   {
+    "label": "Read advertised SSH authentication methods",
+    "cmd": "ssh -vv -p <port> -o BatchMode=yes -o PreferredAuthentications=none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null <user>@<host> true 2>&1 | grep -i 'authentication methods'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Maintain key-only authentication",
+    "text": "Keep password authentication disabled, inventory authorized keys, remove stale keys, and require passphrases or hardware-backed keys for privileged access."
+   },
+   {
+    "label": "Constrain key privileges",
+    "text": "Apply least privilege to SSH accounts and use authorized_keys restrictions such as source-address, command, or forwarding constraints where appropriate."
+   }
+  ],
+  "refs": [
+   "https://man.openbsd.org/sshd_config",
+   "https://attack.mitre.org/techniques/T1078/004/"
+  ]
+ },
+ "bopenstack-keystone-detected-856681df": {
+  "category": "infra",
+  "title": "OpenStack Keystone API exposed",
+  "why": "A reachable Keystone endpoint identifies the identity control plane for an OpenStack environment and can disclose API versions and service topology. Although version discovery may be intentionally public, unnecessary reachability increases reconnaissance value and exposes a high-impact authentication surface.",
+  "test": [
+   {
+    "label": "Query Keystone version discovery",
+    "cmd": "curl -kfsS '<service>://<host>:<port>/v3'"
+   },
+   {
+    "label": "Fingerprint the API listener",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict identity API exposure",
+    "text": "Expose administrative Keystone endpoints only to trusted management networks and publish only the interfaces required by legitimate clients."
+   },
+   {
+    "label": "Harden Keystone",
+    "text": "Use TLS, federated or MFA-protected administrative identities, least-privilege roles, supported releases, and centralized audit logging."
+   }
+  ],
+  "refs": [
+   "https://docs.openstack.org/keystone/latest/",
+   "https://docs.openstack.org/security-guide/identity.html"
+  ]
+ },
+ "bplatform-hashicorp-nomad-portainer-rancher-argo-cd-det-53d5ee0c": {
+  "category": "devops",
+  "title": "Workload platform control plane exposed",
+  "why": "A Nomad, Portainer, Rancher, or Argo CD control plane is reachable and reveals a high-value workload-management surface. Compromised access could expose cluster inventories, deployment configuration, registry credentials, secrets, or the ability to alter running applications.",
+  "test": [
+   {
+    "label": "Probe product discovery endpoints",
+    "cmd": "for p in /v1/status/leader /api/status /v3/settings/server-version /api/version; do curl -k -i '<service>://<host>:<port>'\"$p\"; done"
+   },
+   {
+    "label": "Fingerprint the listener",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict control-plane access",
+    "text": "Limit the interface to trusted administration and cluster networks through firewall rules, a VPN, or an authenticated access proxy."
+   },
+   {
+    "label": "Enforce strong authorization",
+    "text": "Enable the product's authentication and authorization features, require SSO and MFA for administrators, use scoped automation tokens, and remove anonymous access."
+   }
+  ],
+  "refs": [
+   "https://developer.hashicorp.com/nomad/docs/secure",
+   "https://argo-cd.readthedocs.io/en/stable/operator-manual/security/"
+  ]
+ },
+ "bplatform-nomad-unauth-job-inventory-f098d3eb": {
+  "category": "devops",
+  "title": "Nomad job inventory accessible anonymously",
+  "why": "The Nomad jobs API returns workload inventory without authentication. Job names, namespaces, types, and deployment metadata reveal internal architecture and can guide attacks against applications, images, or supporting services.",
+  "test": [
+   {
+    "label": "List jobs without a token",
+    "cmd": "curl -kfsS '<service>://<host>:<port>/v1/jobs'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Enable Nomad ACLs",
+    "text": "Enable the Nomad ACL system, set an appropriate default-deny policy, and grant job-listing permissions only to authenticated identities that require them."
+   },
+   {
+    "label": "Limit API reachability",
+    "text": "Bind or firewall the HTTP API so it is reachable only from trusted cluster and administration networks, and require TLS for remote clients."
+   }
+  ],
+  "refs": [
+   "https://developer.hashicorp.com/nomad/docs/secure/acl",
+   "https://developer.hashicorp.com/nomad/api-docs/jobs"
+  ]
+ },
+ "bpotential-cred-leak-b-314c9b48": {
+  "category": "creds",
+  "title": "Potential credentials exposed through search data",
+  "why": "A read-only Elasticsearch query found documents matching credential-related terms such as passwords, secrets, or tokens. Search indexes often aggregate logs and application records, so anonymous or overprivileged query access can expose reusable credentials at scale.",
+  "test": [
+   {
+    "label": "Count password-like search matches",
+    "cmd": "curl -kfsS '<service>://<host>:<port>/_search?size=0&q=password*'"
+   },
+   {
+    "label": "Check cluster authentication boundary",
+    "cmd": "curl -k -i '<service>://<host>:<port>/_security/_authenticate'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Require authenticated search access",
+    "text": "Enable Elasticsearch security, block anonymous cluster access, and grant index privileges only to applications and users with a documented need."
+   },
+   {
+    "label": "Remove and rotate exposed secrets",
+    "text": "Identify the originating data source, purge unnecessary secret-bearing records according to retention policy, and rotate every credential that may have been indexed."
+   }
+  ],
+  "refs": [
+   "https://www.elastic.co/guide/en/elasticsearch/reference/current/security-minimal-setup.html",
+   "https://attack.mitre.org/techniques/T1552/001/"
+  ]
+ },
+ "brmi-registry-02db4e39": {
+  "category": "devops",
+  "title": "Java RMI registry exposed",
+  "why": "A reachable Java RMI registry can disclose bound object names, remote endpoints, and implementation details. Exposed registries also increase the risk from unsafe remote-object configurations or vulnerable applications registered behind them.",
+  "test": [
+   {
+    "label": "List bound RMI objects",
+    "cmd": "nmap -Pn -p <port> --script rmi-dumpregistry <host>"
+   },
+   {
+    "label": "Fingerprint the RMI listener",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict registry reachability",
+    "text": "Bind the registry to an internal interface where possible and firewall it so only explicitly authorized application hosts can connect."
+   },
+   {
+    "label": "Harden registered services",
+    "text": "Remove obsolete bindings, avoid exposing unsafe remote methods or serialized-object entry points, and update the JRE and hosting application."
+   }
+  ],
+  "refs": [
+   "https://docs.oracle.com/en/java/javase/21/docs/api/java.rmi/java/rmi/registry/Registry.html",
+   "https://attack.mitre.org/techniques/T1046/"
+  ]
+ },
+ "bslp-open-service-registry-b7a3b96f": {
+  "category": "devops",
+  "title": "Service Location Protocol registry exposed",
+  "why": "A reachable SLP service registry permits network clients to discover advertised services and related attributes. Internet or broad-network exposure assists reconnaissance and may also expose implementations affected by historical SLP vulnerabilities or amplification abuse.",
+  "test": [
+   {
+    "label": "Confirm the UDP SLP listener",
+    "cmd": "nmap -Pn -sU -sV -p <port> <host>"
+   },
+   {
+    "label": "Check for a TCP SLP listener",
+    "cmd": "nmap -Pn -sT -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable SLP when unnecessary",
+    "text": "Disable the SLP daemon or product integration if service discovery is not required."
+   },
+   {
+    "label": "Constrain SLP traffic",
+    "text": "Permit SLP only within the smallest required management segment and block TCP and UDP port 427 at external and inter-segment boundaries."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc2608",
+   "https://www.cisa.gov/news-events/alerts/2023/04/25/abuse-service-location-protocol-may-lead-dos-attacks"
+  ]
+ },
+ "bsource-ci-gerrit-atlassian-confluence-atlassian-jira-a-99e1463a": {
+  "category": "devops",
+  "title": "Source or Atlassian service exposed",
+  "why": "A Gerrit, Confluence, Jira, or Bamboo interface is reachable and may reveal project names, users, versions, build information, or internal documentation. These systems frequently contain source-code context and integration credentials, making their administrative and anonymous-access boundaries important attack paths.",
+  "test": [
+   {
+    "label": "Probe product information endpoints",
+    "cmd": "for p in /config/server/version /status /rest/api/2/serverInfo /rest/api/latest/info; do curl -k -i '<service>://<host>:<port>'\"$p\"; done"
+   },
+   {
+    "label": "Fingerprint the web service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict anonymous visibility",
+    "text": "Disable unneeded anonymous project, issue, page, build, and user-directory access and review all public or broadly shared content."
+   },
+   {
+    "label": "Protect administration",
+    "text": "Require SSO and MFA for administrators, apply current vendor security updates, scope integration tokens, and restrict management interfaces to trusted networks."
+   }
+  ],
+  "refs": [
+   "https://www.gerritcodereview.com/Documentation/access-control.html",
+   "https://confluence.atlassian.com/security/atlassian-security-practices-140909295.html"
+  ]
+ },
+ "bsource-ci-teamcity-github-enterprise-azure-devops-serv-d5520cfb": {
+  "category": "devops",
+  "title": "Enterprise source or CI service exposed",
+  "why": "A TeamCity, GitHub Enterprise, or Azure DevOps Server interface is reachable and may expose organization, repository, build, or version metadata. These platforms hold source code and powerful automation credentials, so compromised access can affect both intellectual property and the software supply chain.",
+  "test": [
+   {
+    "label": "Probe service metadata endpoints",
+    "cmd": "for p in /app/rest/server /api/v3/meta '/_apis/connectionData?connectOptions=0'; do curl -k -i '<service>://<host>:<port>'\"$p\"; done"
+   },
+   {
+    "label": "Fingerprint the web listener",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Limit external reachability",
+    "text": "Publish only required user-facing endpoints and restrict administrative, agent, and maintenance interfaces to trusted networks."
+   },
+   {
+    "label": "Harden identities and tokens",
+    "text": "Require SSO and MFA, disable anonymous access, use short-lived least-privilege automation tokens, protect build agents, and apply vendor security updates promptly."
+   }
+  ],
+  "refs": [
+   "https://www.jetbrains.com/help/teamcity/security-notes.html",
+   "https://docs.github.com/en/enterprise-server/admin/managing-iam"
+  ]
+ },
+ "bthickclient-rdp-creds-vpn-profile-browser-logindb-80f687d1": {
+  "category": "creds",
+  "title": "Local client credential artifact present",
+  "why": "An RDP credential reference, VPN profile, or browser login database exists on the assessed workstation. Even when values are encrypted, an attacker with local user access may recover connection targets, usernames, tokens, or secrets using the user's security context.",
+  "test": [
+   {
+    "label": "Inspect the reported artifact metadata",
+    "cmd": "stat -- <evidence_path>"
+   },
+   {
+    "label": "Identify the artifact type",
+    "cmd": "file -- <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Remove unnecessary saved access",
+    "text": "Delete obsolete profiles and cached credentials through the owning application, and configure clients to avoid retaining credentials where operationally practical."
+   },
+   {
+    "label": "Protect workstation secrets",
+    "text": "Use full-disk encryption, strong screen-lock policy, endpoint protection, and separate privileged accounts; require MFA for RDP and VPN services."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1555/",
+   "https://attack.mitre.org/techniques/T1552/001/"
+  ]
+ },
+ "bthickclient-sshkey-at-rest-saved-session-cred-at-rest-63b86eaf": {
+  "category": "creds",
+  "title": "High-risk client secret stored locally",
+  "why": "A private SSH key, saved session, credential store, or configuration secret was found on the workstation. Local compromise could turn these artifacts into immediate access to servers, databases, file-transfer systems, or administrative interfaces.",
+  "test": [
+   {
+    "label": "Inspect the reported artifact metadata",
+    "cmd": "stat -- <evidence_path>"
+   },
+   {
+    "label": "Identify the stored artifact",
+    "cmd": "file -- <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Move secrets into managed storage",
+    "text": "Replace plaintext or reversibly stored credentials with an approved password manager, operating-system credential vault, hardware-backed key, or short-lived identity mechanism."
+   },
+   {
+    "label": "Rotate affected credentials",
+    "text": "Rotate any key, password, or token whose local protection or access history cannot be assured, then remove stale saved sessions and secret-bearing configuration files."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1552/004/",
+   "https://attack.mitre.org/techniques/T1555/"
+  ]
+ },
+ "bunauth-proxmox-version-api-exposed-86383247": {
+  "category": "infra",
+  "title": "Proxmox version API accessible anonymously",
+  "why": "The Proxmox API returns release, version, and repository information without authentication. This gives attackers a reliable product fingerprint for vulnerability matching and confirms the location of a high-impact virtualization management plane.",
+  "test": [
+   {
+    "label": "Query version data without credentials",
+    "cmd": "curl -kfsS '<service>://<host>:<port>/api2/json/version'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict the Proxmox API",
+    "text": "Limit management-interface access to a dedicated administration network, VPN, or authenticated proxy even if the version endpoint itself cannot be disabled."
+   },
+   {
+    "label": "Maintain current packages",
+    "text": "Apply supported Proxmox VE and Debian security updates and monitor the management plane for unexpected reconnaissance and login activity."
+   }
+  ],
+  "refs": [
+   "https://pve.proxmox.com/pve-docs/api-viewer/",
+   "https://attack.mitre.org/techniques/T1595/"
+  ]
+ },
+ "buser-exists-b-90f92a5a": {
+  "category": "creds",
+  "title": "XMPP account existence can be inferred",
+  "why": "The XMPP authentication flow produced a response or repeatable timing difference that may distinguish an existing username. Reliable account enumeration helps attackers construct targeted password-spraying and social-engineering campaigns, although results should be compared with randomized controls to exclude uniform SASL failures.",
+  "test": [
+   {
+    "label": "Repeat SASL differential checks with controls",
+    "cmd": "python3 standalones/jabber/jabber-user-enum.py --host <host> --port <port> --domain <domain> --user-list <evidence_path> --repeats 3 --control-count 3"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Normalize authentication failures",
+    "text": "Configure or update the XMPP server and identity backend so nonexistent and valid accounts receive indistinguishable SASL failure responses and comparable processing times."
+   },
+   {
+    "label": "Limit automated probing",
+    "text": "Rate-limit failed authentication attempts, monitor distributed enumeration patterns, require MFA where supported, and avoid exposing unnecessary user-directory information."
+   }
+  ],
+  "refs": [
+   "https://www.rfc-editor.org/rfc/rfc6120",
+   "https://attack.mitre.org/techniques/T1087/"
+  ]
+ },
+ "bvault-not-initialized-claim-init-opportunity-99d4466d": {
+  "category": "devops",
+  "title": "HashiCorp Vault is not initialized",
+  "why": "The Vault API reports that the instance has not been initialized. The first party to initialize it receives the initial root token and key shares, so an attacker who reaches this state could claim control of the new Vault before its owner completes provisioning.",
+  "test": [
+   {
+    "label": "Read Vault initialization status",
+    "cmd": "curl -kfsS '<service>://<host>:<port>/v1/sys/init'"
+   },
+   {
+    "label": "Confirm Vault seal-status shape",
+    "cmd": "curl -kfsS '<service>://<host>:<port>/v1/sys/seal-status'"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict access immediately",
+    "text": "Block untrusted network access to the Vault API before initialization; do not allow testing personnel or unattended automation to initialize the instance."
+   },
+   {
+    "label": "Perform a controlled initialization ceremony",
+    "text": "Have designated custodians initialize Vault using the approved seal design, securely distribute recovery material, protect the initial root token, and revoke it after setup."
+   }
+  ],
+  "refs": [
+   "https://developer.hashicorp.com/vault/api-docs/system/init",
+   "https://developer.hashicorp.com/vault/docs/concepts/seal"
+  ]
+ },
+ "bveeam-b-r-rest-detected-dbcaa69e": {
+  "category": "backup",
+  "title": "Veeam Backup REST API exposed",
+  "why": "A reachable Veeam Backup & Replication REST endpoint identifies a high-value backup-management system and may disclose version or authentication details. Veeam servers commonly possess broad infrastructure access, and vulnerable or stolen administrative access can undermine both protected workloads and recovery data.",
+  "test": [
+   {
+    "label": "Query Veeam server information",
+    "cmd": "curl -k -i '<service>://<host>:<port>/api/v1/serverInfo'"
+   },
+   {
+    "label": "Fingerprint the API listener",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict the REST API",
+    "text": "Allow API access only from designated backup administration hosts and automation systems on a protected management network."
+   },
+   {
+    "label": "Patch and protect Veeam",
+    "text": "Install current Veeam security updates, require strong unique administrative identities, rotate service credentials, and monitor privileged API activity."
+   }
+  ],
+  "refs": [
+   "https://www.veeam.com/kb4649",
+   "https://attack.mitre.org/techniques/T1490/"
+  ]
+ },
+ "bveritas-netbackup-detected-8aa2feba": {
+  "category": "backup",
+  "title": "Veritas NetBackup service exposed",
+  "why": "A reachable NetBackup service reveals backup infrastructure that may communicate with many protected hosts and storage systems. Compromise can expose backup data, privileged service relationships, and the organization's ability to recover from destructive activity.",
+  "test": [
+   {
+    "label": "Fingerprint the NetBackup listener",
+    "cmd": "nmap -Pn -sV -p <port> --script banner <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict NetBackup communications",
+    "text": "Permit the service only between documented NetBackup components and administration hosts on protected backup networks."
+   },
+   {
+    "label": "Update and audit NetBackup",
+    "text": "Apply supported security fixes, remove obsolete clients and trust relationships, rotate service credentials, and review administrator and restore activity."
+   }
+  ],
+  "refs": [
+   "https://www.veritas.com/content/support/en_US/security",
+   "https://attack.mitre.org/techniques/T1490/"
+  ]
+ },
+ "bvmware-vcenter-sdk-reachable-24c791fc": {
+  "category": "infra",
+  "title": "VMware vCenter SDK endpoint exposed",
+  "why": "The vCenter SDK endpoint is reachable and exposes the automation interface for managing virtual infrastructure. While authentication is normally required, unnecessary reachability provides a precise management-plane target and increases the impact of stolen credentials or unpatched vulnerabilities.",
+  "test": [
+   {
+    "label": "Inspect the vCenter SDK response",
+    "cmd": "curl -k -i '<service>://<host>:<port>/sdk'"
+   },
+   {
+    "label": "Fingerprint the listener",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict SDK access",
+    "text": "Allow the SDK only from approved management and automation hosts, and block it from Internet-facing and user workstation networks."
+   },
+   {
+    "label": "Harden API identities",
+    "text": "Use dedicated least-privilege service accounts, rotate automation credentials, require MFA for human administrators, and keep vCenter fully patched."
+   }
+  ],
+  "refs": [
+   "https://developer.broadcom.com/xapis/vsphere-web-services-api/latest/",
+   "https://core.vmware.com/security-configuration-guide"
+  ]
+ },
+ "bvmware-vcenter-ui-a99e5695": {
+  "category": "infra",
+  "title": "VMware vCenter management UI exposed",
+  "why": "A reachable vCenter web interface identifies the central management plane for VMware infrastructure. Compromised administrative access can affect numerous virtual machines, networks, datastores, snapshots, and console sessions.",
+  "test": [
+   {
+    "label": "Inspect the vCenter UI response",
+    "cmd": "curl -k -i '<service>://<host>:<port>/'"
+   },
+   {
+    "label": "Fingerprint the HTTPS service",
+    "cmd": "nmap -Pn -sV -p <port> <host>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Segment vCenter management",
+    "text": "Restrict the UI to a dedicated management network, approved jump hosts, or a strongly authenticated administrative access proxy."
+   },
+   {
+    "label": "Protect administrator access",
+    "text": "Require MFA through the configured identity provider, remove stale privileged accounts, apply vCenter updates, and alert on unusual login or role changes."
+   }
+  ],
+  "refs": [
+   "https://core.vmware.com/security-configuration-guide",
+   "https://attack.mitre.org/techniques/T1133/"
+  ]
+ },
+ "defaultpassword-4522eb4c": {
+  "category": "creds",
+  "title": "Windows AutoLogon password stored in registry",
+  "why": "The Winlogon registry configuration contains a DefaultPassword value used for automatic logon. Any principal able to read the value can recover a plaintext Windows credential that may also be valid for remote access or other systems.",
+  "test": [
+   {
+    "label": "Read the AutoLogon password value",
+    "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v DefaultPassword"
+   },
+   {
+    "label": "Review related AutoLogon settings",
+    "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v AutoAdminLogon"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Disable plaintext AutoLogon",
+    "text": "Disable automatic logon and remove DefaultPassword from Winlogon; use a managed kiosk or service-account design when unattended startup is required."
+   },
+   {
+    "label": "Remove the exposed value",
+    "cmd": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v DefaultPassword /f"
+   },
+   {
+    "label": "Rotate the account password",
+    "text": "Change the affected account password and investigate whether it was reused or accessed by unauthorized local principals."
+   }
+  ],
+  "refs": [
+   "https://learn.microsoft.com/en-us/sysinternals/downloads/autologon",
+   "https://attack.mitre.org/techniques/T1552/002/"
+  ]
+ },
+ "password-passwd-secret-api-key-token-s-s-s-4-e4f94259": {
+  "category": "creds",
+  "title": "Possible plaintext secret in a file",
+  "why": "A file contains a password-, secret-, API-key-, or token-like assignment with a nonempty value. The match requires validation because configuration examples can cause false positives, but a real value may grant access to applications, cloud services, databases, or infrastructure.",
+  "test": [
+   {
+    "label": "Confirm matching files without printing values",
+    "cmd": "rg -l -i '(password|passwd|secret|api[_-]?key|token)[[:space:]]*[=:][[:space:]]*[^[:space:]]{4,}' <evidence_path>"
+   },
+   {
+    "label": "Inspect file permissions",
+    "cmd": "stat -- <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Move the secret out of the file",
+    "text": "Store production secrets in an approved secret manager or protected operating-system credential facility and inject them only at runtime."
+   },
+   {
+    "label": "Rotate confirmed secrets",
+    "text": "Revoke and replace any genuine credential found in plaintext, remove it from backups and version history where feasible, and restrict access to residual files."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1552/001/",
+   "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html"
+  ]
+ },
+ "password-passwd-secret-api-key-token-s-s-s-4-efaf1c6b": {
+  "category": "creds",
+  "title": "Possible plaintext secret on Windows",
+  "why": "A Windows enumeration artifact contains a password-, secret-, API-key-, or token-like assignment. Examples and placeholders can match the pattern, but a real value may expose local, domain, application, or cloud access and should be treated as compromised until validated.",
+  "test": [
+   {
+    "label": "Locate matches without displaying values",
+    "cmd": "rg -l -i '(password|passwd|secret|api[_-]?key|token)[[:space:]]*[=:][[:space:]]*[^[:space:]]{4,}' <evidence_path>"
+   },
+   {
+    "label": "Review the file access control list",
+    "cmd": "icacls <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Use managed secret storage",
+    "text": "Move the value to Windows Credential Manager, DPAPI-protected application storage, a managed service account, or an enterprise secret manager as appropriate."
+   },
+   {
+    "label": "Rotate and remove the value",
+    "text": "Revoke confirmed credentials, replace them with unique scoped secrets, remove plaintext copies and stale backups, and restrict the containing file's ACL."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1552/001/",
+   "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/group-managed-service-accounts/group-managed-service-accounts/group-managed-service-accounts-overview"
+  ]
+ },
+ "rw-s-sid-rsa-ed25519-ecdsa-dsa-b-23e3e3c9": {
+  "category": "creds",
+  "title": "SSH private key stored on disk",
+  "why": "A file named like a standard SSH private key is present in the assessed user context. If the key lacks a strong passphrase or can be read by an attacker, it may provide direct access to every system that trusts its corresponding public key.",
+  "test": [
+   {
+    "label": "Inspect key ownership and permissions",
+    "cmd": "stat -- <evidence_path>"
+   },
+   {
+    "label": "Read the key fingerprint",
+    "cmd": "ssh-keygen -l -f <evidence_path>"
+   }
+  ],
+  "fix": [
+   {
+    "label": "Restrict private-key permissions",
+    "cmd": "chmod 600 <evidence_path>"
+   },
+   {
+    "label": "Protect and rotate the key",
+    "text": "Use a strong passphrase or hardware-backed key, rotate keys whose confidentiality is uncertain, and remove the old public key from every authorized_keys file and service that trusted it."
+   }
+  ],
+  "refs": [
+   "https://attack.mitre.org/techniques/T1552/004/",
+   "https://man.openbsd.org/ssh-keygen"
+  ]
+ }
+}

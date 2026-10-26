@@ -1,0 +1,1281 @@
+{
+  "b-deprecated-read-only-kubelet-b-ec66886f": {
+    "category": "data",
+    "title": "Kubelet read-only port exposed",
+    "why": "The deprecated kubelet read-only port can disclose pod specifications, node metadata, environment details, and workload topology without authentication. Attackers can use this information to identify secrets, privileged workloads, and paths for lateral movement.",
+    "test": [
+      {
+        "label": "List pods through the read-only endpoint",
+        "cmd": "curl -fsS http://<host>:<port>/pods"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable the read-only port",
+        "text": "Set the kubelet option --read-only-port=0 and expose only the authenticated HTTPS endpoint with authorization enabled."
+      },
+      {
+        "label": "Restrict kubelet access",
+        "text": "Permit the secure kubelet port only from authorized control-plane and monitoring networks."
+      }
+    ],
+    "refs": [
+      "https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/",
+      "https://attack.mitre.org/techniques/T1552/001/"
+    ]
+  },
+  "b-jenkins-gitlab-sonarqube-grafana-prometheus-detected-27a0349d": {
+    "category": "web",
+    "title": "Development or monitoring service exposed",
+    "why": "An externally reachable Jenkins, GitLab, SonarQube, Grafana, or Prometheus instance expands the administrative attack surface and may disclose software versions or operational metadata. Weak authentication, unsafe defaults, or unpatched components can turn simple discovery into credential theft or infrastructure compromise.",
+    "test": [
+      {
+        "label": "Identify the exposed service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      },
+      {
+        "label": "Inspect the HTTP response",
+        "cmd": "curl -fsSI http://<host>:<port>/"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Limit management-plane exposure",
+        "text": "Place the service behind a VPN, identity-aware proxy, or management network and allow access only from approved sources."
+      },
+      {
+        "label": "Harden the application",
+        "text": "Enable strong authentication and MFA where supported, remove anonymous access, and keep the application and plugins patched."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1046/",
+      "https://owasp.org/www-project-application-security-verification-standard/"
+    ]
+  },
+  "balg-none-b-4f564b03": {
+    "category": "web",
+    "title": "JWT accepts or advertises alg=none",
+    "why": "A JSON Web Token using the none algorithm has no cryptographic signature. If the application accepts such tokens where signed tokens are required, an attacker can forge identity or authorization claims.",
+    "test": [
+      {
+        "label": "Decode the captured JWT header",
+        "cmd": "python3 -c \"import base64,json,pathlib; t=pathlib.Path('<evidence_path>').read_text().strip(); h=t.split('.')[0]; print(json.loads(base64.urlsafe_b64decode(h+'='*(-len(h)%4))))\""
+      },
+      {
+        "label": "Replay the supplied token against a read-only endpoint",
+        "cmd": "curl -fsS -H \"Authorization: Bearer $(tr -d '\\r\\n' < <evidence_path>)\" http://<host>:<port>/"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enforce an algorithm allowlist",
+        "text": "Configure the JWT library to accept only the explicitly intended signing algorithm and reject none regardless of the token header."
+      },
+      {
+        "label": "Validate every security claim",
+        "text": "Verify the signature, issuer, audience, expiration, and not-before claims before trusting token content."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc8725.html",
+      "https://www.rfc-editor.org/rfc/rfc7519.html#section-6"
+    ]
+  },
+  "banon-auth-b-465b30a5": {
+    "category": "data",
+    "title": "Anonymous service authentication enabled",
+    "why": "The service permits access without an accountable user identity, potentially exposing files, metadata, or administrative functionality. Attackers can inventory or retrieve accessible content without obtaining credentials, while defenders lose reliable attribution.",
+    "test": [
+      {
+        "label": "Test anonymous FTP listing",
+        "cmd": "curl -fsS --user 'anonymous:anonymous' ftp://<host>:<port>/"
+      },
+      {
+        "label": "Identify the authentication service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable anonymous authentication",
+        "text": "Require named accounts backed by a managed identity store and grant each account only the minimum required read or write permissions."
+      },
+      {
+        "label": "Restrict network access",
+        "text": "Expose the service only to approved clients and management networks."
+      }
+    ],
+    "refs": [
+      "https://cwe.mitre.org/data/definitions/306.html",
+      "https://attack.mitre.org/techniques/T1133/"
+    ]
+  },
+  "bcassandra-unauth-cql-ac0e71d3": {
+    "category": "data",
+    "title": "Cassandra CQL accepts unauthenticated access",
+    "why": "An unauthenticated Cassandra native transport endpoint may allow remote users to enumerate keyspaces and read application data. Depending on role permissions and configuration, the same access could also permit destructive database operations.",
+    "test": [
+      {
+        "label": "Enumerate keyspaces without credentials",
+        "cmd": "cqlsh <host> <port> -e 'DESCRIBE KEYSPACES'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable Cassandra authentication",
+        "text": "Configure PasswordAuthenticator or an approved external authenticator, enable authorization, and replace permissive default roles."
+      },
+      {
+        "label": "Restrict native transport",
+        "text": "Allow the CQL port only from application and administration networks and enable client-to-node TLS."
+      }
+    ],
+    "refs": [
+      "https://cassandra.apache.org/doc/latest/cassandra/operating/security.html",
+      "https://cassandra.apache.org/doc/latest/cassandra/managing/configuration/cass_yaml_file.html"
+    ]
+  },
+  "bconsul-unauth-agent-api-7a30187a": {
+    "category": "data",
+    "title": "Consul agent API allows anonymous access",
+    "why": "The Consul agent API can disclose node identity, services, checks, datacenter details, and network topology. Some agent endpoints can change local state, so anonymous reachability also indicates a potentially broader control-plane exposure.",
+    "test": [
+      {
+        "label": "Read agent metadata without a token",
+        "cmd": "curl -fsS http://<host>:<port>/v1/agent/self"
+      },
+      {
+        "label": "List registered services",
+        "cmd": "curl -fsS http://<host>:<port>/v1/agent/services"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable Consul ACL enforcement",
+        "text": "Enable ACLs with default_policy set to deny, remove anonymous-token privileges, and issue narrowly scoped tokens to workloads."
+      },
+      {
+        "label": "Bind and filter the API",
+        "text": "Bind HTTP interfaces to trusted addresses and restrict access with host firewalls or security groups."
+      }
+    ],
+    "refs": [
+      "https://developer.hashicorp.com/consul/docs/secure/acl",
+      "https://developer.hashicorp.com/consul/api-docs/agent"
+    ]
+  },
+  "bconsul-unauth-kv-dump-high-value-7158887e": {
+    "category": "data",
+    "title": "Consul key-value data exposed anonymously",
+    "why": "Anonymous callers can retrieve Consul KV entries, which commonly contain service configuration, endpoints, tokens, or credentials. A recursive dump can provide an attacker with high-value secrets and a detailed map of internal systems.",
+    "test": [
+      {
+        "label": "List accessible KV keys",
+        "cmd": "curl -fsS 'http://<host>:<port>/v1/kv/?keys=true'"
+      },
+      {
+        "label": "Read accessible KV records",
+        "cmd": "curl -fsS 'http://<host>:<port>/v1/kv/?recurse=true'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Deny anonymous KV access",
+        "text": "Enable Consul ACLs with a deny-by-default policy and grant prefix-specific read access only to required workloads."
+      },
+      {
+        "label": "Rotate exposed secrets",
+        "text": "Treat credentials found in anonymously readable KV records as compromised, rotate them, and move secrets to an appropriate secrets manager."
+      }
+    ],
+    "refs": [
+      "https://developer.hashicorp.com/consul/docs/secure/acl",
+      "https://developer.hashicorp.com/consul/api-docs/kv"
+    ]
+  },
+  "bcritical-jenkins-groovy-script-console-reachable-d6f1e955": {
+    "category": "web",
+    "title": "Jenkins Groovy script console reachable",
+    "why": "The Jenkins script console executes Groovy inside the controller process and is effectively operating-system-level administrative access. If an unauthorized or compromised administrator can reach it, the controller, stored credentials, agents, and build environment may all be compromised.",
+    "test": [
+      {
+        "label": "Check script-console authorization",
+        "cmd": "curl -fsS -u '<user>:<pass>' http://<host>:<port>/script"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict administrative access",
+        "text": "Limit Overall/Administer permission to a small administrator group protected by MFA and restrict controller access to a management network."
+      },
+      {
+        "label": "Monitor console use",
+        "text": "Enable audit logging and alert on script-console requests; investigate any use that is not tied to an approved administrative change."
+      }
+    ],
+    "refs": [
+      "https://www.jenkins.io/doc/book/managing/script-console/",
+      "https://www.jenkins.io/doc/book/security/"
+    ]
+  },
+  "bcritical-unauth-clickhouse-b-72d2b408": {
+    "category": "data",
+    "title": "ClickHouse accepts unauthenticated queries",
+    "why": "An unauthenticated ClickHouse endpoint may expose databases, schemas, and analytical data to any reachable client. Permissions available to the anonymous or default user may also enable costly queries or changes, increasing confidentiality and availability risk.",
+    "test": [
+      {
+        "label": "Query the server version without credentials",
+        "cmd": "curl -fsS 'http://<host>:<port>/?query=SELECT%20version%28%29'"
+      },
+      {
+        "label": "List visible databases",
+        "cmd": "curl -fsS 'http://<host>:<port>/?query=SHOW%20DATABASES'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authenticated users",
+        "text": "Disable passwordless remote use of the default account and create named users with strong authentication and least-privilege profiles."
+      },
+      {
+        "label": "Restrict and encrypt access",
+        "text": "Limit ClickHouse interfaces to trusted networks and enable TLS for client connections."
+      }
+    ],
+    "refs": [
+      "https://clickhouse.com/docs/operations/access-rights",
+      "https://clickhouse.com/docs/operations/server-configuration-parameters/settings"
+    ]
+  },
+  "bcritical-unauth-nats-b-fcf83e67": {
+    "category": "data",
+    "title": "NATS broker permits unauthenticated clients",
+    "why": "A NATS broker without authentication may allow any reachable client to inspect account information and interact with subjects. Unauthorized subscriptions can disclose messages, while unauthorized publishing can affect applications and control flows.",
+    "test": [
+      {
+        "label": "Request broker information without credentials",
+        "cmd": "nats --server nats://<host>:<port> server info"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable NATS authentication",
+        "text": "Require NKeys, JWT-based accounts, credentials, or mutual TLS and apply subject-level publish and subscribe permissions."
+      },
+      {
+        "label": "Restrict broker reachability",
+        "text": "Expose client, cluster, and monitoring ports only to explicitly authorized networks."
+      }
+    ],
+    "refs": [
+      "https://docs.nats.io/running-a-nats-service/configuration/securing_nats/auth_intro",
+      "https://docs.nats.io/running-a-nats-service/configuration/securing_nats/authorization"
+    ]
+  },
+  "bcve-2022-0543-candidate-b-ec7e6cec": {
+    "category": "data",
+    "title": "Redis CVE-2022-0543 candidate",
+    "why": "The detected Redis instance appears potentially affected by the Debian-specific Lua sandbox escape CVE-2022-0543. A reachable EVAL capability on a vulnerable package can let an authenticated Redis user escape the Lua sandbox, but version and package provenance must be confirmed before declaring vulnerability.",
+    "test": [
+      {
+        "label": "Read Redis build and version details",
+        "cmd": "redis-cli -h <host> -p <port> INFO server"
+      },
+      {
+        "label": "Confirm whether EVAL is available",
+        "cmd": "redis-cli -h <host> -p <port> COMMAND INFO EVAL"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Install the vendor-fixed package",
+        "text": "Upgrade Redis using the supported Debian or Ubuntu security repository to a package version listed as fixed by the distribution."
+      },
+      {
+        "label": "Reduce Redis exposure",
+        "text": "Require authentication, bind Redis to trusted interfaces, enforce network filtering, and remove EVAL permissions from users that do not need scripting."
+      }
+    ],
+    "refs": [
+      "https://security-tracker.debian.org/tracker/CVE-2022-0543",
+      "https://nvd.nist.gov/vuln/detail/CVE-2022-0543"
+    ]
+  },
+  "beval-scripting-reachable-b-69a50af1": {
+    "category": "web",
+    "title": "Redis EVAL scripting is remotely available",
+    "why": "Redis Lua scripting is available to the tested client, increasing the impact of compromised credentials or an exposed Redis service. Scripting is legitimate functionality, but vulnerable versions and overly broad command permissions can turn it into a code-execution or availability risk.",
+    "test": [
+      {
+        "label": "Inspect EVAL command availability",
+        "cmd": "redis-cli -h <host> -p <port> -a '<pass>' COMMAND INFO EVAL"
+      },
+      {
+        "label": "Read the Redis server version",
+        "cmd": "redis-cli -h <host> -p <port> -a '<pass>' INFO server"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove unnecessary scripting rights",
+        "text": "Use Redis ACLs to deny EVAL and EVALSHA to application identities that do not explicitly require server-side Lua."
+      },
+      {
+        "label": "Patch and isolate Redis",
+        "text": "Run a supported Redis release and permit connections only from trusted application and administration networks."
+      }
+    ],
+    "refs": [
+      "https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/",
+      "https://redis.io/docs/latest/commands/eval/"
+    ]
+  },
+  "bhadoop-jmx-endpoint-exposed-dd698ded": {
+    "category": "web",
+    "title": "Hadoop JMX endpoint exposed",
+    "why": "Hadoop JMX endpoints reveal detailed runtime, host, filesystem, queue, and cluster metrics. This information helps attackers map the environment and may expose sensitive configuration values or operational identifiers.",
+    "test": [
+      {
+        "label": "Read exposed Hadoop JMX data",
+        "cmd": "curl -fsS 'http://<host>:<port>/jmx?qry=Hadoop:*'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict the HTTP management interface",
+        "text": "Permit Hadoop web and JMX endpoints only from authenticated monitoring systems and management networks."
+      },
+      {
+        "label": "Enable secure Hadoop operation",
+        "text": "Use Kerberos-secured Hadoop, TLS, service authorization, and an authenticated proxy where web access is required."
+      }
+    ],
+    "refs": [
+      "https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/SecureMode.html",
+      "https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/HttpAuthentication.html"
+    ]
+  },
+  "bhadoop-namenode-ui-exposed-a60d53ee": {
+    "category": "web",
+    "title": "Hadoop NameNode UI exposed",
+    "why": "The NameNode web interface can disclose filesystem paths, node inventory, storage capacity, cluster health, and software versions. Public reachability gives attackers valuable reconnaissance and may expose additional unauthenticated administrative endpoints.",
+    "test": [
+      {
+        "label": "Read the NameNode overview",
+        "cmd": "curl -fsS http://<host>:<port>/"
+      },
+      {
+        "label": "Read NameNode JMX metadata",
+        "cmd": "curl -fsS 'http://<host>:<port>/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Move the UI to a management boundary",
+        "text": "Restrict NameNode web interfaces to administrators and monitoring systems through firewall rules or an authenticated reverse proxy."
+      },
+      {
+        "label": "Enable Hadoop web authentication",
+        "text": "Configure Kerberos/SPNEGO authentication and TLS for Hadoop web consoles."
+      }
+    ],
+    "refs": [
+      "https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/HttpAuthentication.html",
+      "https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/SecureMode.html"
+    ]
+  },
+  "bhmac-brute-the-secret-b-23317e71": {
+    "category": "web",
+    "title": "JWT uses a brute-forceable HMAC signature",
+    "why": "HMAC-signed tokens rely on one shared secret for both signing and verification. If that secret is weak, an attacker who obtains a token can test guesses offline and then forge arbitrary identity or authorization claims.",
+    "test": [
+      {
+        "label": "Inspect the captured JWT algorithm",
+        "cmd": "python3 -c \"import base64,json,pathlib; t=pathlib.Path('<evidence_path>').read_text().strip(); h=t.split('.')[0]; print(json.loads(base64.urlsafe_b64decode(h+'='*(-len(h)%4))))\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Replace weak signing secrets",
+        "text": "Generate a high-entropy secret with an approved cryptographic random generator, store it in a secrets manager, and rotate all tokens after replacement."
+      },
+      {
+        "label": "Consider asymmetric signatures",
+        "text": "Use an approved asymmetric JWT algorithm when multiple services verify tokens so verifiers do not need access to the signing key."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc8725.html#section-3.5",
+      "https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html"
+    ]
+  },
+  "binfluxdb-unauth-query-api-fc5f9a20": {
+    "category": "data",
+    "title": "InfluxDB query API allows anonymous access",
+    "why": "An unauthenticated InfluxDB query endpoint can disclose database names, measurements, infrastructure telemetry, and application metrics. Operational data often reveals internal hosts, credentials embedded in tags, and behavior useful for further attacks.",
+    "test": [
+      {
+        "label": "List databases without credentials",
+        "cmd": "curl -fsS 'http://<host>:<port>/query?q=SHOW%20DATABASES'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authenticated API access",
+        "text": "Enable authentication and issue narrowly scoped tokens or users for each writer, reader, and monitoring integration."
+      },
+      {
+        "label": "Restrict the query port",
+        "text": "Allow InfluxDB API access only from approved application and administration networks and use TLS."
+      }
+    ],
+    "refs": [
+      "https://docs.influxdata.com/influxdb/v1/administration/authentication_and_authorization/",
+      "https://docs.influxdata.com/influxdb/v2/admin/security/"
+    ]
+  },
+  "binsecure-apiserver-b-d69cfcc5": {
+    "category": "data",
+    "title": "Kubernetes insecure API server exposed",
+    "why": "An insecure Kubernetes API endpoint accepts requests without normal authentication and authorization protections. Reachability can expose cluster objects and, depending on enabled methods, may permit full cluster takeover.",
+    "test": [
+      {
+        "label": "Read API server version anonymously",
+        "cmd": "curl -fsS http://<host>:<port>/version"
+      },
+      {
+        "label": "List the API root anonymously",
+        "cmd": "curl -fsS http://<host>:<port>/api"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable insecure serving",
+        "text": "Remove obsolete insecure-port and insecure-bind-address settings and serve the API only over authenticated TLS."
+      },
+      {
+        "label": "Enforce authorization and network controls",
+        "text": "Use RBAC or another supported authorization mode and restrict API server reachability to approved clients."
+      }
+    ],
+    "refs": [
+      "https://kubernetes.io/docs/reference/access-authn-authz/authentication/",
+      "https://kubernetes.io/docs/reference/access-authn-authz/authorization/"
+    ]
+  },
+  "bjenkins-user-enumeration-exposed-77ad88c0": {
+    "category": "web",
+    "title": "Jenkins user enumeration exposed",
+    "why": "The Jenkins interface reveals valid account identifiers to unauthenticated or low-privilege users. Confirmed usernames improve password-spraying and phishing accuracy and may expose personal or organizational naming conventions.",
+    "test": [
+      {
+        "label": "Query the Jenkins people API",
+        "cmd": "curl -fsS 'http://<host>:<port>/asynchPeople/api/json?tree=people[user[id]]'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authentication for user data",
+        "text": "Disable anonymous read access and ensure account and people endpoints require an authorized Jenkins identity."
+      },
+      {
+        "label": "Strengthen account defenses",
+        "text": "Use centralized authentication, MFA where supported, rate limiting, and monitoring for failed-login patterns."
+      }
+    ],
+    "refs": [
+      "https://www.jenkins.io/doc/book/security/access-control/",
+      "https://attack.mitre.org/techniques/T1589/003/"
+    ]
+  },
+  "bkafka-unauth-broker-94c84874": {
+    "category": "data",
+    "title": "Kafka broker permits unauthenticated access",
+    "why": "An unauthenticated Kafka broker exposes cluster metadata and topic names to any reachable client. If authorization is also absent or permissive, attackers may consume sensitive messages or publish data that disrupts downstream applications.",
+    "test": [
+      {
+        "label": "Read broker and topic metadata",
+        "cmd": "kcat -b <host>:<port> -L"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable broker authentication",
+        "text": "Configure SASL or mutual TLS for every listener and remove plaintext unauthenticated listeners."
+      },
+      {
+        "label": "Enforce Kafka ACLs",
+        "text": "Enable an authorizer, deny access by default, and grant topic and consumer-group rights only to required principals."
+      }
+    ],
+    "refs": [
+      "https://kafka.apache.org/documentation/#security",
+      "https://kafka.apache.org/documentation/#security_authz"
+    ]
+  },
+  "bkibana-api-responds-b-416b14a3": {
+    "category": "web",
+    "title": "Kibana API reachable",
+    "why": "A reachable Kibana API exposes a management surface associated with Elasticsearch data and saved objects. Even when authentication is present, external exposure and version disclosure increase the opportunity for credential attacks and exploitation of unpatched components.",
+    "test": [
+      {
+        "label": "Read Kibana status",
+        "cmd": "curl -fsS http://<host>:<port>/api/status"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict Kibana exposure",
+        "text": "Place Kibana behind an authenticated proxy or VPN and permit access only from approved user and management networks."
+      },
+      {
+        "label": "Enable Elastic security controls",
+        "text": "Require authentication, apply least-privilege Kibana roles, use TLS, and keep Kibana aligned with a supported Elasticsearch release."
+      }
+    ],
+    "refs": [
+      "https://www.elastic.co/guide/en/kibana/current/security-settings-kb.html",
+      "https://www.elastic.co/guide/en/kibana/current/xpack-security.html"
+    ]
+  },
+  "blua-rce-cve-2024-31449-candidate-b-81dadca3": {
+    "category": "data",
+    "title": "Redis CVE-2024-31449 candidate",
+    "why": "The Redis version and available Lua functionality indicate possible exposure to CVE-2024-31449, a stack overflow in Lua bit-library commands that may lead to code execution. The finding is a candidate until the exact Redis version is compared with vendor-fixed releases; no exploit attempt is necessary.",
+    "test": [
+      {
+        "label": "Read the Redis server version",
+        "cmd": "redis-cli -h <host> -p <port> -a '<pass>' INFO server"
+      },
+      {
+        "label": "Confirm Lua scripting availability",
+        "cmd": "redis-cli -h <host> -p <port> -a '<pass>' COMMAND INFO EVAL"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Upgrade to a fixed Redis release",
+        "text": "Upgrade to Redis 6.2.16, 7.2.6, 7.4.1, or a later supported release containing the vendor fix."
+      },
+      {
+        "label": "Constrain scripting access",
+        "text": "Use Redis ACLs to deny EVAL and EVALSHA to identities that do not require Lua and restrict Redis to trusted networks."
+      }
+    ],
+    "refs": [
+      "https://github.com/redis/redis/security/advisories/GHSA-whxg-wx83-85p5",
+      "https://nvd.nist.gov/vuln/detail/CVE-2024-31449"
+    ]
+  },
+  "bmqtt-unauth-broker-b-2c618f3f": {
+    "category": "data",
+    "title": "MQTT broker permits anonymous clients",
+    "why": "An MQTT broker accepting anonymous clients may expose telemetry and operational topics to unauthorized subscribers. If publish permissions are also open, attackers could inject commands or falsified sensor data into connected systems.",
+    "test": [
+      {
+        "label": "Read the broker version topic anonymously",
+        "cmd": "mosquitto_sub -h <host> -p <port> -t '$SYS/broker/version' -C 1 -W 5"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable anonymous clients",
+        "text": "Set anonymous access off and require password, certificate, or external identity authentication."
+      },
+      {
+        "label": "Apply topic ACLs",
+        "text": "Grant each client only the publish and subscribe topics it requires and use TLS for client connections."
+      }
+    ],
+    "refs": [
+      "https://mosquitto.org/documentation/authentication-methods/",
+      "https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html"
+    ]
+  },
+  "bneo4j-default-cred-neo4j-neo4j-worked-f215aaf6": {
+    "category": "data",
+    "title": "Neo4j default credentials accepted",
+    "why": "The built-in neo4j/neo4j credentials are still valid, allowing anyone who knows the product defaults to authenticate. Database contents, relationships, and potentially administrative procedures are exposed according to that account's privileges.",
+    "test": [
+      {
+        "label": "Run a harmless query with default credentials",
+        "cmd": "cypher-shell -a bolt://<host>:<port> -u neo4j -p neo4j 'RETURN 1'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Replace the default password",
+        "text": "Set a unique, high-entropy administrator password immediately and invalidate any sessions or credentials derived from the default account."
+      },
+      {
+        "label": "Apply least privilege",
+        "text": "Use separate named accounts and roles for applications and administrators, and restrict Bolt and HTTP access to trusted networks."
+      }
+    ],
+    "refs": [
+      "https://neo4j.com/docs/operations-manual/current/authentication-authorization/",
+      "https://cwe.mitre.org/data/definitions/1392.html"
+    ]
+  },
+  "bneo4j-unauth-http-api-58500a90": {
+    "category": "data",
+    "title": "Neo4j HTTP API exposed without authentication",
+    "why": "The Neo4j HTTP interface responds without requiring an authenticated identity. Depending on version and endpoint permissions, attackers may enumerate database metadata or submit read queries against graph data.",
+    "test": [
+      {
+        "label": "Check the legacy database API anonymously",
+        "cmd": "curl -fsS http://<host>:<port>/db/data/"
+      },
+      {
+        "label": "Inspect the Neo4j HTTP service root",
+        "cmd": "curl -fsS http://<host>:<port>/"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require Neo4j authentication",
+        "text": "Enable authentication, remove anonymous access, and assign least-privilege roles to application identities."
+      },
+      {
+        "label": "Restrict HTTP and Bolt listeners",
+        "text": "Bind database interfaces to trusted addresses, filter them at the network boundary, and enable TLS."
+      }
+    ],
+    "refs": [
+      "https://neo4j.com/docs/operations-manual/current/authentication-authorization/",
+      "https://neo4j.com/docs/operations-manual/current/security/"
+    ]
+  },
+  "boracle-tns-sids-discovered-85744d13": {
+    "category": "data",
+    "title": "Oracle TNS service identifiers exposed",
+    "why": "The Oracle listener disclosed valid service names or SIDs, confirming a reachable database service and reducing the uncertainty required for later authentication attempts. Service identifiers, versions, and listener details help attackers target specific databases and known vulnerabilities.",
+    "test": [
+      {
+        "label": "Confirm the listener service",
+        "cmd": "nmap -Pn -sV -p <port> --script oracle-tns-version <host>"
+      },
+      {
+        "label": "Confirm a supplied service with authorized credentials",
+        "cmd": "printf 'set heading off feedback off\\nselect instance_name from v$instance;\\nexit\\n' | sqlplus -s '<user>/<pass>@//<host>:<port>/<service>'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict Oracle listener access",
+        "text": "Permit the listener port only from authorized application and administration hosts and disable unnecessary listener services."
+      },
+      {
+        "label": "Reduce listener disclosure",
+        "text": "Apply current Oracle security updates, configure secure listener registration, and avoid exposing detailed service information to untrusted networks."
+      }
+    ],
+    "refs": [
+      "https://docs.oracle.com/en/database/oracle/oracle-database/19/dbseg/configuring-network-data-encryption-and-integrity.html",
+      "https://attack.mitre.org/techniques/T1046/"
+    ]
+  },
+  "bredis-sentinel-b-master-topology-6723368b": {
+    "category": "data",
+    "title": "Redis Sentinel topology exposed",
+    "why": "Redis Sentinel reveals monitored master names, addresses, replica topology, and failover state. This disclosure maps high-value Redis nodes and may enable unauthorized Sentinel control operations if authentication and ACLs are also weak.",
+    "test": [
+      {
+        "label": "List monitored Redis masters",
+        "cmd": "redis-cli -h <host> -p <port> SENTINEL MASTERS"
+      },
+      {
+        "label": "Read Sentinel runtime information",
+        "cmd": "redis-cli -h <host> -p <port> INFO sentinel"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Authenticate Sentinel clients",
+        "text": "Configure supported Redis ACL or password authentication for Sentinel and require authentication between Sentinel and Redis nodes."
+      },
+      {
+        "label": "Isolate Sentinel ports",
+        "text": "Allow Sentinel traffic only among approved Redis, Sentinel, and administrative hosts."
+      }
+    ],
+    "refs": [
+      "https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/",
+      "https://redis.io/docs/latest/operate/oss_and_stack/management/security/"
+    ]
+  },
+  "brsync-high-value-module-exposed-daedaa19": {
+    "category": "data",
+    "title": "High-value rsync module exposed",
+    "why": "A reachable rsync module can expose directory names and files without requiring a filesystem login. High-value modules may contain backups, source code, configuration, keys, or other sensitive data suitable for credential theft and lateral movement.",
+    "test": [
+      {
+        "label": "List exported rsync modules",
+        "cmd": "rsync rsync://<host>:<port>/"
+      },
+      {
+        "label": "List a supplied module without downloading",
+        "cmd": "rsync rsync://<host>:<port>/<service>/"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Limit module access",
+        "text": "Use hosts allow and hosts deny controls, require authentication, and expose only directories explicitly needed by approved clients."
+      },
+      {
+        "label": "Remove sensitive content",
+        "text": "Do not export secrets, private keys, unrestricted backups, or writable deployment paths through rsync modules."
+      }
+    ],
+    "refs": [
+      "https://download.samba.org/pub/rsync/rsyncd.conf.5",
+      "https://attack.mitre.org/techniques/T1530/"
+    ]
+  },
+  "bsolr-cores-exposed-ceb00229": {
+    "category": "web",
+    "title": "Solr core inventory exposed",
+    "why": "The Solr administration API exposes core names, instance directories, document counts, and status information. Core names and deployment details assist reconnaissance and may reveal additional query or administrative endpoints.",
+    "test": [
+      {
+        "label": "Read Solr core status",
+        "cmd": "curl -fsS 'http://<host>:<port>/solr/admin/cores?action=STATUS&wt=json'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable Solr authentication and authorization",
+        "text": "Protect administrative and collection APIs with supported authentication plugins and least-privilege authorization rules."
+      },
+      {
+        "label": "Restrict the Solr administration surface",
+        "text": "Permit Solr access only from required applications and management networks; do not publish the admin UI directly."
+      }
+    ],
+    "refs": [
+      "https://solr.apache.org/guide/solr/latest/deployment-guide/security.html",
+      "https://solr.apache.org/guide/solr/latest/configuration-guide/coreadmin-api.html"
+    ]
+  },
+  "bspark-ui-applications-api-exposed-cb7d2b93": {
+    "category": "web",
+    "title": "Spark applications API exposed",
+    "why": "The Spark monitoring API can disclose application names, users, job stages, executor hosts, logs, and performance details. This operational metadata maps internal compute resources and may contain sensitive arguments or paths.",
+    "test": [
+      {
+        "label": "List Spark applications",
+        "cmd": "curl -fsS http://<host>:<port>/api/v1/applications"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authenticated UI access",
+        "text": "Place Spark UIs and history servers behind an authenticated proxy and configure appropriate access-control filters."
+      },
+      {
+        "label": "Restrict monitoring ports",
+        "text": "Allow UI and REST API access only from approved user, monitoring, and management networks."
+      }
+    ],
+    "refs": [
+      "https://spark.apache.org/docs/latest/monitoring.html",
+      "https://spark.apache.org/docs/latest/security.html"
+    ]
+  },
+  "bsplunk-mgmt-api-unauth-aab28122": {
+    "category": "data",
+    "title": "Splunk management API allows anonymous access",
+    "why": "The Splunk management API can disclose server configuration, indexes, applications, users, and deployment details. Anonymous access may expose security telemetry itself and, if broader endpoints are open, create a path to administrative compromise.",
+    "test": [
+      {
+        "label": "Read Splunk server information anonymously",
+        "cmd": "curl -kfsS 'https://<host>:<port>/services/server/info?output_mode=json'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require management API authentication",
+        "text": "Remove anonymous capabilities, enforce strong named-account authentication, and apply least-privilege Splunk roles."
+      },
+      {
+        "label": "Isolate the management port",
+        "text": "Restrict port 8089 or the configured management port to administrators and trusted Splunk components."
+      }
+    ],
+    "refs": [
+      "https://docs.splunk.com/Documentation/Splunk/latest/Security/Secureyouradminaccount",
+      "https://docs.splunk.com/Documentation/Splunk/latest/RESTUM/RESTusing"
+    ]
+  },
+  "bstorage-iscsi-target-exposed-48ec7863": {
+    "category": "data",
+    "title": "iSCSI target exposed",
+    "why": "An exposed iSCSI target reveals storage target names and portal topology to remote initiators. If access controls or CHAP are weak, unauthorized systems may connect to block devices, risking data disclosure, corruption, and filesystem damage.",
+    "test": [
+      {
+        "label": "Perform target discovery without logging in",
+        "cmd": "iscsiadm -m discovery -t sendtargets -p <host>:<port>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict initiators and networks",
+        "text": "Use target ACLs and network filtering so only approved initiator IQNs and storage-network addresses can reach the target."
+      },
+      {
+        "label": "Authenticate storage sessions",
+        "text": "Enable mutual CHAP or IPsec where supported and keep iSCSI traffic on a dedicated, non-routed storage network."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc3720.html",
+      "https://attack.mitre.org/techniques/T1046/"
+    ]
+  },
+  "bstorage-minio-ceph-radosgw-object-gateway-ceph-monitor-35dacc88": {
+    "category": "data",
+    "title": "Storage management service reachable",
+    "why": "A reachable MinIO, Ceph/RADOSGW, Ceph monitor, or Gluster management interface exposes a high-value storage control or data plane. Version and topology disclosure aid reconnaissance, while weak authentication could expose buckets, objects, cluster state, or administrative operations.",
+    "test": [
+      {
+        "label": "Identify the reachable storage service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Segment storage interfaces",
+        "text": "Limit data and management ports to explicitly authorized application, storage, and administration networks."
+      },
+      {
+        "label": "Enforce service authentication",
+        "text": "Use unique service identities, least-privilege policies, TLS, and supported authentication mechanisms; remove default or anonymous access."
+      }
+    ],
+    "refs": [
+      "https://min.io/docs/minio/linux/operations/security.html",
+      "https://docs.ceph.com/en/latest/rados/configuration/network-config-ref/"
+    ]
+  },
+  "bunauth-couchbase-mgmt-b-b4140a91": {
+    "category": "data",
+    "title": "Couchbase management API exposed anonymously",
+    "why": "Anonymous Couchbase management access can disclose cluster nodes, buckets, services, memory allocation, and software versions. If privileged management endpoints share the same exposure, attackers may gain control over database configuration and data availability.",
+    "test": [
+      {
+        "label": "Read cluster pool information",
+        "cmd": "curl -fsS http://<host>:<port>/pools"
+      },
+      {
+        "label": "Read default pool details",
+        "cmd": "curl -fsS http://<host>:<port>/pools/default"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require Couchbase authentication",
+        "text": "Enable role-based access control, remove anonymous management access, and use separate least-privilege accounts for applications and administrators."
+      },
+      {
+        "label": "Restrict management ports",
+        "text": "Expose Couchbase administration interfaces only to a dedicated management network and enable TLS."
+      }
+    ],
+    "refs": [
+      "https://docs.couchbase.com/server/current/learn/security/authorization-overview.html",
+      "https://docs.couchbase.com/server/current/manage/manage-security/manage-security-settings.html"
+    ]
+  },
+  "bunauth-docker-etcd-v2-keys-kubelet-apiserver-b-fafceec3": {
+    "category": "data",
+    "title": "Container control-plane API exposed anonymously",
+    "why": "An unauthenticated Docker, etcd, kubelet, or Kubernetes API exposes sensitive workload and cluster state to any reachable client. These interfaces can contain secrets and frequently include state-changing operations, so anonymous access may lead to host or cluster compromise.",
+    "test": [
+      {
+        "label": "Check an unauthenticated Docker API",
+        "cmd": "curl -fsS http://<host>:<port>/version"
+      },
+      {
+        "label": "Read etcd v2 key metadata",
+        "cmd": "curl -fsS 'http://<host>:<port>/v2/keys/?recursive=true'"
+      },
+      {
+        "label": "Check a Kubernetes API root",
+        "cmd": "curl -fsS http://<host>:<port>/api"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authenticated TLS",
+        "text": "Disable plaintext or anonymous listeners and require client authentication plus authorization for every control-plane API."
+      },
+      {
+        "label": "Isolate control-plane ports",
+        "text": "Permit API access only among approved cluster components and administrative systems."
+      },
+      {
+        "label": "Rotate exposed secrets",
+        "text": "Review anonymously accessible API output and rotate any service-account tokens, credentials, or certificates it exposed."
+      }
+    ],
+    "refs": [
+      "https://docs.docker.com/engine/security/protect-access/",
+      "https://kubernetes.io/docs/concepts/security/api-server-bypass-risks/"
+    ]
+  },
+  "bunauth-gitlab-api-exposed-ca3c738d": {
+    "category": "web",
+    "title": "GitLab API exposes data anonymously",
+    "why": "The GitLab API returns project, user, version, or instance information without authentication. Even when some public access is intentional, the exposed metadata can reveal repositories, namespaces, account names, and software versions useful for targeted attacks.",
+    "test": [
+      {
+        "label": "List anonymously visible projects",
+        "cmd": "curl -fsS 'http://<host>:<port>/api/v4/projects?visibility=public&per_page=1'"
+      },
+      {
+        "label": "Check the exposed API version endpoint",
+        "cmd": "curl -fsS http://<host>:<port>/api/v4/version"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Review anonymous visibility",
+        "text": "Disable public visibility where it is not a business requirement and require authentication for internal projects, users, and instance metadata."
+      },
+      {
+        "label": "Restrict and patch GitLab",
+        "text": "Limit administrative interfaces to trusted networks, enforce MFA for privileged users, and maintain a supported GitLab release."
+      }
+    ],
+    "refs": [
+      "https://docs.gitlab.com/api/rest/authentication/",
+      "https://docs.gitlab.com/administration/settings/visibility_and_access_controls/"
+    ]
+  },
+  "bunauth-grafana-datasources-exposed-a6f19bc3": {
+    "category": "web",
+    "title": "Grafana data sources exposed anonymously",
+    "why": "The Grafana API exposes configured data-source names, types, URLs, and identifiers without authentication. This maps internal monitoring and database systems and may reveal stored secrets on vulnerable or misconfigured versions.",
+    "test": [
+      {
+        "label": "List Grafana data sources anonymously",
+        "cmd": "curl -fsS http://<host>:<port>/api/datasources"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable anonymous API access",
+        "text": "Disable anonymous authentication unless explicitly required and ensure data-source administration requires a privileged role."
+      },
+      {
+        "label": "Rotate potentially exposed credentials",
+        "text": "Patch Grafana, inspect the response for sensitive values, and rotate any data-source credentials that may have been disclosed."
+      }
+    ],
+    "refs": [
+      "https://grafana.com/docs/grafana/latest/setup-grafana/configure-security/configure-authentication/anonymous-auth/",
+      "https://grafana.com/docs/grafana/latest/developers/http_api/data_source/"
+    ]
+  },
+  "bunauth-jenkins-api-exposed-ebd449e2": {
+    "category": "web",
+    "title": "Jenkins API exposed anonymously",
+    "why": "Anonymous Jenkins API access can disclose jobs, builds, nodes, plugins, parameters, and repository details. This information aids credential attacks and supply-chain targeting, while overly permissive anonymous permissions may expose build artifacts or trigger capabilities.",
+    "test": [
+      {
+        "label": "Read Jenkins controller metadata anonymously",
+        "cmd": "curl -fsS 'http://<host>:<port>/api/json?tree=nodeName,mode,numExecutors'"
+      },
+      {
+        "label": "List visible jobs",
+        "cmd": "curl -fsS 'http://<host>:<port>/api/json?tree=jobs[name,url]'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove anonymous permissions",
+        "text": "Use a supported authorization strategy and grant anonymous users no access unless a narrowly documented public use case exists."
+      },
+      {
+        "label": "Protect Jenkins access",
+        "text": "Place Jenkins on a management network, require strong centralized authentication, and keep the controller and plugins patched."
+      }
+    ],
+    "refs": [
+      "https://www.jenkins.io/doc/book/security/access-control/",
+      "https://www.jenkins.io/doc/book/using/remote-access-api/"
+    ]
+  },
+  "bunauth-jira-serverinfo-exposed-a75ffe0d": {
+    "category": "web",
+    "title": "Jira server information exposed",
+    "why": "The Jira REST API discloses product version, deployment type, build number, and base URL without authentication. Exact version data lets attackers quickly select relevant advisories and tailor social-engineering or exploitation attempts.",
+    "test": [
+      {
+        "label": "Read Jira server information anonymously",
+        "cmd": "curl -fsS http://<host>:<port>/rest/api/2/serverInfo"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Limit anonymous REST access",
+        "text": "Require authentication for server metadata where supported and restrict Jira to intended user networks or an authenticated access proxy."
+      },
+      {
+        "label": "Maintain a supported Jira release",
+        "text": "Apply Atlassian security updates promptly and avoid exposing detailed version headers through proxies or error pages."
+      }
+    ],
+    "refs": [
+      "https://developer.atlassian.com/server/jira/platform/rest-apis/",
+      "https://confluence.atlassian.com/security/"
+    ]
+  },
+  "bunauth-prometheus-config-exposed-9ee7e88d": {
+    "category": "web",
+    "title": "Prometheus configuration exposed",
+    "why": "The Prometheus status API exposes scrape targets, job definitions, file paths, remote endpoints, and configuration structure without authentication. The data maps internal services and may reveal embedded credentials or bearer-token locations.",
+    "test": [
+      {
+        "label": "Read the active Prometheus configuration",
+        "cmd": "curl -fsS http://<host>:<port>/api/v1/status/config"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Protect Prometheus with an access layer",
+        "text": "Restrict the listener to trusted networks or place it behind a reverse proxy providing authentication and TLS."
+      },
+      {
+        "label": "Remove secrets from exposed configuration",
+        "text": "Use protected secret files or a secrets manager, minimize configuration visibility, and rotate any credentials disclosed by the endpoint."
+      }
+    ],
+    "refs": [
+      "https://prometheus.io/docs/operating/security/",
+      "https://prometheus.io/docs/prometheus/latest/querying/api/#config"
+    ]
+  },
+  "bunauth-redis-b-1a97399e": {
+    "category": "data",
+    "title": "Redis accepts unauthenticated clients",
+    "why": "A Redis server that accepts unauthenticated commands may expose cached data, sessions, queues, keys, and server configuration. Depending on command permissions and deployment hardening, attackers could also alter data or abuse dangerous administrative features.",
+    "test": [
+      {
+        "label": "Confirm unauthenticated connectivity",
+        "cmd": "redis-cli -h <host> -p <port> PING"
+      },
+      {
+        "label": "Read server metadata",
+        "cmd": "redis-cli -h <host> -p <port> INFO server"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable Redis ACL authentication",
+        "text": "Disable or tightly constrain the default user and create named ACL users with strong credentials and command/key restrictions."
+      },
+      {
+        "label": "Restrict and encrypt Redis traffic",
+        "text": "Bind Redis to trusted interfaces, enforce firewall rules, enable protected mode, and use TLS where traffic crosses host boundaries."
+      }
+    ],
+    "refs": [
+      "https://redis.io/docs/latest/operate/oss_and_stack/management/security/",
+      "https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/"
+    ]
+  },
+  "bunauth-rethinkdb-b-5b87cecc": {
+    "category": "data",
+    "title": "RethinkDB exposed without authentication",
+    "why": "An unauthenticated RethinkDB service may reveal databases, tables, cluster nodes, and administrative state. If query or web-administration access is unrestricted, attackers may read or change application data and cluster configuration.",
+    "test": [
+      {
+        "label": "Open the web administration interface",
+        "cmd": "curl -fsS http://<host>:<port>/"
+      },
+      {
+        "label": "Identify the exposed RethinkDB service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require RethinkDB authentication",
+        "text": "Set a strong admin password, create least-privilege application users, and remove passwordless accounts."
+      },
+      {
+        "label": "Bind interfaces securely",
+        "text": "Do not bind the driver, cluster, or web administration ports to untrusted interfaces; enforce firewall filtering and TLS."
+      }
+    ],
+    "refs": [
+      "https://rethinkdb.com/docs/security/",
+      "https://rethinkdb.com/docs/permissions-and-accounts/"
+    ]
+  },
+  "bunauth-sonarqube-system-info-exposed-10a47127": {
+    "category": "web",
+    "title": "SonarQube system information exposed",
+    "why": "The SonarQube API discloses system status, edition, version, plugins, or runtime details without authentication. This information supports vulnerability matching and reveals the structure of an important source-code analysis system.",
+    "test": [
+      {
+        "label": "Read SonarQube system status",
+        "cmd": "curl -fsS http://<host>:<port>/api/system/status"
+      },
+      {
+        "label": "Check system information exposure",
+        "cmd": "curl -fsS http://<host>:<port>/api/system/info"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authenticated API access",
+        "text": "Disable force-authentication exceptions that are not required and limit system-information permissions to administrators."
+      },
+      {
+        "label": "Restrict and patch SonarQube",
+        "text": "Expose SonarQube only to intended development networks and keep it on a supported, fully patched release."
+      }
+    ],
+    "refs": [
+      "https://docs.sonarsource.com/sonarqube-server/instance-administration/authentication/overview/",
+      "https://docs.sonarsource.com/sonarqube-server/extension-guide/web-api/"
+    ]
+  },
+  "bunauth-tomcat-host-manager-exposed-8a74679c": {
+    "category": "web",
+    "title": "Tomcat Host Manager exposed anonymously",
+    "why": "The Tomcat Host Manager controls virtual hosts and is intended only for trusted administrators. Anonymous access indicates a severe authorization failure that may expose host configuration and administrative operations.",
+    "test": [
+      {
+        "label": "Request the Host Manager interface anonymously",
+        "cmd": "curl -fsS http://<host>:<port>/host-manager/html"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove or restrict Host Manager",
+        "text": "Undeploy the host-manager application when unused; otherwise require a dedicated strong account with only the necessary host-manager role."
+      },
+      {
+        "label": "Limit management-network access",
+        "text": "Apply Tomcat RemoteCIDRValve or equivalent network controls so only approved administration hosts can reach the interface."
+      }
+    ],
+    "refs": [
+      "https://tomcat.apache.org/tomcat-10.1-doc/host-manager-howto.html",
+      "https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html"
+    ]
+  },
+  "bunauth-tomcat-manager-exposed-004a31c6": {
+    "category": "web",
+    "title": "Tomcat Manager exposed anonymously",
+    "why": "Tomcat Manager provides application inventory, deployment, session, and lifecycle functions. Anonymous access can disclose deployed applications and may expose deployment operations capable of compromising the entire Tomcat host.",
+    "test": [
+      {
+        "label": "Request the Manager interface anonymously",
+        "cmd": "curl -fsS http://<host>:<port>/manager/html"
+      },
+      {
+        "label": "Read the text application list if exposed",
+        "cmd": "curl -fsS http://<host>:<port>/manager/text/list"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove or secure Manager",
+        "text": "Undeploy the manager application when unnecessary; otherwise require a strong dedicated account and grant only the specific manager role needed."
+      },
+      {
+        "label": "Restrict management access",
+        "text": "Allow Manager access only from approved administration addresses using Tomcat valves and network firewalls."
+      }
+    ],
+    "refs": [
+      "https://tomcat.apache.org/tomcat-10.1-doc/manager-howto.html",
+      "https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html"
+    ]
+  },
+  "bzookeeper-4lw-exposed-103b92c9": {
+    "category": "data",
+    "title": "ZooKeeper four-letter commands exposed",
+    "why": "ZooKeeper four-letter-word commands disclose health, client connections, watches, environment details, and cluster state without using the normal data authorization model. The information can map dependent systems, and some commands may impose unnecessary server load.",
+    "test": [
+      {
+        "label": "Check ZooKeeper health",
+        "cmd": "printf 'ruok' | nc -w 3 <host> <port>"
+      },
+      {
+        "label": "Read server statistics",
+        "cmd": "printf 'stat' | nc -w 3 <host> <port>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Allowlist required commands",
+        "text": "Set 4lw.commands.whitelist to the smallest required set, typically only health checks, and disable commands that expose detailed state."
+      },
+      {
+        "label": "Restrict client-port access",
+        "text": "Limit ZooKeeper connectivity to ensemble members and authorized application or monitoring hosts."
+      }
+    ],
+    "refs": [
+      "https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_zkCommands",
+      "https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_authOptions"
+    ]
+  },
+  "bzookeeper-config-exposed-high-value-7ed7fd76": {
+    "category": "data",
+    "title": "ZooKeeper configuration exposed",
+    "why": "The ZooKeeper conf command reveals server paths, ports, timing settings, quorum configuration, and other high-value deployment details. Attackers can use this information to map the ensemble and identify adjacent management or data services.",
+    "test": [
+      {
+        "label": "Read exposed ZooKeeper configuration",
+        "cmd": "printf 'conf' | nc -w 3 <host> <port>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable the conf command",
+        "text": "Remove conf from 4lw.commands.whitelist and retain only commands explicitly required for health monitoring."
+      },
+      {
+        "label": "Isolate ZooKeeper",
+        "text": "Restrict client and quorum ports to trusted systems and enable supported client authentication and TLS."
+      }
+    ],
+    "refs": [
+      "https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_zkCommands",
+      "https://zookeeper.apache.org/doc/current/zookeeperAdmin.html#sc_authOptions"
+    ]
+  },
+  "solr-reachable-1-2-3-4-5-6-7-8-0-9-8-10-8-11-0-3-d71e68f0": {
+    "category": "web",
+    "title": "Legacy Apache Solr version reachable",
+    "why": "The reachable Solr instance reports a legacy release in the detected version range, including versions that are end-of-life or missing later security fixes. Exposure of an obsolete search service increases the likelihood that known authentication, information-disclosure, or code-execution vulnerabilities are applicable.",
+    "test": [
+      {
+        "label": "Read the reported Solr version",
+        "cmd": "curl -fsS 'http://<host>:<port>/solr/admin/info/system?wt=json'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Upgrade to a supported Solr release",
+        "text": "Plan and test an upgrade to a currently supported Solr major and patch release, including compatible Java, configuration, and client changes."
+      },
+      {
+        "label": "Protect Solr during migration",
+        "text": "Enable authentication and authorization, restrict network access, and review Apache Solr security advisories for the exact installed version."
+      }
+    ],
+    "refs": [
+      "https://solr.apache.org/downloads",
+      "https://solr.apache.org/security.html"
+    ]
+  }
+}

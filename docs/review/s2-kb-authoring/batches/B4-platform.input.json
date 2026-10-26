@@ -1,0 +1,196 @@
+{
+ "category_set": [
+  "creds",
+  "devops",
+  "backup",
+  "infra"
+ ],
+ "rules": {
+  "b-rubrik-cohesity-backup-dell-powerprotect-data-manager-e0232ea0": {
+   "severity": "high",
+   "pattern": "\\b(?:(?:Rubrik|Cohesity) backup|Dell PowerProtect Data Manager|Backup (?:Rubrik|Cohesity|Dell PowerProtect Data Manager)) API detected:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bartifact-docker-registry-sonatype-nexus-jfrog-artifact-ce6dbbf7": {
+   "severity": "medium",
+   "pattern": "\\bArtifact (Docker Registry|Sonatype Nexus|JFrog Artifactory|Harbor registry) detected:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bartifact-docker-registry-unauth-catalog-surface-b79f8ff4": {
+   "severity": "high",
+   "pattern": "\\bArtifact Docker Registry UNAUTH catalog surface:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bauth-ok-b-18ccdbe4": {
+   "severity": "medium",
+   "pattern": "\\bAUTH OK\\b",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bbmc-hpe-ilo-dell-idrac-supermicro-ipmi-lenovo-xcc-imm-e5c59b40": {
+   "severity": "medium",
+   "pattern": "\\bBMC (HPE iLO|Dell iDRAC|Supermicro IPMI|Lenovo XCC/IMM|Cisco CIMC) detected:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bcommvault-detected-5f2f4842": {
+   "severity": "high",
+   "pattern": "\\bCommVault detected:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bdefault-cred-6077e4eb": {
+   "severity": "high",
+   "pattern": "\\bdefault[- ]cred",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bdell-avamar-powerprotect-legacy-service-reachable-95e93e9d": {
+   "severity": "high",
+   "pattern": "\\bDell Avamar / PowerProtect legacy service reachable:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bhypervisor-vmware-esxi-host-proxmox-ve-nutanix-prism-d-96b15af5": {
+   "severity": "medium",
+   "pattern": "\\bHypervisor (VMware ESXi host|Proxmox VE|Nutanix Prism) detected:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bkey-only-b-adfd43e9": {
+   "severity": "medium",
+   "pattern": "\\bKEY_ONLY\\b",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bopenstack-keystone-detected-856681df": {
+   "severity": "medium",
+   "pattern": "\\bOpenStack Keystone detected:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bplatform-hashicorp-nomad-portainer-rancher-argo-cd-det-53d5ee0c": {
+   "severity": "medium",
+   "pattern": "\\bPlatform (HashiCorp Nomad|Portainer|Rancher|Argo CD) detected:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bplatform-nomad-unauth-job-inventory-f098d3eb": {
+   "severity": "high",
+   "pattern": "\\bPlatform Nomad UNAUTH job inventory:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bpotential-cred-leak-b-314c9b48": {
+   "severity": "high",
+   "pattern": "\\bPOTENTIAL CRED LEAK\\b",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "brmi-registry-02db4e39": {
+   "severity": "medium",
+   "pattern": "\\bRMI registry:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bslp-open-service-registry-b7a3b96f": {
+   "severity": "medium",
+   "pattern": "\\bSLP open service registry:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bsource-ci-gerrit-atlassian-confluence-atlassian-jira-a-99e1463a": {
+   "severity": "medium",
+   "pattern": "\\bSource/CI (Gerrit|Atlassian Confluence|Atlassian Jira|Atlassian Bamboo) detected:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bsource-ci-teamcity-github-enterprise-azure-devops-serv-d5520cfb": {
+   "severity": "medium",
+   "pattern": "\\bSource/CI (TeamCity|GitHub Enterprise|Azure DevOps Server) detected:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bthickclient-rdp-creds-vpn-profile-browser-logindb-80f687d1": {
+   "severity": "medium",
+   "pattern": "\\bTHICKCLIENT-(RDP-CREDS|VPN-PROFILE|BROWSER-LOGINDB):",
+   "list": "BULK",
+   "category": "creds"
+  },
+  "bthickclient-sshkey-at-rest-saved-session-cred-at-rest-63b86eaf": {
+   "severity": "high",
+   "pattern": "\\bTHICKCLIENT-(SSHKEY-AT-REST|SAVED-SESSION|CRED-AT-REST|CONFIG-SECRET):",
+   "list": "BULK",
+   "category": "creds"
+  },
+  "bunauth-proxmox-version-api-exposed-86383247": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: Proxmox version API exposed:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "buser-exists-b-90f92a5a": {
+   "severity": "high",
+   "pattern": "\\bUSER_EXISTS\\b",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bvault-not-initialized-claim-init-opportunity-99d4466d": {
+   "severity": "high",
+   "pattern": "\\bVault NOT INITIALIZED \\(claim-init opportunity\\)",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bveeam-b-r-rest-detected-dbcaa69e": {
+   "severity": "high",
+   "pattern": "\\bVeeam B&R REST detected:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bveritas-netbackup-detected-8aa2feba": {
+   "severity": "high",
+   "pattern": "\\bVeritas NetBackup detected:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bvmware-vcenter-sdk-reachable-24c791fc": {
+   "severity": "high",
+   "pattern": "\\bVMware vCenter SDK reachable:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bvmware-vcenter-ui-a99e5695": {
+   "severity": "medium",
+   "pattern": "\\bVMware vCenter UI:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "defaultpassword-4522eb4c": {
+   "severity": "critical",
+   "pattern": "DefaultPassword=",
+   "list": "BULK_WIN",
+   "category": "creds"
+  },
+  "password-passwd-secret-api-key-token-s-s-s-4-e4f94259": {
+   "severity": "high",
+   "pattern": "(?:password|passwd|secret|api[_-]?key|token)\\s*[=:]\\s*\\S{4,}",
+   "list": "BULK",
+   "category": "creds"
+  },
+  "password-passwd-secret-api-key-token-s-s-s-4-efaf1c6b": {
+   "severity": "medium",
+   "pattern": "(?:password|passwd|secret|api[_-]?key|token=)\\s*[=:]\\s*\\S{4,}",
+   "list": "BULK_WIN",
+   "category": "creds"
+  },
+  "rw-s-sid-rsa-ed25519-ecdsa-dsa-b-23e3e3c9": {
+   "severity": "high",
+   "pattern": "^-rw-+\\s.*\\sid_(rsa|ed25519|ecdsa|dsa)\\b",
+   "list": "BULK",
+   "category": "creds"
+  }
+ }
+}

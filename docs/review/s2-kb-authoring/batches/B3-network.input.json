@@ -1,0 +1,253 @@
+{
+ "category_set": [
+  "network"
+ ],
+ "rules": {
+  "baggressive-mode-psk-hash-harvested-0f76f82f": {
+   "severity": "critical",
+   "pattern": "\\bAGGRESSIVE MODE PSK HASH HARVESTED:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bajp-responding-without-auth-b-ecbc49c7": {
+   "severity": "high",
+   "pattern": "\\bAJP responding without auth\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bauth-bypass-b-749346eb": {
+   "severity": "critical",
+   "pattern": "\\bauth bypass\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcipher-0-b-bcd10171": {
+   "severity": "critical",
+   "pattern": "\\bcipher 0\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcors-b-breflect-04062725": {
+   "severity": "medium",
+   "pattern": "\\bCORS\\b.*\\breflect",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcritical-radius-access-accept-to-bogus-credential-0c62414f": {
+   "severity": "critical",
+   "pattern": "\\bCRITICAL: RADIUS Access-Accept to bogus credential:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcups-unauth-518ab9d3": {
+   "severity": "medium",
+   "pattern": "\\bCUPS UNAUTH:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcups-unauth-and-potentially-vuln-b-40d34d81": {
+   "severity": "high",
+   "pattern": "\\bCUPS UNAUTH and POTENTIALLY VULN\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcve-d-4-d-4-7-b-b-candidate-vulnerable-signal-b-b9afbb09": {
+   "severity": "medium",
+   "pattern": "\\bCVE-\\d{4}-\\d{4,7}\\b.*\\b(candidate|VULNERABLE|signal)\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bfinger-responds-with-user-info-b-03a48456": {
+   "severity": "medium",
+   "pattern": "\\bfinger responds with user info\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bflexnet-flexlm-license-server-reachable-3e87f151": {
+   "severity": "medium",
+   "pattern": "\\bFlexNet/FLEXlm license server reachable:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bflexnet-unauth-lmstat-disclosure-fb2ca9fa": {
+   "severity": "high",
+   "pattern": "\\bFlexNet UNAUTH lmstat disclosure:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bimap-plaintext-auth-allowed-auth-success-8d8ff4b1": {
+   "severity": "high",
+   "pattern": "\\bIMAP (?:plaintext-auth allowed|AUTH SUCCESS)",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bjetdirect-pjl-unauth-a6716c58": {
+   "severity": "high",
+   "pattern": "\\bJetDirect / PJL UNAUTH:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "blpd-reachable-45a47068": {
+   "severity": "medium",
+   "pattern": "\\bLPD reachable:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bnagios-nrpe-reachable-397121a9": {
+   "severity": "medium",
+   "pattern": "\\bNagios NRPE reachable:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bnats-auth-required-false-b-43f5d2e1": {
+   "severity": "critical",
+   "pattern": "\\bNATS auth_required=false\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bntp-amplification-vector-cve-2013-5211-bcdb9ee1": {
+   "severity": "critical",
+   "pattern": "\\bNTP AMPLIFICATION VECTOR \\(CVE-2013-5211",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bntp-responds-to-mode-6-readvar-b-80229e5f": {
+   "severity": "medium",
+   "pattern": "\\bNTP responds to mode-6 readvar\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bopen-proxy-f8b23707": {
+   "severity": "critical",
+   "pattern": "\\bOPEN PROXY:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bopen-relay-candidate-b-a3a3ed2b": {
+   "severity": "high",
+   "pattern": "\\bOPEN RELAY CANDIDATE\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bpop3-plaintext-auth-allowed-auth-success-9f125574": {
+   "severity": "high",
+   "pattern": "\\bPOP3 (?:plaintext-auth allowed|AUTH SUCCESS)",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bradius-blastradius-cve-2024-3596-precondition-32164df1": {
+   "severity": "high",
+   "pattern": "\\bRADIUS BlastRADIUS \\(CVE-2024-3596\\) precondition:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "brealvnc-b-bbypass-b-f7c5fe0d": {
+   "severity": "high",
+   "pattern": "\\bRealVNC\\b.*\\bbypass\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bremote-command-execution-b-ca19f4c9": {
+   "severity": "critical",
+   "pattern": "\\bremote command execution\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bsip-service-cfa45a0d": {
+   "severity": "high",
+   "pattern": "\\bSIP service:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bslp-amplification-vector-cve-2023-29552-301f655f": {
+   "severity": "critical",
+   "pattern": "\\bSLP AMPLIFICATION VECTOR \\(CVE-2023-29552\\):",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bslp-service-type-list-exposed-high-value-38b641f2": {
+   "severity": "high",
+   "pattern": "\\bSLP service-type list exposed \\(HIGH-VALUE\\):",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bssdp-upnp-responder-b-256bafda": {
+   "severity": "medium",
+   "pattern": "\\bSSDP/UPnP responder\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "btelnet-open-device-129976a8": {
+   "severity": "high",
+   "pattern": "\\bTelnet (?:open|device):",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bterrapin-ssh-audit-66181601": {
+   "severity": "medium",
+   "pattern": "\\bTerrapin \\(ssh-audit\\)",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "btftp-readable-config-f856f6cb": {
+   "severity": "critical",
+   "pattern": "\\bTFTP readable config",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bunauth-git-daemon-b-39d5d84c": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH git daemon\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bvpn-cisco-anyconnect-asa-ssl-vpn-fortinet-ssl-vpn-palo-ee1ab2b1": {
+   "severity": "high",
+   "pattern": "\\bVPN (Cisco AnyConnect/ASA SSL VPN|Fortinet SSL VPN|Palo Alto GlobalProtect|Pulse/Ivanti Connect Secure|Citrix NetScaler Gateway|SonicWall SMA/NetExtender) detected:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bvrfy-enabled-b-03eb095d": {
+   "severity": "medium",
+   "pattern": "\\bVRFY enabled\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bx11-open-display-b-ee0898b0": {
+   "severity": "critical",
+   "pattern": "\\bX11 OPEN DISPLAY\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "byarn-resourcemanager-unauth-dda5ab1e": {
+   "severity": "high",
+   "pattern": "\\bYARN ResourceManager UNAUTH:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "byarn-unauth-app-inventory-d7eaf3ca": {
+   "severity": "high",
+   "pattern": "\\bYARN UNAUTH app inventory:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bzabbix-agent-unauth-metric-query-9c344bed": {
+   "severity": "high",
+   "pattern": "\\bZabbix agent UNAUTH metric query:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bzabbix-server-reachable-bfba7fc4": {
+   "severity": "medium",
+   "pattern": "\\bZabbix server reachable:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "cve-2024-6387-regresshion-27d5471e": {
+   "severity": "high",
+   "pattern": "CVE-2024-6387 \\(regreSSHion\\)",
+   "list": "DEFAULT",
+   "category": "network"
+  }
+ }
+}

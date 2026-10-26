@@ -1,0 +1,1090 @@
+{
+  "baggressive-mode-psk-hash-harvested-0f76f82f": {
+    "category": "network",
+    "title": "IKEv1 aggressive-mode PSK hash exposed",
+    "why": "The VPN completed IKEv1 aggressive-mode negotiation and disclosed material that permits offline guessing of the group pre-shared key. Recovering a weak PSK can enable unauthorized VPN negotiation and compromise every peer sharing that secret.",
+    "test": [
+      {
+        "label": "Repeat one aggressive-mode handshake",
+        "cmd": "ike-scan --aggressive --id=<user> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable aggressive mode",
+        "text": "Disable IKEv1 aggressive mode and migrate peers to IKEv2 with certificate-based authentication."
+      },
+      {
+        "label": "Rotate the exposed PSK",
+        "text": "Replace the shared secret with a long random value after disabling the weak exchange, and use unique credentials for separate peer groups."
+      }
+    ],
+    "refs": [
+      "https://csrc.nist.gov/pubs/sp/800/77/r1/final",
+      "https://www.rfc-editor.org/rfc/rfc7296"
+    ]
+  },
+  "bajp-responding-without-auth-b-ecbc49c7": {
+    "category": "network",
+    "title": "Unauthenticated AJP connector exposed",
+    "why": "The AJP connector accepts requests without a connector secret and is reachable outside its trusted reverse-proxy tier. AJP permits greater manipulation of application-server request attributes than HTTP, and vulnerable or permissive configurations can expose application files or backend functionality.",
+    "test": [
+      {
+        "label": "Check AJP authentication and response",
+        "cmd": "nmap -sV -p <port> --script ajp-auth,ajp-headers <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict and authenticate AJP",
+        "text": "Bind the connector to a private or loopback address, restrict it to authorized proxy addresses, and configure a strong AJP secret with secretRequired enabled."
+      },
+      {
+        "label": "Remove unnecessary AJP",
+        "text": "Disable the AJP connector when the deployment does not require it, and keep Tomcat or the applicable servlet container fully patched."
+      }
+    ],
+    "refs": [
+      "https://tomcat.apache.org/tomcat-9.0-doc/config/ajp.html",
+      "https://www.cve.org/CVERecord?id=CVE-2020-1938"
+    ]
+  },
+  "bauth-bypass-b-749346eb": {
+    "category": "network",
+    "title": "Authentication bypass detected",
+    "why": "The collected evidence indicates that a protected service or operation can be reached without satisfying its intended authentication check. Because this rule is product-neutral, defenders should identify the affected component and validate the precise bypass condition before determining its full impact.",
+    "test": [
+      {
+        "label": "Review the captured bypass evidence",
+        "cmd": "sed -n '1,200p' <evidence_path>"
+      },
+      {
+        "label": "Confirm the exposed product and version",
+        "cmd": "nmap -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Apply the product-specific correction",
+        "text": "Identify the exact product, version, and bypass path from the evidence; apply the vendor patch or configuration correction and invalidate any sessions or credentials that may have been exposed."
+      },
+      {
+        "label": "Add a trusted enforcement layer",
+        "text": "Restrict the service to approved networks and ensure authorization is enforced server-side for every protected operation, not only in a client or reverse-proxy interface."
+      }
+    ],
+    "refs": [
+      "https://cwe.mitre.org/data/definitions/288.html",
+      "https://attack.mitre.org/techniques/T1190/"
+    ]
+  },
+  "bcipher-0-b-bcd10171": {
+    "category": "network",
+    "title": "IPMI cipher suite 0 enabled",
+    "why": "The BMC accepts IPMI 2.0 cipher suite 0, which provides no authentication or integrity protection and can permit access using a valid username without its password. BMC access can bypass operating-system controls and expose console, virtual-media, firmware, and power-management functions.",
+    "test": [
+      {
+        "label": "Probe cipher-suite-zero support",
+        "cmd": "nmap -sU -p <port> --script ipmi-cipher-zero <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable cipher suite 0",
+        "text": "Disable cipher suite 0 for every IPMI privilege level using the BMC vendor's management interface, then verify it remains disabled after firmware upgrades or resets."
+      },
+      {
+        "label": "Isolate BMC interfaces",
+        "text": "Place BMCs on a dedicated management network, filter UDP 623 to authorized administration systems, update firmware, and rotate BMC credentials."
+      }
+    ],
+    "refs": [
+      "https://nmap.org/nsedoc/scripts/ipmi-cipher-zero.html",
+      "https://www.dmtf.org/sites/default/files/standards/documents/DSP0114.pdf"
+    ]
+  },
+  "bcors-b-breflect-04062725": {
+    "category": "network",
+    "title": "CORS origin reflection",
+    "why": "The application reflects an arbitrary Origin value in its CORS response, indicating an overly broad trust policy. If credentialed cross-origin requests are also allowed and sensitive responses are readable, an attacker-controlled site can access data using a victim's authenticated browser session.",
+    "test": [
+      {
+        "label": "Inspect CORS response headers",
+        "cmd": "curl -ksS -D - -o /dev/null -H 'Origin: https://attacker.example.invalid' <service>://<host>:<port>/<evidence_path>"
+      },
+      {
+        "label": "Compare a second untrusted origin",
+        "cmd": "curl -ksS -D - -o /dev/null -H 'Origin: https://different.example.invalid' <service>://<host>:<port>/<evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Use an exact origin allowlist",
+        "text": "Return Access-Control-Allow-Origin only for explicitly approved origins; parse and compare the complete scheme, host, and port instead of reflecting request input or matching loose suffixes."
+      },
+      {
+        "label": "Limit credentialed CORS",
+        "text": "Disable Access-Control-Allow-Credentials unless it is required, and exclude sensitive endpoints and response headers from cross-origin access."
+      }
+    ],
+    "refs": [
+      "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS",
+      "https://cwe.mitre.org/data/definitions/942.html"
+    ]
+  },
+  "bcritical-radius-access-accept-to-bogus-credential-0c62414f": {
+    "category": "network",
+    "title": "RADIUS accepts invalid credentials",
+    "why": "The RADIUS server returned Access-Accept for a deliberately invalid identity, indicating a fail-open policy, incorrect identity-store mapping, or unsafe catch-all rule. Any network access device relying on this policy may admit unauthorized users to VPN, wireless, or administrative networks.",
+    "test": [
+      {
+        "label": "Send one controlled nonexistent-user request",
+        "cmd": "printf 'User-Name = \"aranum-audit-nonexistent\"\\nUser-Password = \"invalid-audit-value\"\\n' | radclient -x -r 1 -t 3 <host>:<port> auth <pass>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Correct the authorization policy",
+        "text": "Default to Access-Reject when the identity is unknown, the credential check fails, or an upstream identity source is unavailable; remove catch-all acceptance rules."
+      },
+      {
+        "label": "Test policy regressions",
+        "text": "Add automated negative tests using nonexistent users and invalid passwords for each RADIUS virtual server, realm, and network-access policy."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc2865",
+      "https://cwe.mitre.org/data/definitions/636.html"
+    ]
+  },
+  "bcups-unauth-518ab9d3": {
+    "category": "network",
+    "title": "Unauthenticated CUPS service exposed",
+    "why": "A remote client can access the CUPS service without authentication and enumerate server or printer information. Depending on operation policies, the exposure can reveal queues and jobs or permit unauthorized printing and administrative actions.",
+    "test": [
+      {
+        "label": "Read the CUPS landing page",
+        "cmd": "curl -ksS -D - <service>://<host>:<port>/ -o /dev/null"
+      },
+      {
+        "label": "List advertised printers",
+        "cmd": "curl -ksS <service>://<host>:<port>/printers/"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict remote access",
+        "text": "Bind CUPS only to required interfaces and use cupsd location rules or a firewall to permit trusted print clients and administrators only."
+      },
+      {
+        "label": "Require protected operations",
+        "text": "Require authentication for printer management and sensitive IPP operations, disable remote administration when unnecessary, and use TLS for authenticated connections."
+      }
+    ],
+    "refs": [
+      "https://www.cups.org/doc/security.html",
+      "https://www.cups.org/doc/policies.html"
+    ]
+  },
+  "bcups-unauth-and-potentially-vuln-b-40d34d81": {
+    "category": "network",
+    "title": "CUPS exposure with vulnerable-version signal",
+    "why": "The unauthenticated CUPS endpoint reported a version associated with the 2024 cups-browsed vulnerability chain. A version banner alone does not prove exploitability because distribution backports and UDP 631 reachability matter, but an affected cups-browsed deployment can accept untrusted printer advertisements that lead to malicious printer configuration and code execution when used.",
+    "test": [
+      {
+        "label": "Confirm the reported CUPS version",
+        "cmd": "nmap -sV -p <port> --script cups-info <host>"
+      },
+      {
+        "label": "Check UDP 631 exposure without exploitation",
+        "cmd": "nmap -sU -sV -p 631 <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Update the affected packages",
+        "text": "Install vendor-fixed cups-browsed, cups-filters, libcupsfilters, and libppd packages; use the distribution advisory rather than upstream version strings to account for backports."
+      },
+      {
+        "label": "Disable legacy browsing",
+        "text": "Stop and disable cups-browsed if automatic remote-printer discovery is not required, and block inbound UDP 631 from untrusted networks."
+      }
+    ],
+    "refs": [
+      "https://openprinting.github.io/libcupsfilters%2C-libppd%2C-cups-filters-2.1.0-Releases-including-vulnerability-fix",
+      "https://www.cve.org/CVERecord?id=CVE-2024-47176"
+    ]
+  },
+  "bcve-d-4-d-4-7-b-b-candidate-vulnerable-signal-b-b9afbb09": {
+    "category": "network",
+    "title": "CVE candidate or vulnerable-version signal",
+    "why": "A scanner associated the observed product or version with a published CVE, but the generic signal does not by itself establish that the vulnerable code path is present or unpatched. Defenders should account for product edition, configuration, platform, and vendor backports before declaring the vulnerability confirmed.",
+    "test": [
+      {
+        "label": "Review the CVE and version evidence",
+        "cmd": "sed -n '1,200p' <evidence_path>"
+      },
+      {
+        "label": "Repeat passive service fingerprinting",
+        "cmd": "nmap -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Validate against the vendor advisory",
+        "text": "Map the detected build and configuration to the exact affected and fixed versions in the vendor advisory, including operating-system package backports."
+      },
+      {
+        "label": "Patch or mitigate",
+        "text": "Apply the vendor update or documented workaround, restrict the affected service while remediation is pending, and repeat the non-destructive version check afterward."
+      }
+    ],
+    "refs": [
+      "https://www.cve.org/",
+      "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+    ]
+  },
+  "bfinger-responds-with-user-info-b-03a48456": {
+    "category": "network",
+    "title": "Finger service discloses user information",
+    "why": "The Finger service returns account, login, or activity information to unauthenticated remote clients. Attackers can use the disclosed usernames and host activity to improve password attacks, social engineering, and targeting.",
+    "test": [
+      {
+        "label": "Query Finger information",
+        "cmd": "nmap -sV -p <port> --script finger <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable the legacy service",
+        "text": "Disable fingerd or its inetd/systemd socket activation unless there is a documented business requirement."
+      },
+      {
+        "label": "Restrict required access",
+        "text": "If Finger must remain available, filter TCP 79 to specific management systems and configure the daemon to minimize user details."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc1288",
+      "https://attack.mitre.org/techniques/T1087/"
+    ]
+  },
+  "bflexnet-flexlm-license-server-reachable-3e87f151": {
+    "category": "network",
+    "title": "FlexNet license server reachable",
+    "why": "A FlexNet/FLEXlm license manager is reachable from the tested network. Even without confirmed data disclosure, the service identifies valuable engineering software infrastructure and exposes an administrative protocol that is normally intended for controlled internal clients.",
+    "test": [
+      {
+        "label": "Confirm the FlexNet service banner",
+        "cmd": "nmap -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Limit license-service reachability",
+        "text": "Use host firewalls and network ACLs to allow only approved license clients and administration systems to reach lmgrd and every vendor-daemon port."
+      },
+      {
+        "label": "Pin vendor-daemon ports",
+        "text": "Configure fixed vendor-daemon ports so firewall rules cover the entire license path, and update lmgrd, vendor daemons, and administration utilities."
+      }
+    ],
+    "refs": [
+      "https://docs.revenera.com/fnp/2025r2/LicAdmin_Guide/Content/helplibrary/Command_Line_Utilities.htm"
+    ]
+  },
+  "bflexnet-unauth-lmstat-disclosure-fb2ca9fa": {
+    "category": "network",
+    "title": "Unauthenticated FlexNet lmstat disclosure",
+    "why": "The license server answers lmstat queries without authenticating the requester, exposing licensed products, feature names, users, and client hostnames. This information maps high-value engineering systems and supplies valid identity and workstation data for subsequent attacks.",
+    "test": [
+      {
+        "label": "Request license status read-only",
+        "cmd": "lmutil lmstat -a -c <port>@<host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enforce network isolation",
+        "text": "FlexNet deployments commonly rely on network controls rather than request authentication; restrict lmgrd and vendor-daemon ports to approved client subnets and administration hosts."
+      },
+      {
+        "label": "Reduce exposed user data",
+        "text": "Use supported secure utilities or no-user-information options where available, review INCLUDE and EXCLUDE policies, and avoid exposing the service across user or perimeter networks."
+      }
+    ],
+    "refs": [
+      "https://docs.revenera.com/fnp/2020r4/pdf/fnp_LicAdmin.pdf",
+      "https://docs.revenera.com/fnp/2025r2/LicAdmin_Guide/Content/helplibrary/Command_Line_Utilities.htm"
+    ]
+  },
+  "bimap-plaintext-auth-allowed-auth-success-8d8ff4b1": {
+    "category": "network",
+    "title": "IMAP permits plaintext password authentication",
+    "why": "The IMAP service advertises or accepted a password-based authentication exchange that is not adequately protected by transport encryption. Network observers can capture reusable mailbox credentials, which are often also valid for webmail, directory, or single-sign-on services.",
+    "test": [
+      {
+        "label": "Inspect IMAP capabilities",
+        "cmd": "nmap -sV -p <port> --script imap-capabilities <host>"
+      },
+      {
+        "label": "Validate credentials only through required TLS",
+        "cmd": "curl --ssl-reqd --url imap://<host>:<port>/ --user '<user>:<pass>'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require encrypted transport",
+        "text": "Disable cleartext authentication before TLS, require STARTTLS or implicit TLS, and reject authentication when encryption negotiation fails."
+      },
+      {
+        "label": "Retire legacy authentication",
+        "text": "Prefer modern token or challenge-based authentication where supported, disable unused IMAP service exposure, and rotate credentials that may have crossed plaintext links."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc8314",
+      "https://www.rfc-editor.org/rfc/rfc9051"
+    ]
+  },
+  "bjetdirect-pjl-unauth-a6716c58": {
+    "category": "network",
+    "title": "Unauthenticated JetDirect/PJL interface",
+    "why": "The raw printing port accepts PJL commands without authenticating the client. PJL can disclose device identity, configuration, status, and sometimes filesystem or stored-job information; writable operations may also alter printer behavior.",
+    "test": [
+      {
+        "label": "Read the PJL ready message",
+        "cmd": "nmap -sV -p <port> --script pjl-ready-message <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict raw printing",
+        "text": "Allow TCP 9100 only from authorized print servers and client networks, and disable JetDirect/raw printing when IPP through a controlled print server is sufficient."
+      },
+      {
+        "label": "Harden the printer",
+        "text": "Update printer firmware, disable unused PJL filesystem and job-retention features, set administrative credentials, and clear unneeded stored jobs."
+      }
+    ],
+    "refs": [
+      "https://nmap.org/nsedoc/scripts/pjl-ready-message.html",
+      "https://attack.mitre.org/techniques/T1046/"
+    ]
+  },
+  "blpd-reachable-45a47068": {
+    "category": "network",
+    "title": "Legacy LPD printing service reachable",
+    "why": "The legacy Line Printer Daemon protocol is reachable from the tested network. LPD generally lacks modern authentication and encryption, so unnecessary exposure can permit queue enumeration, unauthorized job submission, or interception of print metadata depending on server policy.",
+    "test": [
+      {
+        "label": "Query LPD service information",
+        "cmd": "nmap -sV -p <port> --script lpd-info <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Replace or restrict LPD",
+        "text": "Disable LPD where possible and use authenticated IPP over TLS; otherwise restrict TCP 515 to designated print servers and approved clients."
+      },
+      {
+        "label": "Constrain printer queues",
+        "text": "Remove unused queues, prevent anonymous remote administration, and configure queue-level host and user allowlists."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc1179",
+      "https://www.cups.org/doc/sharing.html"
+    ]
+  },
+  "bnagios-nrpe-reachable-397121a9": {
+    "category": "network",
+    "title": "Nagios NRPE service reachable",
+    "why": "The Nagios Remote Plugin Executor is reachable from the tested network, exposing a privileged monitoring agent and its implementation details. Reachability alone is not command execution, but weak allowed-host rules, unsafe command definitions, or obsolete NRPE versions can turn this into sensitive-data disclosure or remote command risk.",
+    "test": [
+      {
+        "label": "Confirm the NRPE listener",
+        "cmd": "nmap -sV -p <port> <host>"
+      },
+      {
+        "label": "Request the NRPE version handshake",
+        "cmd": "check_nrpe -H <host> -p <port>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict monitoring clients",
+        "text": "Set allowed_hosts to only the authorized Nagios servers and enforce the same restriction with host and network firewalls."
+      },
+      {
+        "label": "Harden NRPE commands",
+        "text": "Update NRPE, require TLS, disable arbitrary command arguments unless essential, and define narrowly scoped plugins that do not invoke a shell with untrusted input."
+      }
+    ],
+    "refs": [
+      "https://assets.nagios.com/downloads/nagioscore/docs/nrpe/NRPE.pdf",
+      "https://cwe.mitre.org/data/definitions/78.html"
+    ]
+  },
+  "bnats-auth-required-false-b-43f5d2e1": {
+    "category": "network",
+    "title": "NATS server does not require authentication",
+    "why": "The NATS INFO banner states that authentication is not required, allowing anonymous clients to establish sessions. Unless subject permissions or network isolation provide an equivalent boundary, an attacker may observe messaging topology and publish or subscribe to application data.",
+    "test": [
+      {
+        "label": "Read the NATS INFO banner",
+        "cmd": "nmap -sV -p <port> --script banner <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require client authentication",
+        "text": "Configure NATS users, tokens, NKeys, or operator/account JWT credentials so unauthenticated connections are rejected."
+      },
+      {
+        "label": "Apply subject authorization",
+        "text": "Give each application a separate identity with explicit publish and subscribe allowlists, require TLS, and restrict the client and monitoring ports at the network boundary."
+      }
+    ],
+    "refs": [
+      "https://docs.nats.io/learn/security/authentication-basics",
+      "https://docs.nats.io/learn/security/authorization"
+    ]
+  },
+  "bntp-amplification-vector-cve-2013-5211-bcdb9ee1": {
+    "category": "network",
+    "title": "NTP monlist amplification exposed",
+    "why": "The NTP service responded to the legacy mode-7 monlist request associated with CVE-2013-5211. Because a small spoofed UDP request can trigger a much larger response, an attacker can abuse the host as a reflection and amplification source in distributed denial-of-service attacks.",
+    "test": [
+      {
+        "label": "Verify the recorded monlist response",
+        "cmd": "grep -E 'MODE7_MONLIST|CVE-2013-5211|ntp-monlist' <evidence_path>"
+      },
+      {
+        "label": "Read basic NTP variables without monlist",
+        "cmd": "ntpq -c rv <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable monitoring queries",
+        "text": "Upgrade the NTP implementation and disable the legacy monitor/monlist facility; for ntpd, use the vendor-supported equivalent of disable monitor."
+      },
+      {
+        "label": "Prevent reflection",
+        "text": "Permit UDP 123 only where required, block untrusted control queries, and implement source-address validation at network edges."
+      }
+    ],
+    "refs": [
+      "https://www.cve.org/CVERecord?id=CVE-2013-5211",
+      "https://www.cisa.gov/news-events/alerts/2014/01/13/ntp-amplification-attacks-using-cve-2013-5211"
+    ]
+  },
+  "bntp-responds-to-mode-6-readvar-b-80229e5f": {
+    "category": "network",
+    "title": "NTP mode-6 variables remotely readable",
+    "why": "The NTP daemon answers unauthenticated mode-6 readvar control queries. These responses can disclose software versions, system details, reference sources, and peer state that help an attacker fingerprint infrastructure and identify additional weaknesses.",
+    "test": [
+      {
+        "label": "Request system variables",
+        "cmd": "ntpq -c rv <host>"
+      },
+      {
+        "label": "Run the NTP information script",
+        "cmd": "nmap -sU -p <port> --script ntp-info <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict NTP control queries",
+        "text": "Configure the daemon to deny mode-6 control access from untrusted networks while retaining only the time-synchronization traffic required by approved clients."
+      },
+      {
+        "label": "Reduce network exposure",
+        "text": "Filter UDP 123 to approved peers or clients and update the NTP implementation to a supported release."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc5905",
+      "https://www.ntp.org/documentation/4.2.8-series/accopt/"
+    ]
+  },
+  "bopen-proxy-f8b23707": {
+    "category": "network",
+    "title": "Unauthenticated open proxy",
+    "why": "The service forwards traffic for unauthenticated remote clients. Attackers can conceal their source, reach destinations through the organization's trusted address space, consume bandwidth, and cause abusive traffic to be attributed to the proxy owner.",
+    "test": [
+      {
+        "label": "Send one harmless HEAD request through the proxy",
+        "cmd": "curl -sS -I --max-time 10 -x http://<host>:<port> http://example.com/"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authorization",
+        "text": "Require authenticated clients and restrict permitted source networks, destination ports, protocols, and address ranges with explicit allowlists."
+      },
+      {
+        "label": "Block unintended proxying",
+        "text": "Disable the proxy service if it is not required, deny requests to internal and link-local destinations, and restrict the listener with a firewall."
+      }
+    ],
+    "refs": [
+      "https://cwe.mitre.org/data/definitions/441.html",
+      "https://attack.mitre.org/techniques/T1090/"
+    ]
+  },
+  "bopen-relay-candidate-b-a3a3ed2b": {
+    "category": "network",
+    "title": "Potential SMTP open relay",
+    "why": "The SMTP server accepted an external-to-external recipient during a relay test, indicating that unauthenticated clients may be able to relay mail. A confirmed open relay is readily abused for spam and phishing and can cause domain and IP reputation blocklisting.",
+    "test": [
+      {
+        "label": "Test relay acceptance without sending a message",
+        "cmd": "swaks --server <host>:<port> --from audit@example.net --to audit@example.org --quit-after RCPT"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict relay policy",
+        "text": "Permit relaying only for authenticated users or explicitly trusted source networks and accepted local domains; reject all other RCPT TO requests."
+      },
+      {
+        "label": "Retest every listener",
+        "text": "Check IPv4, IPv6, submission, and perimeter SMTP listeners after changing policy, and monitor logs for previous unauthorized relay activity."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc5321",
+      "https://cwe.mitre.org/data/definitions/441.html"
+    ]
+  },
+  "bpop3-plaintext-auth-allowed-auth-success-9f125574": {
+    "category": "network",
+    "title": "POP3 permits plaintext password authentication",
+    "why": "The POP3 service advertises or accepted reusable password authentication without adequate transport encryption. Anyone able to observe the connection can capture mailbox credentials, which may also provide access to other organizational systems.",
+    "test": [
+      {
+        "label": "Inspect POP3 capabilities",
+        "cmd": "nmap -sV -p <port> --script pop3-capabilities <host>"
+      },
+      {
+        "label": "Validate credentials only through required TLS",
+        "cmd": "curl --ssl-reqd --url pop3://<host>:<port>/ --user '<user>:<pass>'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require encrypted transport",
+        "text": "Disable authentication on unencrypted POP3 sessions and require STARTTLS or implicit TLS with valid certificates."
+      },
+      {
+        "label": "Reduce legacy mail exposure",
+        "text": "Disable POP3 when it is not required, prefer modern authentication where supported, and rotate credentials that may have traversed plaintext connections."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc8314",
+      "https://www.rfc-editor.org/rfc/rfc1939"
+    ]
+  },
+  "bradius-blastradius-cve-2024-3596-precondition-32164df1": {
+    "category": "network",
+    "title": "BlastRADIUS message-authenticator gap",
+    "why": "The RADIUS service responded to an Access-Request that did not carry a valid Message-Authenticator, satisfying a key precondition for CVE-2024-3596. On networks where an attacker can intercept and modify RADIUS traffic, this protocol weakness can permit alteration of an Access-Reject into an Access-Accept.",
+    "test": [
+      {
+        "label": "Send one request without Message-Authenticator",
+        "cmd": "printf 'User-Name = \"aranum-audit-nonexistent\"\\nUser-Password = \"invalid-audit-value\"\\n' | radclient -x -r 1 -t 3 <host>:<port> auth <pass>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Install BlastRADIUS updates",
+        "text": "Upgrade every RADIUS server, proxy, and network-access client to vendor-fixed versions; mixed unpatched paths can preserve the vulnerable condition."
+      },
+      {
+        "label": "Require packet authentication",
+        "text": "Require Message-Authenticator on Access-Request packets and enable the vendor's Proxy-State validation control, such as FreeRADIUS require_message_authenticator and limit_proxy_state."
+      }
+    ],
+    "refs": [
+      "https://www.freeradius.org/vul_notifications/2024/07/09/blastradius.html",
+      "https://www.cve.org/CVERecord?id=CVE-2024-3596"
+    ]
+  },
+  "brealvnc-b-bbypass-b-f7c5fe0d": {
+    "category": "network",
+    "title": "RealVNC authentication bypass",
+    "why": "The VNC server appears vulnerable to CVE-2006-2369, in which affected RealVNC releases accept a client-selected security type that bypasses the configured password check. Successful bypass grants interactive access to the remote desktop with the privileges of the logged-in session.",
+    "test": [
+      {
+        "label": "Run the non-destructive bypass check",
+        "cmd": "nmap -p <port> --script realvnc-auth-bypass <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Upgrade RealVNC",
+        "text": "Replace RealVNC 4.1.0 or 4.1.1 with a supported fixed release and verify that the server no longer accepts the None security type."
+      },
+      {
+        "label": "Restrict remote desktop access",
+        "text": "Permit VNC only through a managed VPN or administration network, require strong authentication, and block direct exposure at host and perimeter firewalls."
+      }
+    ],
+    "refs": [
+      "https://www.cve.org/CVERecord?id=CVE-2006-2369",
+      "https://nmap.org/nsedoc/scripts/realvnc-auth-bypass.html"
+    ]
+  },
+  "bremote-command-execution-b-ca19f4c9": {
+    "category": "network",
+    "title": "Remote command-execution condition detected",
+    "why": "The evidence contains a remote-command-execution finding, indicating that network input may cross a trust boundary and execute with service or host privileges. Because this rule is product-neutral, defenders must identify the exact component, affected version, and prerequisites without executing a proof-of-concept payload.",
+    "test": [
+      {
+        "label": "Review the recorded RCE evidence",
+        "cmd": "sed -n '1,200p' <evidence_path>"
+      },
+      {
+        "label": "Confirm product and version only",
+        "cmd": "nmap -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Patch and contain the component",
+        "text": "Apply the vendor fix or remove the affected feature, restrict the service to trusted management paths, and treat the host as potentially compromised if it was exposed to untrusted clients."
+      },
+      {
+        "label": "Investigate for exploitation",
+        "text": "Review service, process, authentication, and network logs for exploitation indicators; rotate reachable secrets and rebuild from trusted media when integrity cannot be established."
+      }
+    ],
+    "refs": [
+      "https://cwe.mitre.org/data/definitions/94.html",
+      "https://attack.mitre.org/techniques/T1210/"
+    ]
+  },
+  "bsip-service-cfa45a0d": {
+    "category": "network",
+    "title": "SIP signaling service exposed",
+    "why": "A SIP endpoint is reachable from the tested network and reveals a voice-signaling attack surface. Exposure alone is not proof of compromise, but permissive registration, weak credentials, verbose responses, or unsafe dial plans can enable extension discovery, toll fraud, call interception, and service disruption.",
+    "test": [
+      {
+        "label": "Enumerate supported SIP methods",
+        "cmd": "nmap -sU -sV -p <port> --script sip-methods <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict SIP sources",
+        "text": "Allow SIP signaling only from approved trunks, session border controllers, phones, and management networks; block direct Internet access when it is not explicitly required."
+      },
+      {
+        "label": "Harden voice authentication",
+        "text": "Require strong per-device credentials, disable anonymous registration and unused methods, constrain dial plans, enable TLS/SRTP where supported, and monitor anomalous call attempts."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc3261",
+      "https://csrc.nist.gov/pubs/sp/800/58/final"
+    ]
+  },
+  "bslp-amplification-vector-cve-2023-29552-301f655f": {
+    "category": "network",
+    "title": "SLP reflection/amplification exposure",
+    "why": "The SLP service produced a disproportionately large discovery response, indicating exposure to the reflection/amplification behavior documented as CVE-2023-29552. An attacker capable of spoofing UDP source addresses can direct amplified traffic at third-party victims and consume the organization's network resources.",
+    "test": [
+      {
+        "label": "Review recorded SLP response evidence",
+        "cmd": "grep -E 'SLP AMPLIFICATION VECTOR|Service Type:' <evidence_path>"
+      },
+      {
+        "label": "Perform one direct SLP information query",
+        "cmd": "nmap -sU -p <port> --script slp-info --script-timeout 10s <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable unnecessary SLP",
+        "text": "Disable SLP on systems that do not require service discovery, especially Internet-facing or management appliances."
+      },
+      {
+        "label": "Filter and patch",
+        "text": "Block UDP and TCP 427 at perimeter boundaries, restrict internal access to required clients, and apply vendor updates or SLP-disablement guidance."
+      }
+    ],
+    "refs": [
+      "https://www.cve.org/CVERecord?id=CVE-2023-29552",
+      "https://www.cisa.gov/news-events/alerts/2023/04/25/abuse-service-location-protocol-may-lead-dos-attacks"
+    ]
+  },
+  "bslp-service-type-list-exposed-high-value-38b641f2": {
+    "category": "network",
+    "title": "SLP service catalog exposed",
+    "why": "The SLP registry disclosed numerous service types without authentication. This catalog can reveal internal printers, storage systems, virtualization infrastructure, management services, and other high-value targets that may not otherwise be discoverable.",
+    "test": [
+      {
+        "label": "List SLP service types",
+        "cmd": "nmap -sU -p <port> --script slp-info,slp-discovery --script-timeout 10s <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Reduce SLP visibility",
+        "text": "Disable SLP where it is unnecessary or bind it only to dedicated management interfaces and required service-discovery networks."
+      },
+      {
+        "label": "Enforce network boundaries",
+        "text": "Filter TCP and UDP 427 between security zones and ensure registered services do not advertise sensitive management endpoints beyond their intended clients."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc2608",
+      "https://www.cve.org/CVERecord?id=CVE-2023-29552"
+    ]
+  },
+  "bssdp-upnp-responder-b-256bafda": {
+    "category": "network",
+    "title": "SSDP/UPnP responder exposed",
+    "why": "The host responds to SSDP discovery and may disclose device type, management URLs, model information, and UPnP services. Exposure across trust boundaries aids reconnaissance and, when reachable from the Internet, may also contribute to UDP reflection abuse.",
+    "test": [
+      {
+        "label": "Query UPnP device information",
+        "cmd": "nmap -sU -p <port> --script upnp-info <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable unnecessary UPnP",
+        "text": "Disable UPnP/SSDP on routers, endpoints, and appliances that do not require automatic local discovery."
+      },
+      {
+        "label": "Confine discovery traffic",
+        "text": "Block UDP 1900 across perimeter and routed trust boundaries, and limit SSDP multicast and unicast responses to the intended local segment."
+      }
+    ],
+    "refs": [
+      "https://openconnectivity.org/developer/specifications/upnp-resources/upnp/",
+      "https://attack.mitre.org/techniques/T1046/"
+    ]
+  },
+  "btelnet-open-device-129976a8": {
+    "category": "network",
+    "title": "Telnet management service exposed",
+    "why": "A Telnet service is reachable on the device, exposing an obsolete remote terminal protocol with no transport encryption or server authentication. Credentials and administrative commands can be observed or altered by anyone positioned on the network path.",
+    "test": [
+      {
+        "label": "Confirm the Telnet banner",
+        "cmd": "nmap -sV -p <port> --script banner <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Replace Telnet with SSH",
+        "text": "Disable the Telnet daemon or device management option and use SSH with modern algorithms, strong credentials, and preferably public-key authentication."
+      },
+      {
+        "label": "Restrict management access",
+        "text": "Place device management interfaces on a dedicated network and permit access only from approved administration hosts."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc854",
+      "https://www.cisa.gov/news-events/news/bad-practices"
+    ]
+  },
+  "bterrapin-ssh-audit-66181601": {
+    "category": "network",
+    "title": "SSH Terrapin attack exposure",
+    "why": "The SSH service supports a vulnerable protocol and algorithm combination associated with CVE-2023-48795, commonly called Terrapin. An active network attacker may truncate portions of the SSH handshake and weaken negotiated security features; the scanner signal should be interpreted alongside the server and client patch levels.",
+    "test": [
+      {
+        "label": "Audit SSH algorithms and strict key exchange",
+        "cmd": "ssh-audit <host>:<port>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Install SSH fixes",
+        "text": "Update SSH servers and clients to vendor-fixed releases that implement strict key exchange, such as OpenSSH 9.6 or a vendor-backported equivalent."
+      },
+      {
+        "label": "Disable vulnerable combinations",
+        "text": "Until all peers are patched, disable ChaCha20-Poly1305 and CBC with Encrypt-then-MAC combinations identified as vulnerable by the vendor, while retaining approved modern alternatives."
+      }
+    ],
+    "refs": [
+      "https://www.cve.org/CVERecord?id=CVE-2023-48795",
+      "https://www.openssh.com/txt/release-9.6"
+    ]
+  },
+  "btftp-readable-config-f856f6cb": {
+    "category": "network",
+    "title": "Configuration file readable over TFTP",
+    "why": "The TFTP server permits unauthenticated retrieval of a configuration file. Network-device and provisioning configurations frequently contain topology details, password hashes, SNMP communities, VPN secrets, or other credentials that enable broader compromise.",
+    "test": [
+      {
+        "label": "Retrieve the known file to standard output",
+        "cmd": "curl --silent --show-error tftp://<host>:<port>/<evidence_path>"
+      },
+      {
+        "label": "Enumerate common TFTP filenames",
+        "cmd": "nmap -sU -p <port> --script tftp-enum <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove sensitive files",
+        "text": "Remove configurations, backups, keys, and credentials from the TFTP root; rotate every secret contained in a file that was anonymously readable."
+      },
+      {
+        "label": "Constrain or replace TFTP",
+        "text": "Restrict TFTP to a dedicated provisioning network and approved clients, enforce a minimal read-only root, or replace it with an authenticated encrypted transfer mechanism."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc1350",
+      "https://nmap.org/nsedoc/scripts/tftp-enum.html"
+    ]
+  },
+  "bunauth-git-daemon-b-39d5d84c": {
+    "category": "network",
+    "title": "Unauthenticated Git repository export",
+    "why": "The Git daemon exposes at least one repository without authenticating readers. Repository history may disclose proprietary source, deleted files, internal infrastructure details, and credentials that remain recoverable from earlier commits.",
+    "test": [
+      {
+        "label": "List remote references without cloning",
+        "cmd": "git ls-remote git://<host>:<port>/<evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Stop anonymous export",
+        "text": "Remove git-daemon-export-ok from private repositories, do not use git daemon --export-all, and disable the daemon if anonymous read access is unnecessary."
+      },
+      {
+        "label": "Use authenticated repository access",
+        "text": "Serve private repositories through authenticated SSH or HTTPS, restrict network access, scan the full history for secrets, and rotate any exposed credentials."
+      }
+    ],
+    "refs": [
+      "https://git-scm.com/docs/git-daemon",
+      "https://cwe.mitre.org/data/definitions/200.html"
+    ]
+  },
+  "bvpn-cisco-anyconnect-asa-ssl-vpn-fortinet-ssl-vpn-palo-ee1ab2b1": {
+    "category": "network",
+    "title": "Internet-facing SSL VPN identified",
+    "why": "The endpoint was fingerprinted as a supported enterprise SSL VPN product, placing a high-value remote-access control plane in scope. Product detection is not itself proof of a vulnerability, but VPN gateways are frequent targets for credential attacks and pre-authentication flaws and should receive expedited version and configuration review.",
+    "test": [
+      {
+        "label": "Confirm the identified portal response",
+        "cmd": "curl -ksS -D - <service>://<host>:<port>/<evidence_path> -o /dev/null"
+      },
+      {
+        "label": "Record service and TLS details",
+        "cmd": "nmap -sV -p <port> --script ssl-cert,ssl-enum-ciphers <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Maintain the edge appliance",
+        "text": "Verify the exact product and build, apply current vendor security updates, remove unsupported versions, and review relevant CISA KEV entries and vendor advisories."
+      },
+      {
+        "label": "Harden remote access",
+        "text": "Require phishing-resistant MFA, disable unused portals and management interfaces, restrict administration to a separate trusted network, and monitor authentication and configuration changes."
+      }
+    ],
+    "refs": [
+      "https://csrc.nist.gov/pubs/sp/800/46/r2/final",
+      "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+    ]
+  },
+  "bvrfy-enabled-b-03eb095d": {
+    "category": "network",
+    "title": "SMTP VRFY command enabled",
+    "why": "The SMTP server processes VRFY requests and may distinguish valid local recipients from nonexistent users. Attackers can use this behavior to build accurate account lists for phishing, password attacks, and business-email-compromise targeting.",
+    "test": [
+      {
+        "label": "Verify one authorized test identity",
+        "cmd": "printf 'EHLO audit.<domain>\\r\\nVRFY <user>\\r\\nQUIT\\r\\n' | nc -w 5 <host> <port>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable useful VRFY responses",
+        "text": "Configure the MTA to reject VRFY or return an identical non-enumerable response for valid and invalid users; for Postfix, enable disable_vrfy_command."
+      },
+      {
+        "label": "Limit account-enumeration signals",
+        "text": "Apply consistent recipient handling, rate limits, and monitoring across VRFY, EXPN, RCPT TO, webmail, and directory interfaces."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc5321#section-3.5",
+      "https://attack.mitre.org/techniques/T1087/"
+    ]
+  },
+  "bx11-open-display-b-ee0898b0": {
+    "category": "network",
+    "title": "Unauthenticated X11 display access",
+    "why": "The X11 display accepts remote client connections without effective authorization. An attacker may be able to observe windows, capture input, inject keyboard or mouse events, or interact with applications running in the victim's graphical session.",
+    "test": [
+      {
+        "label": "Check X11 access control",
+        "cmd": "nmap -p <port> --script x11-access <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable direct TCP X11",
+        "text": "Start the X server with TCP listening disabled and remove display-manager settings that expose ports 6000 and above."
+      },
+      {
+        "label": "Restore access controls",
+        "text": "Remove permissive xhost entries, use per-session Xauthority cookies, and provide necessary remote GUI access through tightly controlled SSH forwarding."
+      }
+    ],
+    "refs": [
+      "https://www.x.org/releases/current/doc/man/man7/Xsecurity.7.xhtml",
+      "https://nmap.org/nsedoc/scripts/x11-access.html"
+    ]
+  },
+  "byarn-resourcemanager-unauth-dda5ab1e": {
+    "category": "network",
+    "title": "Unauthenticated YARN ResourceManager API",
+    "why": "The Hadoop YARN ResourceManager REST API returns cluster information without authenticating the requester. It can disclose cluster topology and configuration, and deployments that also leave administrative APIs unprotected may permit application submission or control with worker-level execution impact.",
+    "test": [
+      {
+        "label": "Read ResourceManager cluster information",
+        "cmd": "curl -fsS <service>://<host>:<port>/ws/v1/cluster/info"
+      },
+      {
+        "label": "List cluster nodes read-only",
+        "cmd": "curl -fsS <service>://<host>:<port>/ws/v1/cluster/nodes"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable Hadoop authentication",
+        "text": "Enable Kerberos-based Hadoop security and SPNEGO for ResourceManager HTTP endpoints, then enforce YARN service-level authorization and queue ACLs."
+      },
+      {
+        "label": "Restrict the management plane",
+        "text": "Expose ResourceManager interfaces only to authorized users, gateway services, and administration networks; block direct access from untrusted segments."
+      }
+    ],
+    "refs": [
+      "https://hadoop.apache.org/docs/r3.4.0/hadoop-yarn/hadoop-yarn-site/ResourceManagerRest.html",
+      "https://hadoop.apache.org/docs/current/hadoop-project-dist/hadoop-common/SecureMode.html"
+    ]
+  },
+  "byarn-unauth-app-inventory-d7eaf3ca": {
+    "category": "network",
+    "title": "YARN application inventory exposed",
+    "why": "Unauthenticated clients can enumerate YARN applications, including names, users, queues, states, and tracking URLs. This reveals active workloads and privileged identities and may expose linked application interfaces or sensitive operational metadata.",
+    "test": [
+      {
+        "label": "List a bounded set of applications",
+        "cmd": "curl -fsS '<service>://<host>:<port>/ws/v1/cluster/apps?limit=10'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Authenticate ResourceManager HTTP access",
+        "text": "Enable Kerberos/SPNEGO authentication and Hadoop authorization for the ResourceManager web and REST interfaces."
+      },
+      {
+        "label": "Limit inventory visibility",
+        "text": "Restrict ResourceManager and tracking URLs to approved networks and users, and review proxy-user and queue ACLs for least privilege."
+      }
+    ],
+    "refs": [
+      "https://hadoop.apache.org/docs/r3.4.0/hadoop-yarn/hadoop-yarn-site/ResourceManagerRest.html",
+      "https://hadoop.apache.org/docs/current/hadoop-project-dist/hadoop-common/SecureMode.html"
+    ]
+  },
+  "bzabbix-agent-unauth-metric-query-9c344bed": {
+    "category": "network",
+    "title": "Unauthenticated Zabbix agent queries",
+    "why": "The Zabbix agent returns metric values to an unauthenticated remote requester. Exposed item keys can reveal operating-system, network, process, filesystem, and application details, and unsafe user parameters or system.run rules can raise the impact substantially.",
+    "test": [
+      {
+        "label": "Read a benign system metric",
+        "cmd": "zabbix_get -s <host> -p <port> -k system.uname"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict permitted servers",
+        "text": "Set the agent Server parameter to only authorized Zabbix servers or proxies and enforce the same source restriction with a host firewall."
+      },
+      {
+        "label": "Require encryption and constrain keys",
+        "text": "Configure TLS with PSK or certificates, allow only required item keys, explicitly deny system.run and sensitive file-reading keys, and remove unsafe user parameters."
+      }
+    ],
+    "refs": [
+      "https://www.zabbix.com/documentation/current/en/manual/appendix/config/zabbix_agentd",
+      "https://www.zabbix.com/documentation/8.0/en/manual/config/items/restrict_checks"
+    ]
+  },
+  "bzabbix-server-reachable-bfba7fc4": {
+    "category": "network",
+    "title": "Zabbix server port reachable",
+    "why": "The Zabbix server listener is reachable from the tested network, exposing a high-value monitoring control-plane component. Reachability alone does not demonstrate unauthenticated access, but unnecessary exposure increases opportunities for version fingerprinting, protocol attacks, and attempts to impersonate trusted agents or proxies.",
+    "test": [
+      {
+        "label": "Confirm the Zabbix server listener",
+        "cmd": "nmap -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict component communication",
+        "text": "Allow the server port only from registered Zabbix proxies, active agents, and required internal components using network and host firewalls."
+      },
+      {
+        "label": "Protect and maintain the server",
+        "text": "Require certificate- or PSK-protected component connections, keep Zabbix supported and patched, and separate the web interface, database, and server listener by role."
+      }
+    ],
+    "refs": [
+      "https://www.zabbix.com/documentation/current/en/manual/appendix/config/zabbix_server",
+      "https://www.zabbix.com/documentation/current/en/manual/encryption"
+    ]
+  },
+  "cve-2024-6387-regresshion-27d5471e": {
+    "category": "network",
+    "title": "OpenSSH regreSSHion candidate",
+    "why": "The SSH banner matches an OpenSSH release range associated with CVE-2024-6387, a pre-authentication race condition in sshd's signal handling that can lead to remote code execution on affected glibc-based systems. Banner matching is only a candidate signal because operating-system vendors may backport fixes without changing the upstream version string, and some platforms are not exploitable.",
+    "test": [
+      {
+        "label": "Record the SSH implementation and algorithms",
+        "cmd": "ssh-audit <host>:<port>"
+      },
+      {
+        "label": "Confirm the network banner",
+        "cmd": "nmap -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Install the vendor-fixed OpenSSH package",
+        "text": "Upgrade to OpenSSH 9.8 or the operating-system vendor's patched package, and verify patch status through the package changelog or advisory rather than the banner alone."
+      },
+      {
+        "label": "Apply temporary containment",
+        "text": "Until patched, restrict SSH to trusted administration sources; setting LoginGraceTime to 0 prevents the vulnerable timeout path but can increase denial-of-service exposure and should be treated only as a temporary vendor-documented mitigation."
+      }
+    ],
+    "refs": [
+      "https://www.openssh.com/txt/release-9.8",
+      "https://www.cve.org/CVERecord?id=CVE-2024-6387"
+    ]
+  }
+}

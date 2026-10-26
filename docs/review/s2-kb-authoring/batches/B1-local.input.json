@@ -1,0 +1,284 @@
+{
+ "category_set": [
+  "linlocal",
+  "winlocal"
+ ],
+ "rules": {
+  "all-s-s-all-s-all-46200da3": {
+   "severity": "critical",
+   "pattern": "\\(ALL\\s*:\\s*ALL\\)\\s*ALL",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "alwaysinstallelevated-enabled-6495dbaa": {
+   "severity": "critical",
+   "pattern": "AlwaysInstallElevated ENABLED",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "b-release-agent-notify-on-release-core-pattern-sysrq-tr-a3f639e8": {
+   "severity": "critical",
+   "pattern": "\\b(release_agent|notify_on_release|core_pattern|sysrq-trigger) writable\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bcap-net-raw-net-bind-service-kill-sys-rawio-b-ep-5d5ddc68": {
+   "severity": "high",
+   "pattern": "\\bcap_(net_raw|net_bind_service|kill|sys_rawio)\\b\\+ep",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "bcap-setuid-setgid-dac-read-search-dac-override-sys-adm-8660c37c": {
+   "severity": "high",
+   "pattern": "\\bcap_(setuid|setgid|dac_read_search|dac_override|sys_admin|sys_ptrace|sys_module|sys_rawio)\\S*\\+ep",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bcap-setuid-setgid-dac-read-search-dac-override-sys-adm-e867ba82": {
+   "severity": "critical",
+   "pattern": "\\bcap_(setuid|setgid|dac_read_search|dac_override|sys_admin|sys_ptrace|sys_module|chown|fowner|net_admin)\\b\\+ep",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "bcap-sys-admin-held-b-blooks-privileged-b-9c8a77ca": {
+   "severity": "critical",
+   "pattern": "\\bCAP_SYS_ADMIN held\\b|\\blooks privileged\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bdocker-sock-present-b-01283762": {
+   "severity": "critical",
+   "pattern": "\\bdocker\\.sock present\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bno-all-squash-b-862fbcde": {
+   "severity": "medium",
+   "pattern": "\\bno_all_squash\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bno-root-squash-b-b4bfb72e": {
+   "severity": "critical",
+   "pattern": "\\bno_root_squash\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bpossible-host-pid-namespace-b-dbd24c2f": {
+   "severity": "high",
+   "pattern": "\\bpossible host PID namespace\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bse-backup-restore-takeownership-managevolume-security-75436e54": {
+   "severity": "high",
+   "pattern": "\\bSe(Backup|Restore|TakeOwnership|ManageVolume|Security)Privilege\\s*\\(ENABLED\\)",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "bse-impersonate-assignprimarytoken-debug-backup-restore-5c02ab8b": {
+   "severity": "medium",
+   "pattern": "\\bSe(Impersonate|AssignPrimaryToken|Debug|Backup|Restore|TakeOwnership)Privilege\\s*\\(disabled",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "bse-impersonate-assignprimarytoken-debug-tcb-createtoke-6ff3ed2a": {
+   "severity": "critical",
+   "pattern": "\\bSe(Impersonate|AssignPrimaryToken|Debug|Tcb|CreateToken|LoadDriver)Privilege\\s*\\(ENABLED\\)",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "bwritable-b-etc-cron-78249dc5": {
+   "severity": "high",
+   "pattern": "\\bwritable\\b.*/etc/cron",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "bwritable-b-etc-systemd-f4b4a67c": {
+   "severity": "high",
+   "pattern": "\\bwritable\\b.*/etc/systemd",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "docker-sock-ca319bcd": {
+   "severity": "high",
+   "pattern": "docker.sock",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "env-keep-ld-preload-library-path-f389f6e9": {
+   "severity": "critical",
+   "pattern": "env_keep.*LD_(PRELOAD|LIBRARY_PATH)",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "etc-apt-sources-list-writable-3e435145": {
+   "severity": "critical",
+   "pattern": "/etc/apt/sources\\.list WRITABLE",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "etc-usr-lib-lib64-sbin-bin-s-s-s-world-writable-0e6b08c2": {
+   "severity": "critical",
+   "pattern": "^/(etc|usr|lib|lib64|sbin|bin)/.*\\s.*\\s.*\\s.*world.*writable",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "glibc-s-s-s-in-vulnerable-window-s-2-34-2-38-s-s-looney-5edd47d9": {
+   "severity": "high",
+   "pattern": "glibc\\s+\\S+\\s+in vulnerable window\\s+2\\.34-2\\.38\\s+\u2014\\s+Looney",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "groups-services-scheduledtasks-datasources-printers-dri-6642dd0f": {
+   "severity": "critical",
+   "pattern": "^\\[\\+\\] .*\\\\(Groups|Services|Scheduledtasks|DataSources|Printers|Drives)\\.xml",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "hardening-ptrace-scope-0-unprivileged-bpf-disabled-0-su-3c34f507": {
+   "severity": "medium",
+   "pattern": "HARDENING:.*(ptrace_scope=0|unprivileged_bpf_disabled=0|suid_dumpable)",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "io-uring-reachable-to-current-user-s-s-known-cve-surfac-de45adbf": {
+   "severity": "high",
+   "pattern": "io_uring reachable to current user\\s+\u2014\\s+known CVE surface",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "kernel-s-s-s-in-ubuntu-hwe-cve-2023-0386-vulnerable-d094a0e0": {
+   "severity": "critical",
+   "pattern": "kernel\\s+\\S+\\s+in Ubuntu HWE.*CVE-2023-0386 vulnerable",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "linux-s-s-s-2-3-4-5-0-9-1-0-5-3ce6a6fb": {
+   "severity": "medium",
+   "pattern": "Linux\\s+\\S+\\s+(2\\.|3\\.|4\\.|5\\.([0-9]|1[0-5])\\.)",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "nopasswd-4f47cfff": {
+   "severity": "critical",
+   "pattern": "NOPASSWD",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "os-s-microsoft-windows-7-server-2008-server-2012-b-d3cd5385": {
+   "severity": "medium",
+   "pattern": "OS:\\s+Microsoft Windows (7|Server 2008|Server 2012)\\b",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "polkit-s-s-s-s-0-120-s-s-pwnkit-vulnerable-candidate-11f39eeb": {
+   "severity": "high",
+   "pattern": "polkit\\s+\\S+\\s+<\\s+0\\.120\\s+\u2014\\s+PwnKit (?:vulnerable|candidate)",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "privileged-s-true-bdcd4765": {
+   "severity": "critical",
+   "pattern": "Privileged:\\s*true",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "rw-r-rw-s-etc-passwd-shadow-sudoers-sudoers-d-6acf62fc": {
+   "severity": "critical",
+   "pattern": "^-rw.r..rw.\\s.*/etc/(passwd|shadow|sudoers|sudoers\\.d)",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "rws-b-s-bash-sh-dash-ksh-zsh-csh-tcsh-less-more-vi-vim-5cb6db9a": {
+   "severity": "critical",
+   "pattern": "^-rws.*\\b/((?:[^/\\s]+/)*)(bash|sh|dash|ksh|zsh|csh|tcsh|less|more|vi|vim|nvim|nano|ed|emacs|awk|gawk|mawk|sed|grep|find|xargs|perl|python|python2|python3|ruby|lua|node|nodejs|php|gdb|strace|ltrace|ftrace|env|nice|nohup|time|timeout|watch|mount|umount|fusermount|nmap|ncat|nc|socat|ssh|scp|sftp|rsync|tar|zip|unzip|gzip|gunzip|bzip2|xz|7z|base32|base64|xxd|hexdump|wget|curl|tftp|busybox|make|cmake|msfconsole|apt|apt\\-get|dpkg|rpm|yum|dnf|pip|pip3|gem|npm|cp|mv|dd|install|tee|tail|head|expect|screen|tmux|ar|ld|git|ssh\\-keyscan)\\s*$",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "rws-de23ca2d": {
+   "severity": "medium",
+   "pattern": "^-rws",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "s-a-za-z-program-files-s-startmode-b57c099c": {
+   "severity": "high",
+   "pattern": "^\\[\\+\\] \\S+ -> [A-Za-z]:\\\\Program Files\\\\.*\\s.*\\(StartMode=",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "s-s-docker-lxd-lxc-disk-shadow-adm-b-1d99aa01": {
+   "severity": "high",
+   "pattern": "^\\s*\\[\\+\\]\\s*(docker|lxd|lxc|disk|shadow|adm)\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "seimpersonate-dcom-reachable-roguepotato-e8db2689": {
+   "severity": "high",
+   "pattern": "SeImpersonate \\+ DCOM reachable.*RoguePotato",
+   "list": "AD_DEPTH",
+   "category": "winlocal"
+  },
+  "seimpersonate-spooler-running-printspoofer-a2b0d2aa": {
+   "severity": "critical",
+   "pattern": "SeImpersonate \\+ Spooler running.*PrintSpoofer",
+   "list": "AD_DEPTH",
+   "category": "winlocal"
+  },
+  "serviceaccount-token-b-7f1ea010": {
+   "severity": "high",
+   "pattern": "serviceaccount/token\\b",
+   "list": "DEFAULT",
+   "category": "winlocal"
+  },
+  "sudo-version-1-8-0-9-1-8-1-0-9-1-8-2-0-9-1-8-31p1-1-9-0-6ec6c06d": {
+   "severity": "high",
+   "pattern": "sudo version (1\\.8\\.[0-9]|1\\.8\\.1[0-9]|1\\.8\\.2[0-9]|1\\.8\\.31p1|1\\.9\\.[0-4])\\b",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "system-network-service-administrators-2af202a3": {
+   "severity": "high",
+   "pattern": "^\\[\\+\\] \\[(SYSTEM|NETWORK SERVICE|.*Administrators)\\] ",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "unattend-ed-xml-sysprep-xml-inf-unattend-xml-inf-txt-d7be63e8": {
+   "severity": "critical",
+   "pattern": "^\\[\\+\\] .*\\\\(Unattend(ed)?\\.xml|sysprep\\.(xml|inf)|unattend\\.(xml|inf|txt))",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "unshare-ru-succeeded-s-s-unprivileged-userns-creation-w-b96b8d69": {
+   "severity": "high",
+   "pattern": "unshare -rU succeeded\\s+\u2014\\s+unprivileged userns creation works",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "writable-a-za-z-30aabd46": {
+   "severity": "high",
+   "pattern": "^\\[\\+\\] WRITABLE: [A-Za-z]:\\\\",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "writable-binary-921ba2b9": {
+   "severity": "critical",
+   "pattern": "WRITABLE BINARY:",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "writable-pipe-1c761405": {
+   "severity": "high",
+   "pattern": "WRITABLE PIPE:",
+   "list": "AD_DEPTH",
+   "category": "winlocal"
+  },
+  "writable-root-runs-scripts-from-here-on-apt-operations-45cf6e05": {
+   "severity": "critical",
+   "pattern": "WRITABLE.*root runs scripts from here on apt operations",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  }
+ }
+}
