@@ -40,9 +40,9 @@ def _classify_fixture(fixture_dir: Path) -> dict[str, int]:
         if not fp.is_file():
             continue
         for line in fp.read_text().splitlines():
-            sev = R._classify(line, R._AD_DEPTH_RULES)
-            if sev:
-                counts[sev] += 1
+            matched = R._classify(line, R._AD_DEPTH_RULES)
+            if matched:
+                counts[matched.severity] += 1
     return counts
 
 

@@ -1,0 +1,556 @@
+test_bloodhound_zip_classified_high (test_ad_signals.TestADDepthRules.test_bloodhound_zip_classified_high) ... ok
+test_certipy_esc1_classified_critical (test_ad_signals.TestADDepthRules.test_certipy_esc1_classified_critical) ... ok
+test_gpp_cpassword_classified_critical (test_ad_signals.TestADDepthRules.test_gpp_cpassword_classified_critical) ... ok
+test_laps_cleartext_critical_encrypted_high (test_ad_signals.TestADDepthRules.test_laps_cleartext_critical_encrypted_high) ... ok
+test_printnightmare_exploitable_classified_critical (test_ad_signals.TestADDepthRules.test_printnightmare_exploitable_classified_critical) ... ok
+test_unconstrained_delegation_classified_high (test_ad_signals.TestADDepthRules.test_unconstrained_delegation_classified_high) ... ok
+test_certipy_fixture_surfaces_in_findings_json (test_ad_signals.TestCLIIntegrationAuto.test_certipy_fixture_surfaces_in_findings_json) ... ok
+test_every_fixture_host_has_findings (test_bulk_enum_report.TestBulkVerdicts.test_every_fixture_host_has_findings) ... ok
+test_evidence_paths_relative (test_bulk_enum_report.TestBulkVerdicts.test_evidence_paths_relative) ... ok
+test_finding_service_matches_evidence_file (test_bulk_enum_report.TestBulkVerdicts.test_finding_service_matches_evidence_file) ... ok
+test_findings_have_required_fields (test_bulk_enum_report.TestBulkVerdicts.test_findings_have_required_fields) ... ok
+test_per_host_os_tagged_correctly (test_bulk_enum_report.TestBulkVerdicts.test_per_host_os_tagged_correctly) ... ok
+test_per_host_verdicts_match_expected (test_bulk_enum_report.TestBulkVerdicts.test_per_host_verdicts_match_expected) ... ok
+test_se_disabled_hint_does_not_false_positive_critical (test_bulk_enum_report.TestBulkVerdicts.test_se_disabled_hint_does_not_false_positive_critical) ... ok
+test_cli_produces_findings_json_with_per_host (test_bulk_enum_report.TestCLIBulkMode.test_cli_produces_findings_json_with_per_host) ... ok
+test_malformed_pair_metadata_is_reported_as_partial (test_bulk_enum_report.TestCLIBulkMode.test_malformed_pair_metadata_is_reported_as_partial) ... ok
+test_auto_enum_layout_not_bulk (test_bulk_enum_report.TestLayoutDetection.test_auto_enum_layout_not_bulk) ... ok
+test_empty_dir_not_bulk (test_bulk_enum_report.TestLayoutDetection.test_empty_dir_not_bulk) ... ok
+test_fixtures_dir_detected_as_bulk (test_bulk_enum_report.TestLayoutDetection.test_fixtures_dir_detected_as_bulk) ... ok
+test_basic_over_http_refused (test_bulk_enum_windows.TestEndToEndMocked.test_basic_over_http_refused) ... [!] auth=basic over HTTP is refused (clear-text password); pass --tls
+ok
+test_dry_run_produces_per_host_dirs (test_bulk_enum_windows.TestEndToEndMocked.test_dry_run_produces_per_host_dirs) ... [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
+ok
+test_mocked_winrm_writes_per_host_output (test_bulk_enum_windows.TestEndToEndMocked.test_mocked_winrm_writes_per_host_output)
+Patch winrm.Session to return canned stdout per host, drive ... skipped 'pywinrm not installed — WinRM transport test skipped'
+test_parallel_cap_refused (test_bulk_enum_windows.TestEndToEndMocked.test_parallel_cap_refused) ... [!] parallel must be in 1..16 (you asked for 32)
+ok
+test_smb_admin_no_impacket_returns_127 (test_bulk_enum_windows.TestEndToEndMocked.test_smb_admin_no_impacket_returns_127) ... ok
+test_smb_admin_oversized_script_refused_126 (test_bulk_enum_windows.TestEndToEndMocked.test_smb_admin_oversized_script_refused_126) ... ok
+test_smb_admin_small_script_invokes_wmiexec (test_bulk_enum_windows.TestEndToEndMocked.test_smb_admin_small_script_invokes_wmiexec) ... ok
+test_throttle_default_parallel_1 (test_bulk_enum_windows.TestEndToEndMocked.test_throttle_default_parallel_1) ... [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
+ok
+test_use_smb_admin_without_pass_refused (test_bulk_enum_windows.TestEndToEndMocked.test_use_smb_admin_without_pass_refused) ... [!] --use-smb-admin requires --pass (admin creds)
+ok
+test_bare_hostname_uses_default_user (test_bulk_enum_windows.TestParseSpec.test_bare_hostname_uses_default_user) ... ok
+test_blank_returns_none (test_bulk_enum_windows.TestParseSpec.test_blank_returns_none) ... ok
+test_comment_returns_none (test_bulk_enum_windows.TestParseSpec.test_comment_returns_none) ... ok
+test_ipv6_bracketed_no_port (test_bulk_enum_windows.TestParseSpec.test_ipv6_bracketed_no_port) ... ok
+test_ipv6_bracketed_with_port (test_bulk_enum_windows.TestParseSpec.test_ipv6_bracketed_with_port) ... ok
+test_trailing_comment_stripped (test_bulk_enum_windows.TestParseSpec.test_trailing_comment_stripped) ... ok
+test_user_at_host (test_bulk_enum_windows.TestParseSpec.test_user_at_host) ... ok
+test_user_at_host_port (test_bulk_enum_windows.TestParseSpec.test_user_at_host_port) ... ok
+test_ipv4_endpoint (test_bulk_enum_windows.TestWinRMEndpoint.test_ipv4_endpoint) ... skipped 'pywinrm not installed — WinRM transport tests skipped'
+test_ipv6_endpoint_bracketed (test_bulk_enum_windows.TestWinRMEndpoint.test_ipv6_endpoint_bracketed) ... skipped 'pywinrm not installed — WinRM transport tests skipped'
+test_tls_endpoint (test_bulk_enum_windows.TestWinRMEndpoint.test_tls_endpoint) ... skipped 'pywinrm not installed — WinRM transport tests skipped'
+test_all_transports_fail_records_last_attempt_with_history (test_bulk_enum_windows_transports.TestAutoFallthrough.test_all_transports_fail_records_last_attempt_with_history) ... ok
+test_auto_falls_through_winrm_auth_fail_to_ssh_success (test_bulk_enum_windows_transports.TestAutoFallthrough.test_auto_falls_through_winrm_auth_fail_to_ssh_success)
+winrm auth-fails, ssh succeeds -> _meta.json records transport=ssh ... ok
+test_auto_stops_at_first_success_never_tries_next (test_bulk_enum_windows_transports.TestAutoFallthrough.test_auto_stops_at_first_success_never_tries_next)
+winrm succeeds immediately -> ssh.run must never be called. ... ok
+test_remote_err_also_stops_fallthrough (test_bulk_enum_windows_transports.TestAutoFallthrough.test_remote_err_also_stops_fallthrough)
+Auth succeeded but the remote script exited non-zero (REMOTE_ERR) ... ok
+test_main_hard_fails_when_all_transports_unavailable_and_not_dry_run (test_bulk_enum_windows_transports.TestDependencyDegradation.test_main_hard_fails_when_all_transports_unavailable_and_not_dry_run) ... [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
+[?] transport 'ssh' unavailable (ssh not installed) — skipping
+[!] no requested transport is usable (all unavailable) — see messages above
+ok
+test_main_warns_and_skips_unavailable_transport_to_dry_run (test_bulk_enum_windows_transports.TestDependencyDegradation.test_main_warns_and_skips_unavailable_transport_to_dry_run) ... [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
+ok
+test_smb_unavailable_without_impacket_binaries (test_bulk_enum_windows_transports.TestDependencyDegradation.test_smb_unavailable_without_impacket_binaries) ... ok
+test_ssh_available_when_binary_present (test_bulk_enum_windows_transports.TestDependencyDegradation.test_ssh_available_when_binary_present) ... ok
+test_ssh_unavailable_when_binary_missing (test_bulk_enum_windows_transports.TestDependencyDegradation.test_ssh_unavailable_when_binary_missing) ... ok
+test_winrm_unavailable_reason (test_bulk_enum_windows_transports.TestDependencyDegradation.test_winrm_unavailable_reason) ... ok
+test_smb_wraps_script_as_base64_encoded_command (test_bulk_enum_windows_transports.TestPayloadWrapping.test_smb_wraps_script_as_base64_encoded_command) ... ok
+test_ssh_password_path_degrades_cleanly_without_sshpass (test_bulk_enum_windows_transports.TestPayloadWrapping.test_ssh_password_path_degrades_cleanly_without_sshpass) ... [?] 10.0.0.9: sshpass not installed — cannot use --pass over the ssh transport (apt/dnf install sshpass, or use --key with a running ssh-agent for non-interactive key auth instead).
+ok
+test_ssh_password_path_uses_sshpass_wrapper (test_bulk_enum_windows_transports.TestPayloadWrapping.test_ssh_password_path_uses_sshpass_wrapper) ... ok
+test_ssh_ships_raw_script_as_stdin_not_base64 (test_bulk_enum_windows_transports.TestPayloadWrapping.test_ssh_ships_raw_script_as_stdin_not_base64)
+ADR-006 D1c-1: ssh mirrors the Linux stdin-pipe exactly — the ... ok
+test_auto_default_excludes_smb_without_consent (test_bulk_enum_windows_transports.TestResolveTransportOrder.test_auto_default_excludes_smb_without_consent) ... ok
+test_auto_includes_smb_only_with_consent (test_bulk_enum_windows_transports.TestResolveTransportOrder.test_auto_includes_smb_only_with_consent) ... ok
+test_explicit_order_honored_verbatim (test_bulk_enum_windows_transports.TestResolveTransportOrder.test_explicit_order_honored_verbatim) ... ok
+test_explicit_smb_with_consent_allowed (test_bulk_enum_windows_transports.TestResolveTransportOrder.test_explicit_smb_with_consent_allowed) ... ok
+test_explicit_smb_without_consent_refused (test_bulk_enum_windows_transports.TestResolveTransportOrder.test_explicit_smb_without_consent_refused) ... ok
+test_single_explicit_transport (test_bulk_enum_windows_transports.TestResolveTransportOrder.test_single_explicit_transport) ... ok
+test_ipv6_destination_is_bare_for_openssh (test_bulk_enum_windows_transports.TestSSHArgvBuilder.test_ipv6_destination_is_bare_for_openssh) ... ok
+test_key_mode_agent_default_no_key_flag (test_bulk_enum_windows_transports.TestSSHArgvBuilder.test_key_mode_agent_default_no_key_flag) ... ok
+test_key_mode_sets_batchmode_yes_and_publickey (test_bulk_enum_windows_transports.TestSSHArgvBuilder.test_key_mode_sets_batchmode_yes_and_publickey) ... ok
+test_key_then_pass_mode_keeps_pubkey_enabled (test_bulk_enum_windows_transports.TestSSHArgvBuilder.test_key_then_pass_mode_keeps_pubkey_enabled) ... ok
+test_pass_mode_omits_batchmode_yes (test_bulk_enum_windows_transports.TestSSHArgvBuilder.test_pass_mode_omits_batchmode_yes) ... ok
+test_powershell_stdin_command_present (test_bulk_enum_windows_transports.TestSSHArgvBuilder.test_powershell_stdin_command_present) ... ok
+test_ssh_port_and_connect_timeout_and_known_hosts_applied (test_bulk_enum_windows_transports.TestSSHArgvBuilder.test_ssh_port_and_connect_timeout_and_known_hosts_applied) ... ok
+test_ssh_transport_prefers_discovered_nondefault_port (test_bulk_enum_windows_transports.TestSSHArgvBuilder.test_ssh_transport_prefers_discovered_nondefault_port) ... ok
+test_smb_connection_error_is_unreachable (test_bulk_enum_windows_transports.TestStatusClassification.test_smb_connection_error_is_unreachable) ... ok
+test_smb_logon_failure_is_auth_fail (test_bulk_enum_windows_transports.TestStatusClassification.test_smb_logon_failure_is_auth_fail) ... ok
+test_smb_missing_binary_is_unreachable (test_bulk_enum_windows_transports.TestStatusClassification.test_smb_missing_binary_is_unreachable) ... ok
+test_smb_ok (test_bulk_enum_windows_transports.TestStatusClassification.test_smb_ok) ... ok
+test_smb_other_nonzero_is_remote_err (test_bulk_enum_windows_transports.TestStatusClassification.test_smb_other_nonzero_is_remote_err) ... ok
+test_smb_oversized_script_is_remote_err (test_bulk_enum_windows_transports.TestStatusClassification.test_smb_oversized_script_is_remote_err) ... ok
+test_ssh_connection_refused_is_unreachable (test_bulk_enum_windows_transports.TestStatusClassification.test_ssh_connection_refused_is_unreachable) ... ok
+test_ssh_nonzero_non255_is_remote_err (test_bulk_enum_windows_transports.TestStatusClassification.test_ssh_nonzero_non255_is_remote_err) ... ok
+test_ssh_ok (test_bulk_enum_windows_transports.TestStatusClassification.test_ssh_ok) ... ok
+test_ssh_permission_denied_is_auth_fail (test_bulk_enum_windows_transports.TestStatusClassification.test_ssh_permission_denied_is_auth_fail) ... ok
+test_ssh_sshpass_incorrect_password_rc5 (test_bulk_enum_windows_transports.TestStatusClassification.test_ssh_sshpass_incorrect_password_rc5) ... ok
+test_ssh_timeout_is_unreachable (test_bulk_enum_windows_transports.TestStatusClassification.test_ssh_timeout_is_unreachable) ... ok
+test_winrm_connection_error_is_unreachable (test_bulk_enum_windows_transports.TestStatusClassification.test_winrm_connection_error_is_unreachable) ... ok
+test_winrm_invalid_credentials_is_auth_fail (test_bulk_enum_windows_transports.TestStatusClassification.test_winrm_invalid_credentials_is_auth_fail) ... ok
+test_winrm_ok (test_bulk_enum_windows_transports.TestStatusClassification.test_winrm_ok) ... ok
+test_winrm_other_exception_is_remote_err (test_bulk_enum_windows_transports.TestStatusClassification.test_winrm_other_exception_is_remote_err) ... ok
+test_summary_has_status_and_fail_reason_columns (test_bulk_enum_windows_transports.TestSummaryTsv.test_summary_has_status_and_fail_reason_columns) ... ok
+test_comma_list (test_bulk_enum_windows_transports.TestTransportSpecParsing.test_comma_list) ... ok
+test_dedup_preserves_first_order (test_bulk_enum_windows_transports.TestTransportSpecParsing.test_dedup_preserves_first_order) ... ok
+test_default_is_auto (test_bulk_enum_windows_transports.TestTransportSpecParsing.test_default_is_auto) ... ok
+test_mixed_repeatable_and_comma (test_bulk_enum_windows_transports.TestTransportSpecParsing.test_mixed_repeatable_and_comma) ... ok
+test_repeatable_flags (test_bulk_enum_windows_transports.TestTransportSpecParsing.test_repeatable_flags) ... ok
+test_unknown_transport_raises (test_bulk_enum_windows_transports.TestTransportSpecParsing.test_unknown_transport_raises) ... ok
+test_whitespace_and_case_normalized (test_bulk_enum_windows_transports.TestTransportSpecParsing.test_whitespace_and_case_normalized) ... ok
+test_catalog_missing_products_key_exits_2 (test_creds_hardening.TestCatalogValidation.test_catalog_missing_products_key_exits_2) ... ok
+test_malformed_catalog_exits_2 (test_creds_hardening.TestCatalogValidation.test_malformed_catalog_exits_2) ... ok
+test_missing_catalog_exits_2 (test_creds_hardening.TestCatalogValidation.test_missing_catalog_exits_2) ... ok
+test_bare_ipv6_is_bracketed (test_creds_hardening.TestIPv6ParseTarget.test_bare_ipv6_is_bracketed) ... ok
+test_bracketed_ipv6_no_port_defaults (test_creds_hardening.TestIPv6ParseTarget.test_bracketed_ipv6_no_port_defaults) ... ok
+test_bracketed_ipv6_with_port (test_creds_hardening.TestIPv6ParseTarget.test_bracketed_ipv6_with_port) ... ok
+test_https_port_detected (test_creds_hardening.TestIPv6ParseTarget.test_https_port_detected) ... ok
+test_ipv4_unchanged (test_creds_hardening.TestIPv6ParseTarget.test_ipv4_unchanged) ... ok
+test_unmatched_bracket_returns_empty_with_warning (test_creds_hardening.TestIPv6ParseTarget.test_unmatched_bracket_returns_empty_with_warning) ... ok
+test_dry_run_completes_without_sleeping (test_creds_hardening.TestSprayDryRunNoSleep.test_dry_run_completes_without_sleeping) ... ok
+test_dry_run_prints_would_sleep_message (test_creds_hardening.TestSprayDryRunNoSleep.test_dry_run_prints_would_sleep_message) ... ok
+test_real_run_still_records_state (test_creds_hardening.TestSprayDryRunNoSleep.test_real_run_still_records_state)
+Confirm non-dry-run path is unaffected: state file is written. ... ok
+test_threads_negative (test_creds_hardening.TestThreadsValidation.test_threads_negative) ... ok
+test_threads_zero (test_creds_hardening.TestThreadsValidation.test_threads_zero) ... ok
+test_valid_creds_on_302_redirect_detected (test_default_creds_activemq.ActiveMQDefaultCredsTest.test_valid_creds_on_302_redirect_detected) ... ok
+test_wrong_creds_not_a_false_positive (test_default_creds_activemq.ActiveMQDefaultCredsTest.test_wrong_creds_not_a_false_positive) ... ok
+test_gated_dispatchers_refuse_without_env (test_dispatcher_contract.TestDispatcherContract.test_gated_dispatchers_refuse_without_env)
+CLAUDE.md §9 invariant: E4 aggressive UDP probes must refuse to ... ok
+test_hints_optional_dispatchers (test_dispatcher_contract.TestDispatcherContract.test_hints_optional_dispatchers) ... ok
+test_hints_required_dispatchers (test_dispatcher_contract.TestDispatcherContract.test_hints_required_dispatchers) ... ok
+test_missing_output_rejected (test_dispatcher_contract.TestParseCommonArgsRejection.test_missing_output_rejected) ... ok
+test_missing_targets_file_rejected (test_dispatcher_contract.TestParseCommonArgsRejection.test_missing_targets_file_rejected) ... ok
+test_missing_targets_rejected (test_dispatcher_contract.TestParseCommonArgsRejection.test_missing_targets_rejected) ... ok
+test_unknown_flag_rejected (test_dispatcher_contract.TestParseCommonArgsRejection.test_unknown_flag_rejected) ... ok
+test_each_subcommand_help (test_gql_cli.TestHelp.test_each_subcommand_help) ... ok
+test_root_help (test_gql_cli.TestHelp.test_root_help) ... ok
+test_apq_probe_unreachable (test_gql_cli.TestUnreachableTarget.test_apq_probe_unreachable) ... ok
+test_csrf_probe_unreachable (test_gql_cli.TestUnreachableTarget.test_csrf_probe_unreachable) ... ok
+test_suggest_empty_corpus_clean_exit (test_gql_cli.TestUnreachableTarget.test_suggest_empty_corpus_clean_exit) ... ok
+test_unreachable_exits_1_no_false_verdict (test_gql_hardening.TestApqProbeUnreachable.test_unreachable_exits_1_no_false_verdict) ... ok
+test_missing_file_arg_exits_2 (test_gql_hardening.TestArgFileMissing.test_missing_file_arg_exits_2) ... ok
+test_malformed_json_arg_exits_2 (test_gql_hardening.TestArgJsonMalformed.test_malformed_json_arg_exits_2) ... ok
+test_empty_key_exits_2 (test_gql_hardening.TestArgNameValidation.test_empty_key_exits_2) ... ok
+test_leading_digit_exits_2 (test_gql_hardening.TestArgNameValidation.test_leading_digit_exits_2) ... ok
+test_space_in_name_exits_2 (test_gql_hardening.TestArgNameValidation.test_space_in_name_exits_2) ... ok
+test_valid_names_accepted (test_gql_hardening.TestArgNameValidation.test_valid_names_accepted) ... ok
+test_duplicate_warns_and_keeps_last (test_gql_hardening.TestDuplicateArgWarn.test_duplicate_warns_and_keeps_last) ... ok
+test_missing_values_file_exits_2 (test_gql_hardening.TestLoopValuesFileMissing.test_missing_values_file_exits_2) ... ok
+test_missing_query_file_exits_2 (test_gql_hardening.TestRawQueryFileMissing.test_missing_query_file_exits_2) ... ok
+test_raw_no_url_exits_2 (test_gql_hardening.TestRawRequiresUrl.test_raw_no_url_exits_2) ... ok
+test_raw_with_url_reaches_network_phase (test_gql_hardening.TestRawRequiresUrl.test_raw_with_url_reaches_network_phase) ... ok
+test_bad_variables_json_exits_2 (test_gql_hardening.TestRawVariablesMalformed.test_bad_variables_json_exits_2) ... ok
+test_missing_corpus_exits_2 (test_gql_hardening.TestSuggestCorpusMissing.test_missing_corpus_exits_2) ... ok
+test_missing_ua_file_exits_2 (test_gql_hardening.TestUaRotateMissingFile.test_missing_ua_file_exits_2) ... ok
+test_object_with_scalar_fields (test_gql_internals.TestBuildSelection.test_object_with_scalar_fields) ... ok
+test_required_arg_field_skipped (test_gql_internals.TestBuildSelection.test_required_arg_field_skipped) ... ok
+test_scalar_return_emits_nothing (test_gql_internals.TestBuildSelection.test_scalar_return_emits_nothing) ... ok
+test_unknown_type_falls_back_to_typename (test_gql_internals.TestBuildSelection.test_unknown_type_falls_back_to_typename) ... ok
+test_anon_path_is_stable (test_gql_internals.TestCacheKey.test_anon_path_is_stable) ... ok
+test_custom_auth_header_names_are_case_insensitive (test_gql_internals.TestCacheKey.test_custom_auth_header_names_are_case_insensitive) ... ok
+test_distinct_cookie_distinct_cache (test_gql_internals.TestCacheKey.test_distinct_cookie_distinct_cache) ... ok
+test_distinct_urls_distinct_cache (test_gql_internals.TestCacheKey.test_distinct_urls_distinct_cache) ... ok
+test_job_token_partitions_cache (test_gql_internals.TestCacheKey.test_job_token_partitions_cache) ... ok
+test_private_token_still_partitions (test_gql_internals.TestCacheKey.test_private_token_still_partitions) ... ok
+test_same_cookie_same_cache (test_gql_internals.TestCacheKey.test_same_cookie_same_cache) ... ok
+test_bad_kv_exits (test_gql_internals.TestParseKVArgs.test_bad_kv_exits) ... ok
+test_basic (test_gql_internals.TestParseKVArgs.test_basic) ... ok
+test_empty_and_none (test_gql_internals.TestParseKVArgs.test_empty_and_none) ... ok
+test_value_with_equals (test_gql_internals.TestParseKVArgs.test_value_with_equals) ... ok
+test_at_cap_is_accepted (test_gql_internals.TestRangeBound.test_at_cap_is_accepted) ... ok
+test_inverted_range_exits (test_gql_internals.TestRangeBound.test_inverted_range_exits) ... ok
+test_normal_range_returns_count (test_gql_internals.TestRangeBound.test_normal_range_returns_count) ... ok
+test_over_cap_with_allow_huge_passes (test_gql_internals.TestRangeBound.test_over_cap_with_allow_huge_passes) ... ok
+test_over_cap_without_allow_huge_exits (test_gql_internals.TestRangeBound.test_over_cap_without_allow_huge_exits) ... ok
+test_empty_schema_returns_none (test_gql_internals.TestTypeByName.test_empty_schema_returns_none) ... ok
+test_lookup_hits (test_gql_internals.TestTypeByName.test_lookup_hits) ... ok
+test_lookup_miss_returns_none (test_gql_internals.TestTypeByName.test_lookup_miss_returns_none) ... ok
+test_type_str_list (test_gql_internals.TestTypeHelpers.test_type_str_list) ... ok
+test_type_str_list_non_null_required_list (test_gql_internals.TestTypeHelpers.test_type_str_list_non_null_required_list) ... ok
+test_type_str_non_null (test_gql_internals.TestTypeHelpers.test_type_str_non_null) ... ok
+test_type_str_none (test_gql_internals.TestTypeHelpers.test_type_str_none) ... ok
+test_type_str_scalar (test_gql_internals.TestTypeHelpers.test_type_str_scalar) ... ok
+test_unwrap_strips_to_scalar (test_gql_internals.TestTypeHelpers.test_unwrap_strips_to_scalar) ... ok
+test_ports_from_inventory (test_interop_recce.TestHelpers.test_ports_from_inventory) ... ok
+test_ports_from_raw_tree_both_layouts (test_interop_recce.TestHelpers.test_ports_from_raw_tree_both_layouts) ... ok
+test_primary_port_overrides (test_interop_recce.TestHelpers.test_primary_port_overrides) ... ok
+test_resolve_ip_direct_and_from_line (test_interop_recce.TestHelpers.test_resolve_ip_direct_and_from_line) ... ok
+test_resolve_port_explicit_and_embedded (test_interop_recce.TestHelpers.test_resolve_port_explicit_and_embedded) ... ok
+test_resolve_source_dir_and_file (test_interop_recce.TestHelpers.test_resolve_source_dir_and_file) ... ok
+test_service_map_loads_and_has_core_services (test_interop_recce.TestHelpers.test_service_map_loads_and_has_core_services) ... ok
+test_severity_passthrough_and_fallback (test_interop_recce.TestHelpers.test_severity_passthrough_and_fallback) ... ok
+test_subnet_size (test_interop_recce.TestHelpers.test_subnet_size) ... ok
+test_full_coverage_ingest (test_interop_recce.TestIngestEndToEnd.test_full_coverage_ingest) ... skipped 'recce not importable (set RECCE_PATH to enable)'
+test_merge_dedup_and_evidence_rewrite (test_merge_results.TestMergeResults.test_merge_dedup_and_evidence_rewrite) ... ok
+test_merge_refuses_missing_findings_directory (test_merge_results.TestMergeResults.test_merge_refuses_missing_findings_directory) ... [!] findings.json missing in: /tmp/tmpfb3zz5se/bad
+ok
+test_clickhouse_detected (test_new_dispatchers_tp.TestNewDispatcherTruePositives.test_clickhouse_detected) ... /home/net0ruser/.pyenv/versions/3.11.15/lib/python3.11/unittest/case.py:579: ResourceWarning: unclosed <socket.socket fd=4, family=2, type=1, proto=0, laddr=('127.0.0.1', 42053)>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_couchbase_detected (test_new_dispatchers_tp.TestNewDispatcherTruePositives.test_couchbase_detected) ... /home/net0ruser/.pyenv/versions/3.11.15/lib/python3.11/unittest/case.py:579: ResourceWarning: unclosed <socket.socket fd=4, family=2, type=1, proto=0, laddr=('127.0.0.1', 34859)>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_duplicate_records_for_one_endpoint_are_not_independent (test_nmap_parse.TestBoundedBambuCorrelation.test_duplicate_records_for_one_endpoint_are_not_independent) ... ok
+test_identity_plus_distinct_compatible_services_yields_low_likely (test_nmap_parse.TestBoundedBambuCorrelation.test_identity_plus_distinct_compatible_services_yields_low_likely) ... ok
+test_identity_plus_unidentified_port_tuple_does_not_correlate (test_nmap_parse.TestBoundedBambuCorrelation.test_identity_plus_unidentified_port_tuple_does_not_correlate) ... ok
+test_lone_combined_vendor_and_banner_record_does_not_correlate (test_nmap_parse.TestBoundedBambuCorrelation.test_lone_combined_vendor_and_banner_record_does_not_correlate) ... ok
+test_port_tuple_without_identity_does_not_correlate (test_nmap_parse.TestBoundedBambuCorrelation.test_port_tuple_without_identity_does_not_correlate) ... ok
+test_two_distinct_vendor_records_are_independent_positive_signals (test_nmap_parse.TestBoundedBambuCorrelation.test_two_distinct_vendor_records_are_independent_positive_signals) ... ok
+test_json_summary_matches_dispatch_count (test_nmap_parse.TestCLI.test_json_summary_matches_dispatch_count) ... ok
+test_list_categories_emits_every_service_map_key (test_nmap_parse.TestCLI.test_list_categories_emits_every_service_map_key) ... ok
+test_unknown_bucket_collects_uncategorized_ports (test_nmap_parse.TestCLI.test_unknown_bucket_collects_uncategorized_ports) ... ok
+test_http_routes_by_port_or_name (test_nmap_parse.TestCategorize.test_http_routes_by_port_or_name) ... ok
+test_nats_and_clickhouse_route_by_port (test_nmap_parse.TestCategorize.test_nats_and_clickhouse_route_by_port) ... ok
+test_openfire_admin_port_only_never_steals_other_http (test_nmap_parse.TestCategorize.test_openfire_admin_port_only_never_steals_other_http) ... ok
+test_smb_routes_by_port (test_nmap_parse.TestCategorize.test_smb_routes_by_port) ... ok
+test_unknown_port_returns_empty (test_nmap_parse.TestCategorize.test_unknown_port_returns_empty) ... ok
+test_x11_requires_compatible_service_evidence (test_nmap_parse.TestCategorize.test_x11_requires_compatible_service_evidence) ... ok
+test_ipv6_targets_are_bracketed_on_stdout (test_nmap_parse.TestIPv6.test_ipv6_targets_are_bracketed_on_stdout) ... ok
+test_ipv6_targets_in_json_use_raw_ip (test_nmap_parse.TestIPv6.test_ipv6_targets_in_json_use_raw_ip) ... ok
+test_xml_vs_gnmap_host_count (test_nmap_parse.TestParserParity.test_xml_vs_gnmap_host_count) ... ok
+test_closed_and_filtered_ports_excluded (test_nmap_parse.TestPortStateFiltering.test_closed_and_filtered_ports_excluded) ... ok
+test_container_orchestration_routes (test_nmap_parse.TestRoutingFromFixture.test_container_orchestration_routes) ... ok
+test_database_host_routes_to_three_categories (test_nmap_parse.TestRoutingFromFixture.test_database_host_routes_to_three_categories) ... ok
+test_every_host_gets_at_least_one_category (test_nmap_parse.TestRoutingFromFixture.test_every_host_gets_at_least_one_category) ... ok
+test_smb_host_routes_correctly (test_nmap_parse.TestRoutingFromFixture.test_smb_host_routes_correctly) ... ok
+test_every_required_category_present (test_nmap_parse.TestServiceMap.test_every_required_category_present) ... ok
+test_port_set_disjoint_for_never_match_regex_categories (test_nmap_parse.TestServiceMap.test_port_set_disjoint_for_never_match_regex_categories) ... ok
+test_billion_laughs_rejected (test_nmap_parse.TestXMLHardening.test_billion_laughs_rejected) ... ok
+test_xxe_external_entity_rejected (test_nmap_parse.TestXMLHardening.test_xxe_external_entity_rejected) ... ok
+test_linux_target_cannot_escape_outdir (test_phase1_hardening.TestBulkEnumTraversal.test_linux_target_cannot_escape_outdir) ... ok
+test_windows_target_cannot_escape_outdir (test_phase1_hardening.TestBulkEnumTraversal.test_windows_target_cannot_escape_outdir) ... ok
+test_non_http_port_skips_nuclei_and_alive_list (test_phase1_hardening.TestEnumHttpAliveDetection.test_non_http_port_skips_nuclei_and_alive_list) ... ok
+test_output_without_value_clean_error (test_phase1_hardening.TestLibArityGuard.test_output_without_value_clean_error) ... ok
+test_targets_without_value_clean_error_no_hang (test_phase1_hardening.TestLibArityGuard.test_targets_without_value_clean_error_no_hang) ... ok
+test_absolute_evidence_not_copied (test_phase1_hardening.TestMergeHardening.test_absolute_evidence_not_copied) ... ok
+test_non_object_findings_rc2 (test_phase1_hardening.TestMergeHardening.test_non_object_findings_rc2) ... ok
+test_traversal_evidence_not_copied (test_phase1_hardening.TestMergeHardening.test_traversal_evidence_not_copied) ... ok
+test_all_hosts_down_is_legit_empty (test_phase1_hardening.TestNmapParseHardening.test_all_hosts_down_is_legit_empty) ... ok
+test_binary_gnmap_fails_loud (test_phase1_hardening.TestNmapParseHardening.test_binary_gnmap_fails_loud) ... ok
+test_empty_file_fails_loud (test_phase1_hardening.TestNmapParseHardening.test_empty_file_fails_loud) ... ok
+test_portid_out_of_range_skipped (test_phase1_hardening.TestNmapParseHardening.test_portid_out_of_range_skipped) ... ok
+test_real_fixtures_still_parse (test_phase1_hardening.TestNmapParseHardening.test_real_fixtures_still_parse) ... ok
+test_empty_phase_fails_loud (test_phase1_hardening.TestPlanHardening.test_empty_phase_fails_loud) ... ok
+test_out_of_range_phase_fails_loud (test_phase1_hardening.TestPlanHardening.test_out_of_range_phase_fails_loud) ... ok
+test_valid_run_ok (test_phase1_hardening.TestPlanHardening.test_valid_run_ok) ... ok
+test_invalid_severity_rule_rc2 (test_phase1_hardening.TestReportHardening.test_invalid_severity_rule_rc2) ... ok
+test_redact_ipv6_and_known_hostname (test_phase1_hardening.TestReportHardening.test_redact_ipv6_and_known_hostname) ... ok
+test_redos_rule_does_not_hang (test_phase1_hardening.TestReportHardening.test_redos_rule_does_not_hang) ... ok
+test_symlink_outside_tree_not_leaked (test_phase1_hardening.TestReportHardening.test_symlink_outside_tree_not_leaked) ... ok
+test_every_dispatcher_has_metadata (test_planner.TestMetadataCoverage.test_every_dispatcher_has_metadata) ... ok
+test_every_service_map_category_has_metadata (test_planner.TestMetadataCoverage.test_every_service_map_category_has_metadata) ... ok
+test_phase_aware_services_are_explicit_and_centralized (test_planner.TestMetadataCoverage.test_phase_aware_services_are_explicit_and_centralized) ... ok
+test_default_profile_writes_plan_queue_and_guidance (test_planner.TestPlanWriter.test_default_profile_writes_plan_queue_and_guidance) ... ok
+test_phase_filter_cli_restricts_tasks (test_planner.TestPlanWriter.test_phase_filter_cli_restricts_tasks) ... ok
+test_no_rpc_excludes_msrpc (test_proxy_norpc.ProxyNoRpcTest.test_no_rpc_excludes_msrpc) ... ok
+test_proxy_full_url_preserved (test_proxy_norpc.ProxyNoRpcTest.test_proxy_full_url_preserved) ... ok
+test_proxy_normalizes_and_announces (test_proxy_norpc.ProxyNoRpcTest.test_proxy_normalizes_and_announces) ... ok
+test_rpc_present_without_flag (test_proxy_norpc.ProxyNoRpcTest.test_rpc_present_without_flag) ... ok
+test_ci_and_local_gate_inventory_match (test_quality_gate_r1.TestQualityGateR1.test_ci_and_local_gate_inventory_match) ... ok
+test_dependency_alias_probe_and_optional_miss_do_not_false_fail (test_quality_gate_r1.TestQualityGateR1.test_dependency_alias_probe_and_optional_miss_do_not_false_fail) ... ok
+test_dependency_check_rejects_broken_required_shim (test_quality_gate_r1.TestQualityGateR1.test_dependency_check_rejects_broken_required_shim) ... ok
+test_lint_falls_back_when_shellcheck_shim_is_broken (test_quality_gate_r1.TestQualityGateR1.test_lint_falls_back_when_shellcheck_shim_is_broken) ... ok
+test_invalid_shard_is_rejected (test_queue.TestQueueSharding.test_invalid_shard_is_rejected) ... ok
+test_shards_cover_complete_queue (test_queue.TestQueueSharding.test_shards_cover_complete_queue) ... ok
+test_legacy_resume_is_unique_only_for_both_bulk_runners (test_r1_remediation.TestBulkExecutionState.test_legacy_resume_is_unique_only_for_both_bulk_runners) ... [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
+[?] migrated unambiguous legacy state win.example -> alice--win.example--p5985--a16c28fc9e9e
+[?] transport 'winrm' unavailable (pywinrm not installed) — skipping
+[!] ambiguous legacy resume state for win.example: multiple user/port endpoints now share one host-keyed directory; rerun without --resume or move evidence manually
+ok
+test_linux_endpoint_manifest_and_worker_bounds (test_r1_remediation.TestBulkExecutionState.test_linux_endpoint_manifest_and_worker_bounds) ... ok
+test_nonresume_failure_invalidates_prior_success_markers (test_r1_remediation.TestBulkExecutionState.test_nonresume_failure_invalidates_prior_success_markers) ... ok
+test_windows_endpoint_keys_state_and_worker_bounds (test_r1_remediation.TestBulkExecutionState.test_windows_endpoint_keys_state_and_worker_bounds) ... [?] transport 'winrm' unavailable (pywinrm not installed) — skipping
+[!] parallel must be in 1..16 (you asked for 0)
+[?] transport 'winrm' unavailable (pywinrm not installed) — skipping
+[!] parallel must be in 1..16 (you asked for 17)
+ok
+test_diff_identity_detects_port_protocol_and_long_tail (test_r1_remediation.TestDiffMergeAndInterop.test_diff_identity_detects_port_protocol_and_long_tail) ... ok
+test_merge_copy_failure_has_no_published_path_and_is_partial (test_r1_remediation.TestDiffMergeAndInterop.test_merge_copy_failure_has_no_published_path_and_is_partial) ... ok
+test_recce_discovery_protocol_and_execution_state_contract (test_r1_remediation.TestDiffMergeAndInterop.test_recce_discovery_protocol_and_execution_state_contract) ... ok
+test_recce_protocol_absent_inventory_fails_closed (test_r1_remediation.TestDiffMergeAndInterop.test_recce_protocol_absent_inventory_fails_closed) ... ok
+test_common_dispatcher_contract_rejects_service_wide_target_substitution (test_r1_remediation.TestOrchestratorStateMachine.test_common_dispatcher_contract_rejects_service_wide_target_substitution) ... ok
+test_dispatch_failure_propagates_and_malformed_queue_fails_closed (test_r1_remediation.TestOrchestratorStateMachine.test_dispatch_failure_propagates_and_malformed_queue_fails_closed) ... ok
+test_explicit_empty_fails_filtered_zero_succeeds_and_exact_duplicate_is_one_task (test_r1_remediation.TestOrchestratorStateMachine.test_explicit_empty_fails_filtered_zero_succeeds_and_exact_duplicate_is_one_task) ... ok
+test_priority_filter_state_and_parallel_resume_are_current_run_only (test_r1_remediation.TestOrchestratorStateMachine.test_priority_filter_state_and_parallel_resume_are_current_run_only) ... ok
+test_real_ftp_credential_checks_group_exact_endpoints_by_selected_port (test_r1_remediation.TestOrchestratorStateMachine.test_real_ftp_credential_checks_group_exact_endpoints_by_selected_port) ... ok
+test_real_ftp_queue_tasks_execute_distinct_phase_paths (test_r1_remediation.TestOrchestratorStateMachine.test_real_ftp_queue_tasks_execute_distinct_phase_paths) ... ok
+test_real_smb_is_one_monolithic_task_and_staged_tasks_fail_predispatch (test_r1_remediation.TestOrchestratorStateMachine.test_real_smb_is_one_monolithic_task_and_staged_tasks_fail_predispatch) ... ok
+test_successful_nonqueue_run_archives_stale_queue_authority (test_r1_remediation.TestOrchestratorStateMachine.test_successful_nonqueue_run_archives_stale_queue_authority) ... ok
+test_iterative_mines_prior_raw_smb_users_deterministically (test_r1_remediation.TestPlannerInventoryAndIteration.test_iterative_mines_prior_raw_smb_users_deterministically) ... ok
+test_parser_preserves_up_host_without_open_ports (test_r1_remediation.TestPlannerInventoryAndIteration.test_parser_preserves_up_host_without_open_ports) ... ok
+test_protocol_identity_dedup_precedes_disjoint_shards (test_r1_remediation.TestPlannerInventoryAndIteration.test_protocol_identity_dedup_precedes_disjoint_shards) ... ok
+test_authoritative_queue_keeps_unselected_endpoint_unassessed_despite_artifacts (test_r1_remediation.TestReportIdentityAndSemantics.test_authoritative_queue_keeps_unselected_endpoint_unassessed_despite_artifacts) ... ok
+test_clean_coverage_dedup_and_ipv6_dispatcher_attribution (test_r1_remediation.TestReportIdentityAndSemantics.test_clean_coverage_dedup_and_ipv6_dispatcher_attribution) ... ok
+test_ephemeral_rule_cache_matches_bruteforce_thousands_of_times (test_r1_remediation.TestReportIdentityAndSemantics.test_ephemeral_rule_cache_matches_bruteforce_thousands_of_times) ... ok
+test_external_queue_parent_state_never_contaminates_local_current_run (test_r1_remediation.TestReportIdentityAndSemantics.test_external_queue_parent_state_never_contaminates_local_current_run) ... ok
+test_metadata_priority_override_and_custom_rule_precedence (test_r1_remediation.TestReportIdentityAndSemantics.test_metadata_priority_override_and_custom_rule_precedence) ... ok
+test_queue_failed_and_skipped_override_stale_success_evidence (test_r1_remediation.TestReportIdentityAndSemantics.test_queue_failed_and_skipped_override_stale_success_evidence) ... ok
+test_structural_endpoint_attribution_has_no_prefix_collisions (test_r1_remediation.TestReportIdentityAndSemantics.test_structural_endpoint_attribution_has_no_prefix_collisions) ... ok
+test_dashboard_critical_parity_and_datajson (test_report_dashboard.TestReportDashboard.test_dashboard_critical_parity_and_datajson) ... ok
+test_adversarial_names_do_not_escape_output (test_report_dashboard.TestReportRobustness.test_adversarial_names_do_not_escape_output)
+Odd service/host directory names must not make the dashboard write a ... ok
+test_empty_tree (test_report_dashboard.TestReportRobustness.test_empty_tree) ... ok
+test_html_injection_is_escaped (test_report_dashboard.TestReportRobustness.test_html_injection_is_escaped) ... ok
+test_huge_line (test_report_dashboard.TestReportRobustness.test_huge_line) ... ok
+test_malformed_service_metadata (test_report_dashboard.TestReportRobustness.test_malformed_service_metadata) ... ok
+test_non_utf8_evidence (test_report_dashboard.TestReportRobustness.test_non_utf8_evidence) ... ok
+test_redact_removes_every_ip (test_report_dashboard.TestReportRobustness.test_redact_removes_every_ip) ... ok
+test_service_dir_with_zero_findings (test_report_dashboard.TestReportRobustness.test_service_dir_with_zero_findings) ... ok
+test_symlink_evidence_is_not_followed_out_of_tree (test_report_dashboard.TestReportRobustness.test_symlink_evidence_is_not_followed_out_of_tree)
+OPSEC §9 containment: a symlink whose target is outside the scan tree ... ok
+test_callback_ready_before_payload_connect (test_specialist_semantics_r3.ActiveMqSemantics.test_callback_ready_before_payload_connect) ... ok
+test_openwire_version_requires_explicit_version_evidence (test_specialist_semantics_r3.ActiveMqSemantics.test_openwire_version_requires_explicit_version_evidence) ... ok
+test_structural_queue_parser_preserves_complex_names (test_specialist_semantics_r3.ActiveMqSemantics.test_structural_queue_parser_preserves_complex_names) ... ok
+test_version_boundaries_and_unknown (test_specialist_semantics_r3.ActiveMqSemantics.test_version_boundaries_and_unknown) ... ok
+test_default_redis_build_cannot_fetch_missing_vendored_input (test_specialist_semantics_r3.DataGovernanceSemantics.test_default_redis_build_cannot_fetch_missing_vendored_input) ... ok
+test_free_form_derivation_is_rejected (test_specialist_semantics_r3.DataGovernanceSemantics.test_free_form_derivation_is_rejected) ... ok
+test_source_manifest_checks_every_discovered_input (test_specialist_semantics_r3.DataGovernanceSemantics.test_source_manifest_checks_every_discovered_input) ... ok
+test_alias_document_uses_selected_operation (test_specialist_semantics_r3.GraphQlSemantics.test_alias_document_uses_selected_operation) ... ok
+test_batched_raw_http_and_member_errors_are_nonzero (test_specialist_semantics_r3.GraphQlSemantics.test_batched_raw_http_and_member_errors_are_nonzero) ... ok
+test_explicit_auth_and_custom_csrf_tokens_cannot_claim_cookie_csrf (test_specialist_semantics_r3.GraphQlSemantics.test_explicit_auth_and_custom_csrf_tokens_cannot_claim_cookie_csrf) ... ok
+test_false_zero_empty_and_null_fields_are_structurally_present (test_specialist_semantics_r3.GraphQlSemantics.test_false_zero_empty_and_null_fields_are_structurally_present) ... ok
+test_malformed_graphql_error_member_is_nonzero_without_traceback (test_specialist_semantics_r3.GraphQlSemantics.test_malformed_graphql_error_member_is_nonzero_without_traceback) ... ok
+test_raw_mode_keeps_failure_status_and_partial_errors (test_specialist_semantics_r3.GraphQlSemantics.test_raw_mode_keeps_failure_status_and_partial_errors) ... ok
+test_read_only_get_is_informational (test_specialist_semantics_r3.GraphQlSemantics.test_read_only_get_is_informational) ... ok
+test_read_only_indeterminate_http_and_graphql_outcomes_are_nonzero (test_specialist_semantics_r3.GraphQlSemantics.test_read_only_indeterminate_http_and_graphql_outcomes_are_nonzero) ... ok
+test_uncertain_mutation_responses_are_nonzero (test_specialist_semantics_r3.GraphQlSemantics.test_uncertain_mutation_responses_are_nonzero) ... ok
+test_controls_keep_equal_users_indistinguishable (test_specialist_semantics_r3.JabberSemantics.test_controls_keep_equal_users_indistinguishable) ... ok
+test_generic_rejection_is_neutral (test_specialist_semantics_r3.JabberSemantics.test_generic_rejection_is_neutral) ... ok
+test_cleanup_discovers_actions_and_verifies_reversal (test_specialist_semantics_r3.OpenfireSemantics.test_cleanup_discovers_actions_and_verifies_reversal) ... ok
+test_cleanup_is_idempotent_when_both_artifacts_are_absent (test_specialist_semantics_r3.OpenfireSemantics.test_cleanup_is_idempotent_when_both_artifacts_are_absent) ... ok
+test_distinct_plugin_preflights_make_zero_mutation_calls (test_specialist_semantics_r3.OpenfireSemantics.test_distinct_plugin_preflights_make_zero_mutation_calls) ... ok
+test_generic_http_200_is_not_plugin_inventory_proof (test_specialist_semantics_r3.OpenfireSemantics.test_generic_http_200_is_not_plugin_inventory_proof) ... ok
+test_inventory_still_listing_plugin_blocks_cleanup_success (test_specialist_semantics_r3.OpenfireSemantics.test_inventory_still_listing_plugin_blocks_cleanup_success) ... ok
+test_log_directory_and_unwritable_destination_fail_before_mutation (test_specialist_semantics_r3.OpenfireSemantics.test_log_directory_and_unwritable_destination_fail_before_mutation) ... ok
+test_marker_absence_and_failed_admin_login_do_not_prove_plugin_absence (test_specialist_semantics_r3.OpenfireSemantics.test_marker_absence_and_failed_admin_login_do_not_prove_plugin_absence) ... ok
+test_upload_failure_is_partial_nonzero_and_recoverable (test_specialist_semantics_r3.OpenfireSemantics.test_upload_failure_is_partial_nonzero_and_recoverable) ... ok
+test_empty_config_values_and_redis_cli_status_are_preserved (test_specialist_semantics_r3.RedisSemantics.test_empty_config_values_and_redis_cli_status_are_preserved) ... ok
+test_missing_compiler_fails_before_target_probe (test_specialist_semantics_r3.RedisSemantics.test_missing_compiler_fails_before_target_probe) ... ok
+test_module_config_staging_rejects_non_ok_before_replication (test_specialist_semantics_r3.RedisSemantics.test_module_config_staging_rejects_non_ok_before_replication) ... ok
+test_module_policy_denied_is_not_capable (test_specialist_semantics_r3.RedisSemantics.test_module_policy_denied_is_not_capable) ... ok
+test_module_policy_local_is_denied_for_tcp_even_when_acl_allows (test_specialist_semantics_r3.RedisSemantics.test_module_policy_local_is_denied_for_tcp_even_when_acl_allows) ... ok
+test_module_restore_failure_dominates_main_path_failure (test_specialist_semantics_r3.RedisSemantics.test_module_restore_failure_dominates_main_path_failure) ... ok
+test_module_unload_non_ok_is_cleanup_failure (test_specialist_semantics_r3.RedisSemantics.test_module_unload_non_ok_is_cleanup_failure) ... ok
+test_named_acl_and_legacy_auth_argv (test_specialist_semantics_r3.RedisSemantics.test_named_acl_and_legacy_auth_argv) ... ok
+test_replica_state_and_auth_are_restored_exactly (test_specialist_semantics_r3.RedisSemantics.test_replica_state_and_auth_are_restored_exactly) ... ok
+test_ssh_helper_fails_before_mutation_when_snapshot_fails (test_specialist_semantics_r3.RedisSemantics.test_ssh_helper_fails_before_mutation_when_snapshot_fails) ... ok
+test_ssh_helper_surfaces_restore_verification_failure (test_specialist_semantics_r3.RedisSemantics.test_ssh_helper_surfaces_restore_verification_failure) ... ok
+test_ssh_mutations_require_rc_zero_and_exact_trimmed_ok (test_specialist_semantics_r3.RedisSemantics.test_ssh_mutations_require_rc_zero_and_exact_trimmed_ok) ... ok
+test_ssh_restore_failure_dominates_failed_save_path (test_specialist_semantics_r3.RedisSemantics.test_ssh_restore_failure_dominates_failed_save_path) ... ok
+test_dns_command_failure_is_indeterminate_nonzero (test_specialist_semantics_r3.SmtpSemantics.test_dns_command_failure_is_indeterminate_nonzero) ... ok
+test_multiline_replies_are_associated_with_rcpt (test_specialist_semantics_r3.SmtpSemantics.test_multiline_replies_are_associated_with_rcpt) ... ok
+test_relay_matrix_does_not_call_external_to_local_a_relay (test_specialist_semantics_r3.SmtpSemantics.test_relay_matrix_does_not_call_external_to_local_a_relay) ... ok
+test_sender_rejects_rcpt_and_accepts_completed_data (test_specialist_semantics_r3.SmtpSemantics.test_sender_rejects_rcpt_and_accepts_completed_data) ... ok
+test_spf_hardfail_without_dmarc_is_stable (test_specialist_semantics_r3.SmtpSemantics.test_spf_hardfail_without_dmarc_is_stable) ... ok
+test_missing_output_fails (test_ssh_triage.TestArgValidation.test_missing_output_fails) ... ok
+test_no_input_mode_and_no_stdin_pipe_fails (test_ssh_triage.TestArgValidation.test_no_input_mode_and_no_stdin_pipe_fails) ... ok
+test_two_input_modes_conflict (test_ssh_triage.TestArgValidation.test_two_input_modes_conflict) ... ok
+test_banner_mapping_table (test_ssh_triage.TestBannerMapping.test_banner_mapping_table) ... ok
+test_direct_execution_of_enum_ssh_unchanged (test_ssh_triage.TestBannerMapping.test_direct_execution_of_enum_ssh_unchanged)
+Sourcing must NOT run enum-ssh.sh's main body (no --targets given, ... ok
+test_dry_run_never_invokes_bulk_tools (test_ssh_triage.TestDispatchRouting.test_dry_run_never_invokes_bulk_tools) ... ok
+test_mixed_hosts_route_to_correct_tool_with_creds_forwarded (test_ssh_triage.TestDispatchRouting.test_mixed_hosts_route_to_correct_tool_with_creds_forwarded) ... ok
+test_targets_file_spec_preserved_verbatim_for_linux_dispatch (test_ssh_triage.TestDispatchRouting.test_targets_file_spec_preserved_verbatim_for_linux_dispatch)
+A --targets line's inline user@host:port must reach ... ok
+test_gnmap_extracts_ssh_category_host (test_ssh_triage.TestNmapInput.test_gnmap_extracts_ssh_category_host) ... ok
+test_xml_extracts_ssh_category_host (test_ssh_triage.TestNmapInput.test_xml_extracts_ssh_category_host) ... ok
+test_nxc_file_trusts_printed_os_label (test_ssh_triage.TestNxcParsing.test_nxc_file_trusts_printed_os_label) ... ok
+test_nxc_via_stdin_when_no_input_flag_given (test_ssh_triage.TestNxcParsing.test_nxc_via_stdin_when_no_input_flag_given) ... ok
+test_agent_default_mode (test_ssh_triage.TestSSHProbeArgs.test_agent_default_mode) ... ok
+test_key_mode (test_ssh_triage.TestSSHProbeArgs.test_key_mode) ... ok
+test_key_then_pass_mode_tries_key_first_no_pubkey_disable (test_ssh_triage.TestSSHProbeArgs.test_key_then_pass_mode_tries_key_first_no_pubkey_disable) ... ok
+test_pass_mode_never_sets_batchmode_yes (test_ssh_triage.TestSSHProbeArgs.test_pass_mode_never_sets_batchmode_yes) ... ok
+test_ambiguous_banner_no_creds_is_other_and_not_dispatched (test_ssh_triage.TestUnknownHostHandling.test_ambiguous_banner_no_creds_is_other_and_not_dispatched) ... ok
+test_ambiguous_banner_with_creds_escalates_to_auth_probe (test_ssh_triage.TestUnknownHostHandling.test_ambiguous_banner_with_creds_escalates_to_auth_probe)
+Ambiguous banner + creds present -> one authenticated probe ... ok
+test_findings_json_v2_schema_payload (test_structured_findings.TestCLIV2Output.test_findings_json_v2_schema_payload) ... ok
+test_prefilter_matches_brute_force (test_structured_findings.TestClassifyPrefilter.test_prefilter_matches_brute_force) ... ok
+test_sarif_shape_and_levels (test_structured_findings.TestSarifExport.test_sarif_shape_and_levels) ... ok
+test_service_metadata_file_is_loaded_when_present (test_structured_findings.TestServiceMetadataIntegration.test_service_metadata_file_is_loaded_when_present) ... ok
+test_walk_findings_defaults (test_structured_findings.TestStructuredFindingDefaults.test_walk_findings_defaults) ... ok
+test_walk_findings_ignores_generated_dashboard_dirs (test_structured_findings.TestStructuredFindingDefaults.test_walk_findings_ignores_generated_dashboard_dirs) ... ok
+test_bulk_winenum_grades_writable_pipe (test_structured_findings.TestWindowsBulkGrading.test_bulk_winenum_grades_writable_pipe) ... ok
+test_writable_pipe_line_classifies (test_structured_findings.TestWindowsBulkGrading.test_writable_pipe_line_classifies) ... ok
+test_queue_lists_planner_items (test_unified_cli.TestQueueBuiltin.test_queue_lists_planner_items) ... ok
+test_root_help_includes_all_subcommands (test_unified_cli.TestRootCLI.test_root_help_includes_all_subcommands) ... ok
+test_unknown_command_returns_error (test_unified_cli.TestRootCLI.test_unknown_command_returns_error) ... [!] unknown command: bogus
+ok
+test_dashboard_defaults_to_sibling_output (test_unified_cli.TestSubcommandDelegation.test_dashboard_defaults_to_sibling_output) ... [*] report server: http://127.0.0.1:8765/
+[*] press Ctrl-C to stop
+ok
+test_dashboard_no_serve_only_generates (test_unified_cli.TestSubcommandDelegation.test_dashboard_no_serve_only_generates) ... ok
+test_dashboard_session_name_uses_session_raw (test_unified_cli.TestSubcommandDelegation.test_dashboard_session_name_uses_session_raw) ... ok
+test_other_command_runners (test_unified_cli.TestSubcommandDelegation.test_other_command_runners) ... ok
+test_plan_delegates_to_plan_script (test_unified_cli.TestSubcommandDelegation.test_plan_delegates_to_plan_script) ... ok
+test_run_delegates_to_auto_enum (test_unified_cli.TestSubcommandDelegation.test_run_delegates_to_auto_enum) ... ok
+test_run_report_flag_chains_report_and_dashboard (test_unified_cli.TestSubcommandDelegation.test_run_report_flag_chains_report_and_dashboard) ... [*] dashboard generated: file:///srv/share/dev/aranum/outputs/scan01/reports/dashboard/index.html
+ok
+test_run_serve_flag_also_serves (test_unified_cli.TestSubcommandDelegation.test_run_serve_flag_also_serves) ... [*] report server: http://127.0.0.1:8765/
+[*] press Ctrl-C to stop
+ok
+test_dashboard_emits_wiki_and_links_findings (test_wiki.TestWikiDashboardIntegration.test_dashboard_emits_wiki_and_links_findings) ... ok
+test_aliases_bridge_toolkit_categories (test_wiki.TestWikiRenderer.test_aliases_bridge_toolkit_categories) ... ok
+test_all_pages_load_and_render (test_wiki.TestWikiRenderer.test_all_pages_load_and_render) ... ok
+test_every_dispatcher_has_a_wiki_page (test_wiki.TestWikiRenderer.test_every_dispatcher_has_a_wiki_page) ... ok
+test_frontmatter (test_wiki.TestWikiRenderer.test_frontmatter) ... ok
+test_high_value_services_covered (test_wiki.TestWikiRenderer.test_high_value_services_covered) ... ok
+test_html_is_escaped (test_wiki.TestWikiRenderer.test_html_is_escaped) ... ok
+test_markdown_elements (test_wiki.TestWikiRenderer.test_markdown_elements) ... ok
+
+----------------------------------------------------------------------
+Ran 364 tests in 88.446s
+
+OK (skipped=5)
+[*] transport order: winrm,ssh  (usable: ssh)
+[17:56:45] 3 host(s) to enumerate -> /tmp/tmpoh3566bk/out (parallel=4)
+[DRY] alice@host-1.example:5985  ->  /tmp/tmpoh3566bk/out/alice--host-1.example--p5985--904e10bcc661/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] bob@host-2.example:5986  ->  /tmp/tmpoh3566bk/out/bob--host-2.example--p5986--a253b63a8247/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] alice@[2001:db8::1]:5985  ->  /tmp/tmpoh3566bk/out/alice--2001_db8__1--p5985--6fbea2a08455/winenum.txt  (transport-order=ssh, auth=ntlm)
+
+=== bulk-enum-windows complete ===
+OK=0  FAIL=0  SKIP=3
+Summary: /tmp/tmpoh3566bk/out/_summary.tsv
+Per-host: /tmp/tmpoh3566bk/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpoh3566bk/out    # findings.json + report.md + report.html
+[*] --throttle: parallel=1 (default; override with -P N)
+    inter-host delay: 1s
+[*] transport order: winrm,ssh  (usable: ssh)
+[17:56:45] 2 host(s) to enumerate -> /tmp/tmpyd9nw65g/out (parallel=1)
+[DRY] x@a.example:5985  ->  /tmp/tmpyd9nw65g/out/x--a.example--p5985--5b556695623e/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] x@b.example:5985  ->  /tmp/tmpyd9nw65g/out/x--b.example--p5985--e351b2847312/winenum.txt  (transport-order=ssh, auth=ntlm)
+
+=== bulk-enum-windows complete ===
+OK=0  FAIL=0  SKIP=2
+Summary: /tmp/tmpyd9nw65g/out/_summary.tsv
+Per-host: /tmp/tmpyd9nw65g/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpyd9nw65g/out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh
+[17:56:45] 1 host(s) to enumerate -> /tmp/tmpeapm97v1/out (parallel=4)
+
+=== bulk-enum-windows complete ===
+OK=0  FAIL=1  SKIP=0
+Failed hosts:
+  - host1.example(status=UNREACHABLE, rc=255, transport=ssh, reason=host unreachable (attempted: winrm=AUTH_FAIL, ssh=UNREACHABLE))
+Summary: /tmp/tmpeapm97v1/out/_summary.tsv
+Per-host: /tmp/tmpeapm97v1/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpeapm97v1/out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh
+[17:56:46] 1 host(s) to enumerate -> /tmp/tmplde1immr/out (parallel=4)
+
+=== bulk-enum-windows complete ===
+OK=1  FAIL=0  SKIP=0
+Summary: /tmp/tmplde1immr/out/_summary.tsv
+Per-host: /tmp/tmplde1immr/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmplde1immr/out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh
+[17:56:47] 1 host(s) to enumerate -> /tmp/tmplfmdtyvx/out (parallel=4)
+
+=== bulk-enum-windows complete ===
+OK=1  FAIL=0  SKIP=0
+Summary: /tmp/tmplfmdtyvx/out/_summary.tsv
+Per-host: /tmp/tmplfmdtyvx/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmplfmdtyvx/out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh
+[17:56:48] 1 host(s) to enumerate -> /tmp/tmpfci003ko/out (parallel=4)
+
+=== bulk-enum-windows complete ===
+OK=0  FAIL=1  SKIP=0
+Failed hosts:
+  - host1.example(status=REMOTE_ERR, rc=1, transport=winrm, reason=remote command exited rc=1)
+Summary: /tmp/tmpfci003ko/out/_summary.tsv
+Per-host: /tmp/tmpfci003ko/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpfci003ko/out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh  (usable: ssh)
+[17:56:49] 1 host(s) to enumerate -> /tmp/tmplnyfk1oi/out (parallel=4)
+[DRY] x@a.example:5985  ->  /tmp/tmplnyfk1oi/out/x--a.example--p5985--5b556695623e/winenum.txt  (transport-order=ssh, auth=ntlm)
+
+=== bulk-enum-windows complete ===
+OK=0  FAIL=0  SKIP=1
+Summary: /tmp/tmplnyfk1oi/out/_summary.tsv
+Per-host: /tmp/tmplnyfk1oi/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmplnyfk1oi/out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh
+[17:56:49] 1 host(s) to enumerate -> /tmp/tmpilj_238x/out (parallel=4)
+
+=== bulk-enum-windows complete ===
+OK=1  FAIL=0  SKIP=0
+Summary: /tmp/tmpilj_238x/out/_summary.tsv
+Per-host: /tmp/tmpilj_238x/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpilj_238x/out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh  (usable: ssh)
+[17:57:31] 1 host(s) to enumerate -> /tmp/tmp4gfjkmn5/windows-out (parallel=1)
+[17:57:31] resume-skip: win.example (prior rc=0)
+
+=== bulk-enum-windows complete ===
+OK=0  FAIL=0  SKIP=1
+Summary: /tmp/tmp4gfjkmn5/windows-out/_summary.tsv
+Per-host: /tmp/tmp4gfjkmn5/windows-out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmp4gfjkmn5/windows-out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh  (usable: ssh)
+[*] transport order: winrm,ssh  (usable: ssh)
+[17:57:34] 2 host(s) to enumerate -> /tmp/tmpnjso655d/out (parallel=1)
+[DRY] alice@192.0.2.4:5985  ->  /tmp/tmpnjso655d/out/alice--192.0.2.4--p5985--79ffa0f057c0/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] bob@192.0.2.4:5986  ->  /tmp/tmpnjso655d/out/bob--192.0.2.4--p5986--5309f81251b7/winenum.txt  (transport-order=ssh, auth=ntlm)
+
+=== bulk-enum-windows complete ===
+OK=0  FAIL=0  SKIP=2
+Summary: /tmp/tmpnjso655d/out/_summary.tsv
+Per-host: /tmp/tmpnjso655d/out/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpnjso655d/out    # findings.json + report.md + report.html
+[*] transport order: winrm,ssh  (usable: ssh)
+[17:57:34] 2 host(s) to enumerate -> /tmp/tmpnjso655d/max (parallel=16)
+[DRY] alice@192.0.2.4:5985  ->  /tmp/tmpnjso655d/max/alice--192.0.2.4--p5985--79ffa0f057c0/winenum.txt  (transport-order=ssh, auth=ntlm)
+[DRY] bob@192.0.2.4:5986  ->  /tmp/tmpnjso655d/max/bob--192.0.2.4--p5986--5309f81251b7/winenum.txt  (transport-order=ssh, auth=ntlm)
+
+=== bulk-enum-windows complete ===
+OK=0  FAIL=0  SKIP=2
+Summary: /tmp/tmpnjso655d/max/_summary.tsv
+Per-host: /tmp/tmpnjso655d/max/<host>/winenum.txt
+Next: aranumtoolkit/network/report.py /tmp/tmpnjso655d/max    # findings.json + report.md + report.html
+[*] Victim will fetch:  http://127.0.0.1:8765/poc.xml
+[*] Starting HTTP server on 0.0.0.0:8765 (serving Spring XML)
+[*] Callback listener READY on 0.0.0.0:9999 — have --cmd reach 127.0.0.1:9999
+[*] OpenWire payload built: 116 bytes; gadget = ClassPathXmlApplicationContext(http://127.0.0.1:8765/poc.xml)
+[+] Payload sent to broker:61616
+[*] Holding for 0s so the broker can fetch/call back...
+[*] VERDICT: SENT — payload delivered but no XML fetch/callback observed. Broker may be patched, unreachable back to you, or slow. Check the broker host.
+Usage: aranum <subcommand> [args...]
+
+Examples:
+  aranum run scan01 -report --session-name acme   # generates artifacts, non-blocking
+  aranum run scan01 -serve  --session-name acme   # also serves the dashboard (blocks)
+  aranum iter --session-name acme
+  aranum dashboard               # newest outputs/<session>/raw + reports/dashboard
+
+Output layout:
+  outputs/<session>/raw      raw scanner/dispatcher output
+  outputs/<session>/inputs   derived inputs: hosts, users, scope, loot
+  outputs/<session>/reports  report.md/html/json and dashboard files
+
+Subcommands:
+  bulk-linux, bulk-windows, dashboard, deps-check, export-recce, iter, merge, plan, queue, report, run, selftest, ssh-key-triage, ssh-triage, version
+  - bulk-linux: bash bulk-enum-linux.sh
+  - bulk-windows: python bulk-enum-windows.py
+  - dashboard: wrapper for report-dashboard.py with safe defaults
+  - deps-check: run deps-check.sh — verify enumeration tooling
+  - export-recce: python aranum_to_recce.py
+  - iter: bash iterative-enum.sh
+  - merge: python merge-results.py
+  - plan: python plan.py
+  - queue: built-in queue viewer
+  - report: python report.py
+  - run: bash auto-enum.sh; -report chains report + dashboard (non-blocking), -serve also serves it
+  - selftest: run the smoke.sh self-test suite
+  - ssh-key-triage: python ssh-key-triage.py
+  - ssh-triage: bash ssh-triage.sh
+  - version: print the aranum version (also: aranum --version)
+rc=0

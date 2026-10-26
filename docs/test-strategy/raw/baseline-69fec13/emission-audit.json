@@ -1,0 +1,156 @@
+{
+ "summary": {
+  "emissions": 705,
+  "by_kind_graded": {
+   "crit:False": 1,
+   "crit:True": 11,
+   "err:False": 13,
+   "err:True": 26,
+   "hit:False": 43,
+   "hit:True": 226,
+   "log:False": 284,
+   "log:True": 13,
+   "miss:False": 83,
+   "miss:True": 5
+  },
+  "neg_graded": 18,
+  "crit_ungraded": 1
+ },
+ "neg_graded": [
+  {
+   "file": "enum-activemq.sh",
+   "line": 53,
+   "kind": "miss",
+   "text": "[-] 10.0.0.9  web console up but default creds rejected (admin:admin -> x \u2014 try cred spray",
+   "sev": "high"
+  },
+  {
+   "file": "enum-activemq.sh",
+   "line": 58,
+   "kind": "miss",
+   "text": "[-] 10.0.0.9  web console probe inconclusive (unauth=x auth=x",
+   "sev": "high"
+  },
+  {
+   "file": "enum-http.sh",
+   "line": 267,
+   "kind": "log",
+   "text": "[10:00:00] nuclei (severity high,critical; timeout xs; rate x; $(wc -l < ",
+   "sev": "critical"
+  },
+  {
+   "file": "enum-https.sh",
+   "line": 267,
+   "kind": "log",
+   "text": "[10:00:00] nuclei (severity high,critical; timeout xs; rate x; $(wc -l < ",
+   "sev": "critical"
+  },
+  {
+   "file": "enum-mongo.sh",
+   "line": 39,
+   "kind": "log",
+   "text": "[10:00:00] x unauth probe + database/collection enumeration",
+   "sev": "high"
+  },
+  {
+   "file": "enum-mongo.sh",
+   "line": 80,
+   "kind": "miss",
+   "text": "[-] neither mongosh nor mongo client installed \u2014 skipping unauth probe",
+   "sev": "high"
+  },
+  {
+   "file": "enum-mysql.sh",
+   "line": 17,
+   "kind": "log",
+   "text": "[10:00:00] mysql: $(wc -l < ",
+   "sev": "low"
+  },
+  {
+   "file": "enum-mysql.sh",
+   "line": 23,
+   "kind": "log",
+   "text": "[10:00:00] nmap mysql-info + mysql-empty-password + mysql-users",
+   "sev": "low"
+  },
+  {
+   "file": "enum-mysql.sh",
+   "line": 30,
+   "kind": "log",
+   "text": "[10:00:00] mysql client anon + root-no-pwd probes",
+   "sev": "low"
+  },
+  {
+   "file": "enum-mysql.sh",
+   "line": 46,
+   "kind": "miss",
+   "text": "[-] mysql client not installed \u2014 skipping anon probes",
+   "sev": "low"
+  },
+  {
+   "file": "enum-mysql.sh",
+   "line": 55,
+   "kind": "log",
+   "text": "[10:00:00] nxc mysql (cred check)",
+   "sev": "low"
+  },
+  {
+   "file": "enum-mysql.sh",
+   "line": 60,
+   "kind": "log",
+   "text": "[10:00:00] mysql authenticated recon (FILE priv + secure_file_priv)",
+   "sev": "low"
+  },
+  {
+   "file": "enum-mysql.sh",
+   "line": 91,
+   "kind": "log",
+   "text": "[10:00:00] mysql dispatcher done.",
+   "sev": "low"
+  },
+  {
+   "file": "enum-redis.sh",
+   "line": 7,
+   "kind": "log",
+   "text": "[10:00:00] redis: $(wc -l < ",
+   "sev": "low"
+  },
+  {
+   "file": "enum-redis.sh",
+   "line": 61,
+   "kind": "miss",
+   "text": "[-] redis-cli not installed \u2014 using /dev/tcp",
+   "sev": "low"
+  },
+  {
+   "file": "enum-redis.sh",
+   "line": 94,
+   "kind": "log",
+   "text": "[10:00:00] redis dispatcher done.",
+   "sev": "low"
+  },
+  {
+   "file": "enum-ssh.sh",
+   "line": 159,
+   "kind": "log",
+   "text": "[10:00:00]   Terrapin candidate 10.0.0.9 (OpenSSH x < 9.6)",
+   "sev": "low"
+  },
+  {
+   "file": "enum-vnc.sh",
+   "line": 16,
+   "kind": "log",
+   "text": "[10:00:00] nmap vnc-info + vnc-title + realvnc-auth-bypass",
+   "sev": "high"
+  }
+ ],
+ "crit_ungraded": [
+  {
+   "file": "enum-nfs.sh",
+   "line": 20,
+   "kind": "crit",
+   "text": "[!!] NFS no_root_squash export on 10.0.0.9 \u2014 mount + setuid-root = local root:",
+   "sev": null
+  }
+ ]
+}

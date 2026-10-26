@@ -43,7 +43,7 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, NamedTuple
 
 # ---------------------------------------------------- color (stdout only)
 def _c(s: str, code: str) -> str:
@@ -208,6 +208,7 @@ def _structured_finding(
     evidence_path: str,
     service_metadata: dict[str, dict],
     protocol: str = "",
+    rule_id: str = "",
 ) -> dict:
     cfg_defaults = _coerce_service_metadata_fields(service_metadata.get("defaults", {}))
     cfg_service = _coerce_service_metadata_fields(service_metadata.get("services", {}).get(service, {}))
@@ -228,6 +229,7 @@ def _structured_finding(
         "evidence_paths": [evidence_path] if evidence_path else [],
         "evidence_identity": evidence_identity,
         "finding_id": finding_id,
+        "rule_id": rule_id,
         "title": _finding_title(service, severity, normalized_line, cfg),
         "confidence": _coerce_str(cfg.get("confidence"), fallback=_SEVERITY_TO_CONFIDENCE.get(severity, "medium")),
         "priority": _coerce_str(cfg.get("priority"), fallback=_SEVERITY_TO_PRIORITY.get(severity, "P3")),
@@ -238,12 +240,50 @@ def _structured_finding(
     }
 
 
+# ---------------------------------------------------- rule identity
+class Rule(NamedTuple):
+    """One severity rule. `rule_id` is a stable, unique key the shadow audit
+    (tests/test_rule_shadowing.py) and the finding knowledge base key on;
+    `miss_ok` marks the few rules legitimately emitted through a dispatcher
+    miss/log marker (see _classify_line)."""
+    pattern: "re.Pattern"
+    severity: str
+    rule_id: str
+    miss_ok: bool = False
+
+
+def _derive_rule_id(pattern: "re.Pattern") -> str:
+    """Stable kebab id for a rule, derived from its pattern. A readable slug of
+    the pattern text plus an 8-hex digest of (flags, pattern) so distinct
+    patterns always get distinct ids; two rules with identical pattern text get
+    the same id and are a real duplicate the uniqueness guard test catches."""
+    slug = re.sub(r"[^a-z0-9]+", "-", pattern.pattern.lower()).strip("-")[:55].strip("-")
+    digest = hashlib.sha1(("%d:%s" % (pattern.flags, pattern.pattern)).encode()).hexdigest()[:8]
+    return (slug + "-" + digest) if slug else ("rule-" + digest)
+
+
+def _build_rules(raw, *, miss_ok_patterns=()) -> "list[Rule]":
+    """Convert a list of (pattern, severity) 2-tuples (or already-built Rules)
+    into Rule objects with derived ids. A rule whose pattern text is in
+    miss_ok_patterns is flagged miss_ok=True."""
+    miss_ok = set(miss_ok_patterns)
+    out: list = []
+    for item in raw:
+        if isinstance(item, Rule):
+            out.append(item)
+            continue
+        pat, sev = item
+        out.append(Rule(pat, sev, _derive_rule_id(pat), pat.pattern in miss_ok))
+    return out
+
+
 # ---------------------------------------------------- severity rules
 # (regex, severity) pairs evaluated in order. First match wins per line.
 # Anchored on the markers the dispatchers emit (err/hit/log color flags +
 # the literal "CRITICAL"/"EXPOSED"/"UNAUTH"/etc. words in their log lines).
-_DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\bCRITICAL\b", re.I),                                 "critical"),
+# The literal lists below stay 2-tuples; _build_rules() converts each to a
+# Rule (with a derived stable rule_id) at the bottom of this section.
+_DEFAULT_RULES_RAW: list = [
     (re.compile(r"\bUNAUTH (?:Docker|etcd|/v2/keys|kubelet|apiserver)\b", re.I), "critical"),
     # REVIEW-004 service-additions: NATS + ClickHouse (unauth-by-default).
     (re.compile(r"\bCRITICAL: UNAUTH NATS\b", re.I),                    "critical"),
@@ -270,13 +310,21 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bcipher 0\b", re.I),                                 "critical"),
     (re.compile(r"\bremote command execution\b", re.I),                 "critical"),
     (re.compile(r"\bguest:guest\b", re.I),                              "critical"),
-    (re.compile(r"\bEXPOSED\b", re.I),                                  "high"),
+    # D1.2 — specific CRITICAL HTTP product exposures, hoisted ABOVE the generic
+    # EXPOSED/UNAUTH high rules so first-match-wins grades them critical (their
+    # emission text contains "exposed:"/"UNAUTH", which the generics would steal).
+    (re.compile(r"\bUNAUTH: Tomcat Manager exposed:", re.I),            "critical"),
+    (re.compile(r"\bUNAUTH: Tomcat host-manager exposed:", re.I),       "critical"),
+    (re.compile(r"\bUNAUTH: Jenkins API exposed:", re.I),               "critical"),
+    (re.compile(r"\bCRITICAL: Jenkins Groovy script console reachable:", re.I), "critical"),
+    # D1.5 — critical findings the classifier previously missed (G07).
+    (re.compile(r"\badmin:admin WORKS\b", re.I),                        "critical"),
+    (re.compile(r"\bno_root_squash\b", re.I),                           "critical"),
     # E2 tier-2a medium rules that contain "UNAUTH" — must precede the generic UNAUTH high rule
     # so first-match-wins classifies them at the intended severity.
     (re.compile(r"\bCUPS UNAUTH and POTENTIALLY VULN\b", re.I),         "high"),
     (re.compile(r"\bCUPS UNAUTH:", re.I),                               "medium"),
     (re.compile(r"\bConsul UNAUTH agent API:", re.I),                   "medium"),
-    (re.compile(r"\bUNAUTH\b", re.I),                                   "high"),
     # E1 tier-1 dispatcher-specific HIGH rules (documented intent, survive generic rule rewrite)
     (re.compile(r"\bAJP responding without auth\b", re.I),               "high"),
     (re.compile(r"\bOracle (?:TNS:|SIDs discovered)", re.I),             "high"),
@@ -333,13 +381,9 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bCORS\b.*\breflect", re.I),                          "medium"),
     (re.compile(r"\bKEY_ONLY\b", re.I),                                 "medium"),
     (re.compile(r"\bAUTH OK\b", re.I),                                  "medium"),
-    # E3 HTTP product-detect rules — CRITICAL for unauth Tomcat Manager and Jenkins Groovy console;
-    # HIGH for all other unauth product exposures; MEDIUM for Spark UI (lower-impact API).
-    # Ordered: most-specific (CRITICAL) first so first-match-wins classifies correctly.
-    (re.compile(r"\bUNAUTH: Tomcat Manager exposed:", re.I),            "critical"),
-    (re.compile(r"\bUNAUTH: Tomcat host-manager exposed:", re.I),       "critical"),
-    (re.compile(r"\bUNAUTH: Jenkins API exposed:", re.I),               "critical"),
-    (re.compile(r"\bCRITICAL: Jenkins Groovy script console reachable:", re.I), "critical"),
+    # E3 HTTP product-detect rules — HIGH for unauth product exposures; MEDIUM
+    # for Spark UI (lower-impact API). The CRITICAL Tomcat/Jenkins rules were
+    # hoisted above the generic EXPOSED/UNAUTH rules (D1.2); see that block.
     (re.compile(r"\bJenkins user enumeration exposed:", re.I),          "high"),
     (re.compile(r"\bUNAUTH: GitLab API exposed:", re.I),                "high"),
     (re.compile(r"\bUNAUTH: SonarQube system info exposed:", re.I),     "high"),
@@ -394,7 +438,9 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bPlatform (HashiCorp Nomad|Portainer|Rancher|Argo CD) detected:", re.I), "medium"),
     (re.compile(r"\bStorage iSCSI target exposed:", re.I),                  "high"),
     (re.compile(r"\bStorage (MinIO|Ceph/RADOSGW object gateway|Ceph monitor|Gluster management) (?:detected|reachable):", re.I), "medium"),
-    (re.compile(r"\bBackup (Rubrik|Cohesity|Dell PowerProtect Data Manager) API detected:", re.I), "high"),
+    # D1.2 — the live emission is "Rubrik backup API detected:" (Dell omits the
+    # word "backup"); match that and the legacy "Backup Rubrik API detected:".
+    (re.compile(r"\b(?:(?:Rubrik|Cohesity) backup|Dell PowerProtect Data Manager|Backup (?:Rubrik|Cohesity|Dell PowerProtect Data Manager)) API detected:", re.I), "high"),
     (re.compile(r"\bDell Avamar / PowerProtect legacy service reachable:", re.I), "high"),
     (re.compile(r"\bSource/CI (TeamCity|GitHub Enterprise|Azure DevOps Server) detected:", re.I), "medium"),
     (re.compile(r"\bHTTP source fingerprint:", re.I),                "low"),
@@ -440,6 +486,32 @@ _DEFAULT_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bOPC-UA endpoint advertises 'None' security policy:", re.I), "low"),
     (re.compile(r"\bOT-ID (Modbus|S7|EtherNet/IP|BACnet|OPC-UA|DNP3|IEC-104)\b", re.I), "low"),
     (re.compile(r"\bBAMBU_LAB_CORRELATED:", re.I),                   "low"),
+    # D1.5 — true positives the classifier previously missed (G07/G08). Each is
+    # anchored to its exact dispatcher emission text so it cannot broaden into a
+    # false positive; placed before the catch-all banner rule below.
+    (re.compile(r"\bOPEN RELAY CANDIDATE\b", re.I),                   "high"),
+    (re.compile(r"\bVRFY enabled\b", re.I),                           "medium"),
+    (re.compile(r"\bno_all_squash\b", re.I),                          "medium"),
+    (re.compile(r"\bNFS insecure export\b", re.I),                    "low"),
+    (re.compile(r"\bPOTENTIAL CRED LEAK\b", re.I),                    "high"),
+    (re.compile(r"\bHMAC; brute the secret\b", re.I),                 "medium"),
+    (re.compile(r"\bTerrapin \(ssh-audit\)", re.I),                   "medium"),
+    (re.compile(r"\b(?:deprecated )?read-only kubelet\b", re.I),      "high"),
+    (re.compile(r"\bBloodHound collection:", re.I),                   "high"),
+    (re.compile(r"\bRMI registry:", re.I),                            "medium"),
+    (re.compile(r"\bKIBANA API responds\b", re.I),                    "medium"),
+    (re.compile(r"\b(?:Jenkins|GitLab|SonarQube|Grafana|Prometheus) detected:", re.I), "medium"),
+    # Generic content-word fallbacks (REVIEW Phase-6 #1): these catch a bare
+    # "exposed"/"unauth" line that no product-specific rule above matched. They
+    # The two low product catch-alls stay LAST inside _DEFAULT_RULES_RAW so every
+    # specific product rule above wins first-match and keeps its own stable
+    # rule_id (the S2 KB key). The generic EXPOSED/UNAUTH (high) and CRITICAL/
+    # [!!] (critical) fallbacks were moved OUT of this list (REVIEW #1) into
+    # _GENERIC_FALLBACK_RULES, which every walker appends AFTER the AD-depth
+    # rules — so a generic can never shadow a specific rule (incl. AD-depth) and
+    # steal its rule_id. The critical severity floor is enforced structurally in
+    # _classify_line, not by rule order.
+    (re.compile(r"\bVault reachable\b", re.I),                        "low"),
     (re.compile(r"\b(OpenSSH|nginx|Apache|MySQL|PostgreSQL|Redis)\b", re.I), "low"),
 ]
 
@@ -465,14 +537,14 @@ def _clean_line(line: str) -> str:
 _PREFILTER_CACHE: dict[tuple[tuple[str, int, str], ...], tuple] = {}
 
 
-def _prefilter_for(rules: list[tuple[re.Pattern, str]]):
+def _prefilter_for(rules: "list[Rule]"):
     # Content keys cannot alias when CPython recycles a short-lived list id.
-    key = tuple((pat.pattern, pat.flags, sev) for pat, sev in rules)
+    key = tuple((r.pattern.pattern, r.pattern.flags, r.severity) for r in rules)
     pf = _PREFILTER_CACHE.get(key)
     if pf is None:
         groups: dict[int, list[str]] = defaultdict(list)
-        for pat, _sev in rules:
-            groups[pat.flags].append(pat.pattern)
+        for r in rules:
+            groups[r.pattern.flags].append(r.pattern.pattern)
         combined = []
         for flags, pats in groups.items():
             try:
@@ -488,8 +560,10 @@ def _prefilter_for(rules: list[tuple[re.Pattern, str]]):
     return pf
 
 
-def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
-    """Return the severity for a line, or None if no rule matched."""
+def _classify(line: str, rules: "list[Rule]") -> "Rule | None":
+    """Return the matched Rule for a line, or None if no rule matched. Callers
+    that want only the severity read `.severity`; D1.0 gave rules a stable
+    `rule_id` so the shadow audit and KB can key on identity."""
     # Cap length before regex: an operator-supplied --severity-rules pattern can
     # backtrack catastrophically (e.g. (a+)+$) on a long line; bounding the input
     # is a mitigation (Python re has no match timeout). Findings text we care
@@ -498,14 +572,135 @@ def _classify(line: str, rules: list[tuple[re.Pattern, str]]) -> str | None:
     prefilter = _prefilter_for(rules)
     if prefilter and not any(cre.search(line) for cre in prefilter):
         return None
-    for pat, sev in rules:
-        if pat.search(line):
-            return sev
+    for r in rules:
+        if r.pattern.search(line):
+            return r
     return None
 
 
-def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
-    custom: list[tuple[re.Pattern, str]] = []
+# Dispatcher markers that mean "this line is a miss/log line, not a finding".
+# D1.1 suppression keys on the MARKER only — never on content negation such as
+# "NOT VULNERABLE" or "STATUS_ACCOUNT_DISABLED", which legitimately appear inside
+# enumeration output. The three markers are the _lib.sh miss prefix, the _lib.sh
+# log timestamp, and the NetExec failure column.
+_SUPPRESS_MARKERS: tuple = (
+    re.compile(r"^\s*\[-\]\s"),                            # _lib.sh miss  → [-] ...
+    re.compile(r"^\s*\[\d{2}:\d{2}:\d{2}\]\s"),            # _lib.sh log   → [HH:MM:SS] ...
+    re.compile(r"^\S+\s+\S+\s+\d{1,5}\s+\S+\s+\[-\]\s"),   # NetExec       → PROTO host port name [-] ...
+)
+
+
+def _is_suppressed_marker(cleaned: str) -> bool:
+    return any(m.search(cleaned) for m in _SUPPRESS_MARKERS)
+
+
+# Dispatcher critical markers (REVIEW #1). A line carrying either marker is a
+# critical finding no matter which severity rule won first-match; _classify_line
+# enforces this as a severity FLOOR (never a downgrade) so correctness does not
+# depend on rule ordering. _CRITICAL_FLOOR_MARKERS and _GENERIC_HIGH_PATTERNS are
+# the exact patterns used to build _GENERIC_FALLBACK_RULES (below, appended last
+# by every walker). _GENERIC_FALLBACK_IDS holds all four derived ids so
+# _classify_line can tell "only a generic fallback matched" from "a specific rule
+# matched" and keep the specific id when there is one.
+_CRITICAL_FLOOR_MARKERS: tuple = (
+    re.compile(r"\bCRITICAL\b", re.I),
+    re.compile(r"^\s*\[!!\]\s"),
+)
+_GENERIC_HIGH_PATTERNS: tuple = (
+    re.compile(r"\bEXPOSED\b", re.I),
+    re.compile(r"\bUNAUTH\b", re.I),
+)
+_GENERIC_FALLBACK_IDS: frozenset = frozenset(
+    _derive_rule_id(m) for m in _CRITICAL_FLOOR_MARKERS + _GENERIC_HIGH_PATTERNS
+)
+_FLOOR_ID_STRIP: tuple = (
+    # URL scheme+authority only (host:port); the PATH/QUERY is a distinguishing
+    # resource and MUST be kept (ROUND2 #1) so e.g. ".../admin" and ".../debug"
+    # on different hosts do not collapse to one KB key.
+    re.compile(r"https?://[^/\s]+", re.I),       # URL scheme + host[:port]
+    re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"),  # bare IPv4
+    re.compile(r":\d{1,5}\b"),                   # :port
+)
+
+# A comma-separated enumeration run (ROUND2 #2). An element may contain internal
+# whitespace ("Finance Team"), so a multi-WORD list is protected element-wise and
+# as a whole run — "Finance Team, HR Team" and "Legal Team, HR Team" no longer
+# reduce to the same {team, hr} token set and can never false-merge in dedup.
+_ENUM_ELEM = r"[\w$.*/\\-]+(?:[ \t]+[\w$.*/\\-]+)*"
+_ENUM_RUN_RE = re.compile(r"%s(?:[ \t]*,[ \t]*%s)+" % (_ENUM_ELEM, _ENUM_ELEM))
+
+
+def _floor_rule_id(cleaned: str) -> str:
+    """Line-derived id for a generic dispatcher critical with no specific rule.
+
+    Host/IP/port/URL are stripped first so the SAME critical fact seen on
+    several hosts shares one KB key, while two DIFFERENT critical facts get
+    distinct keys — the collapse REVIEW #1 flagged (every generic critical
+    sharing one pattern-derived id) is what this avoids."""
+    norm = cleaned
+    for rx in _FLOOR_ID_STRIP:
+        norm = rx.sub("", norm)
+    norm = norm.strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", norm.lower()).strip("-")[:55].strip("-")
+    digest = hashlib.sha1(norm.encode()).hexdigest()[:8]
+    return ("crit-" + slug + "-" + digest) if slug else ("crit-" + digest)
+
+
+def _apply_critical_floor(matched: "Rule", cleaned: str) -> "Rule":
+    """Enforce the unconditional critical floor on an already-matched rule: a
+    dispatcher-marked critical is graded critical, and if a GENERIC fallback won
+    (its id would collapse every critical onto one key) swap in a line-derived id
+    so distinct criticals keep distinct KB keys. A specific or custom rule keeps
+    its own id; only a generic fallback id is replaced."""
+    rule_id = matched.rule_id
+    if rule_id in _GENERIC_FALLBACK_IDS:
+        rule_id = _floor_rule_id(cleaned)
+    if matched.severity != "critical" or rule_id != matched.rule_id:
+        return matched._replace(severity="critical", rule_id=rule_id)
+    return matched
+
+
+def _classify_line(line: str, rules: "list[Rule]") -> "Rule | None":
+    """Marker-aware classifier used by every finding walker (G01/G02).
+
+    `_classify` stays the raw first-match primitive; this wrapper adds
+    dispatcher-marker suppression so a line carried on a miss/log marker does
+    not surface as a finding. Overrides run before suppression: a line matched
+    by a `miss_ok` rule (operator `--severity-rules`, always miss_ok, or a
+    built-in rule flagged miss_ok because it is legitimately emitted through
+    Miss()/Log()) is kept regardless of its marker. Marker detection only runs
+    when a non-miss_ok rule actually matched — the only case where suppression
+    changes the outcome — so the common no-match line costs nothing extra."""
+    matched = _classify(line, rules)
+    cleaned = _clean_line(line)
+    crit_marked = any(m.search(cleaned) for m in _CRITICAL_FLOOR_MARKERS)
+    if matched is not None and matched.miss_ok:
+        # miss_ok bypasses marker SUPPRESSION only. The critical floor still
+        # applies (ROUND2 #9): a dispatcher-marked critical is never downgraded,
+        # not even by an operator custom rule (every custom rule is miss_ok) or a
+        # built-in miss_ok rule.
+        return _apply_critical_floor(matched, cleaned) if crit_marked else matched
+    if _is_suppressed_marker(cleaned):
+        return None
+    if matched is None:
+        # Forgiving-by-default: a dispatcher-marked critical that no rule
+        # matched (e.g. the caller passed a list without the generic
+        # fallbacks) is still a critical finding, never silently lost. Give it
+        # a line-derived id so distinct criticals get distinct KB keys.
+        if crit_marked:
+            return Rule(_CRITICAL_FLOOR_MARKERS[0], "critical",
+                        _floor_rule_id(cleaned), False)
+        return None
+    # Critical severity FLOOR (REVIEW #1): a dispatcher-marked critical can
+    # never be downgraded by a lower-severity rule, and a generic fallback must
+    # not collapse every critical onto one rule_id.
+    if crit_marked:
+        return _apply_critical_floor(matched, cleaned)
+    return matched
+
+
+def _load_rules(path: Path | None) -> "list[Rule]":
+    custom: list = []
     if path:
         for lineno, ln in enumerate(path.read_text().splitlines(), 1):
             ln = ln.strip()
@@ -517,13 +712,23 @@ def _load_rules(path: Path | None) -> list[tuple[re.Pattern, str]]:
                 if sev not in _SEV_ORDER:
                     raise ValueError(
                         f"severity must be one of {sorted(_SEV_ORDER)}, got {sev!r}")
-                custom.append((re.compile(obj["pattern"], re.I), sev))
+                # Custom operator rules keep the (pattern, severity) FILE contract;
+                # here they become Rules with a stable custom id and miss_ok=True
+                # so the D1.1 guard never suppresses an operator-chosen match.
+                # The id is derived from the PATTERN (REVIEW #6), not the file
+                # line number, so reordering/editing the rules file does not
+                # churn the KB key; two rules with the same pattern collide on
+                # one id, which is a real duplicate the uniqueness guard catches.
+                cre = re.compile(obj["pattern"], re.I)
+                custom.append(Rule(cre, sev, "custom-" + _derive_rule_id(cre), True))
             except (json.JSONDecodeError, KeyError, re.error, TypeError, ValueError) as exc:
                 print(f"error: {path}:{lineno}: invalid severity rule ({exc})",
                       file=sys.stderr)
                 sys.exit(2)
-    # Explicit operator policy overrides defaults under first-match semantics.
-    return custom + list(_DEFAULT_RULES)
+    # Explicit operator policy overrides defaults under first-match semantics;
+    # the generic fallbacks are appended LAST so this is a self-complete rule
+    # set (direct callers grade generic EXPOSED/UNAUTH/CRITICAL lines too).
+    return _compose_rules(custom, _DEFAULT_RULES)
 
 
 # ---------------------------------------------------- redaction
@@ -622,7 +827,7 @@ _BULK_GTFOBINS = (
 )
 # Build one alternation so the SUID/SGID line regex stays fast.
 _GTFO_ALT = "|".join(re.escape(b) for b in _BULK_GTFOBINS)
-_BULK_RULES: list[tuple[re.Pattern, str]] = [
+_BULK_RULES_RAW: list = [
     # SUDO — NOPASSWD is the canonical root primitive
     (re.compile(r"NOPASSWD", re.I),                                              "critical"),
     (re.compile(r"\(ALL\s*:\s*ALL\)\s*ALL", re.I),                               "critical"),
@@ -640,8 +845,11 @@ _BULK_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bwritable\b.*/etc/cron", re.I),                               "high"),
     # LD_* env in sudo env_keep
     (re.compile(r"env_keep.*LD_(PRELOAD|LIBRARY_PATH)", re.I),                   "critical"),
-    # NFS no_root_squash
-    (re.compile(r"\bno_root_squash\b", re.I),                                    "high"),
+    # NFS exports (D1.5 — no_root_squash raised high->critical for parity with
+    # _DEFAULT_RULES; no_all_squash/insecure added so a bulk NFS tree grades too).
+    (re.compile(r"\bno_root_squash\b", re.I),                                    "critical"),
+    (re.compile(r"\bno_all_squash\b", re.I),                                     "medium"),
+    (re.compile(r"\bNFS insecure export\b", re.I),                               "low"),
     # Docker
     (re.compile(r"Privileged:\s*true", re.I),                                    "critical"),
     (re.compile(r"docker.sock", re.I),                                           "high"),
@@ -662,7 +870,7 @@ _BULK_RULES: list[tuple[re.Pattern, str]] = [
 # ---------------------------------------------------- Windows bulk-enum severity rules
 # Anchored on what standalones/windows/Invoke-PrivEscEnum.ps1 actually prints (see that
 # script's Section / Sub / Hit functions — formatting is stable across runs).
-_BULK_RULES_WIN: list[tuple[re.Pattern, str]] = [
+_BULK_RULES_WIN_RAW: list = [
     # ---- CRITICAL ---- (direct privesc primitives)
     # AlwaysInstallElevated ENABLED — msfvenom -f msi -> SYSTEM
     (re.compile(r"AlwaysInstallElevated ENABLED", re.I),                        "critical"),
@@ -724,7 +932,7 @@ _BULK_RULES_WIN: list[tuple[re.Pattern, str]] = [
 # These layer on top of the default rules and apply to auto-enum.sh output
 # tree files (enum-ldap.sh / enum-smb.sh / enum-kerberos.sh produce them).
 # Anchored on the literal strings the D1.0-D1.4 commits emit.
-_AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
+_AD_DEPTH_RULES_RAW: list = [
     # --- Certipy AD CS ---
     # Certipy's "ESCN (Vulnerable)" header is the canonical hit — and our
     # ADSI-based Get-ADCSMisconfig.ps1 mirrors that format for parity.
@@ -782,6 +990,48 @@ _AD_DEPTH_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"WRITABLE.*root runs scripts from here on apt operations", re.I),  "critical"),
     (re.compile(r"/etc/apt/sources\.list WRITABLE", re.I),                          "critical"),
 ]
+
+# Patterns whose rule is legitimately emitted through a dispatcher miss/log
+# marker (so _classify_line must NOT suppress a line that matches one). Seeded
+# with the disabled-privilege hit (Invoke-PrivEscEnum.ps1 prints it via Miss);
+# the D1.1 corpus-classification sweep (tests/test_findings_fidelity.py) is the
+# authority on the full set.
+_MISS_OK_PATTERNS: tuple = (
+    r"\bSe(Impersonate|AssignPrimaryToken|Debug|Backup|Restore|TakeOwnership)Privilege\s*\(disabled",
+)
+
+# Build the Rule lists from the raw 2-tuple literals above, assigning a stable
+# derived rule_id to each and flagging miss_ok where applicable.
+_DEFAULT_RULES: "list[Rule]" = _build_rules(_DEFAULT_RULES_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
+_BULK_RULES: "list[Rule]" = _build_rules(_BULK_RULES_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
+_BULK_RULES_WIN: "list[Rule]" = _build_rules(_BULK_RULES_WIN_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
+_AD_DEPTH_RULES: "list[Rule]" = _build_rules(_AD_DEPTH_RULES_RAW, miss_ok_patterns=_MISS_OK_PATTERNS)
+# Generic last-resort fallbacks (REVIEW #1): built from the SAME pattern objects
+# as the _classify_line floor markers, so their derived ids equal
+# _GENERIC_FALLBACK_IDS. Every walker appends this list AFTER its specific rules
+# and the AD-depth rules, so a generic can never win first-match over — and so
+# can never steal the rule_id of — a specific rule. Critical fallbacks precede
+# the high ones so a line matching both grades critical even before the floor.
+_GENERIC_FALLBACK_RULES: "list[Rule]" = _build_rules(
+    [(m, "critical") for m in _CRITICAL_FLOOR_MARKERS]
+    + [(p, "high") for p in _GENERIC_HIGH_PATTERNS],
+    miss_ok_patterns=_MISS_OK_PATTERNS,
+)
+_GENERIC_FALLBACK_RULE_IDS: frozenset = frozenset(r.rule_id for r in _GENERIC_FALLBACK_RULES)
+
+
+def _compose_rules(*rule_lists) -> "list[Rule]":
+    """Concatenate the given specific-rule lists and append the generic
+    fallbacks LAST (REVIEW #1), so a generic can never win first-match over —
+    and so can never steal the rule_id of — a specific rule, including the
+    AD-depth rules. Idempotent: any generic fallback already present in the
+    inputs is dropped before the single trailing copy is appended, so callers
+    can compose pre-composed lists without double-appending or re-shadowing."""
+    out: list = []
+    for rl in rule_lists:
+        out.extend(rl)
+    out = [r for r in out if r.rule_id not in _GENERIC_FALLBACK_RULE_IDS]
+    return out + list(_GENERIC_FALLBACK_RULES)
 
 
 # ---------------------------------------------------- layout detector
@@ -902,6 +1152,14 @@ def _inventory_endpoints(out_dir: Path) -> list[dict]:
                 seen.add(key)
                 records.append({"host": host, "port": port, "protocol": "",
                                 "service": svc_dir.name})
+    # D1.3 — fold a port-less record into its port-specific siblings. A bare
+    # (host, "", svc) record (from a port-less target list or host dir) would
+    # only ever yield host-level attribution; if any port-specific record
+    # exists for the same (host, service), drop the port-less one so a line is
+    # attributed to the real endpoint instead of falling back to host level.
+    ported = {(r["host"], r["service"]) for r in records if r["port"]}
+    records = [r for r in records
+               if r["port"] or (r["host"], r["service"]) not in ported]
     return records
 
 
@@ -947,17 +1205,62 @@ def _line_mentions_endpoint(line: str, host: str, port: str) -> bool:
     return any(re.search(pattern, line, flags) for pattern in patterns)
 
 
+_SCHEME_DEFAULT_PORTS = {"http": "80", "https": "443", "ldap": "389",
+                         "ldaps": "636", "ftp": "21"}
+_SCHEME_URL_RE = re.compile(
+    r"(?P<scheme>https?|ldaps?|ftp)://(?P<host>\[[^\]]+\]|[^/:\s?#]+)", re.I)
+
+
+def _normalize_scheme_default_ports(line: str) -> str:
+    """Return the line with ``scheme://host`` URLs that carry no explicit port
+    rewritten to ``scheme://host:<default>`` for MATCHING ONLY (http 80,
+    https 443, ldap 389, ldaps 636, ftp 21). A URL that already names a port is
+    left untouched. The stored evidence text is never changed — only the string
+    handed to the token matcher — so ``https://10.0.0.30`` can attribute to the
+    known 443 endpoint instead of falling back to host level."""
+    def repl(m: "re.Match") -> str:
+        default = _SCHEME_DEFAULT_PORTS.get(m.group("scheme").lower())
+        end = m.end()
+        # Leave a URL that already has an explicit :port alone.
+        if not default or line[end:end + 1] == ":":
+            return m.group(0)
+        return f"{m.group(0)}:{default}"
+    return _SCHEME_URL_RE.sub(repl, line)
+
+
 def _endpoint_in_text(line: str, endpoints: list[dict], service: str) -> dict | None:
-    """Resolve one exact known endpoint from structured address tokens."""
+    """Resolve one exact known endpoint from structured address tokens.
+
+    Falls back to a host-level record ``{host, port="", ...}`` when the matches
+    are ambiguous on port but share a single host — one known host is better
+    than ``(dispatcher)`` (D1.3)."""
+    match_line = _normalize_scheme_default_ports(line)
     matches: list[dict] = []
     for endpoint in endpoints:
         if endpoint["service"] != service:
             continue
         host, port = endpoint["host"], endpoint["port"]
-        if _line_mentions_endpoint(line, host, port):
+        if _line_mentions_endpoint(match_line, host, port):
             matches.append(endpoint)
     unique = {(m["host"], m["port"], m["protocol"]): m for m in matches}
-    return next(iter(unique.values())) if len(unique) == 1 else None
+    if len(unique) == 1:
+        return next(iter(unique.values()))
+    if unique:
+        # REVIEW #5: before falling back to a host-only record, collapse on
+        # (host, port). If every match shares a single host AND port and only
+        # the protocol is ambiguous (e.g. the same service seen as tcp and
+        # udp), the port is NOT ambiguous — keep it. Dropping it here is what
+        # lost ports to the host-level fallback.
+        host_port = {(m["host"], m["port"]) for m in unique.values()}
+        if len(host_port) == 1:
+            host, port = next(iter(host_port))
+            return {"host": host, "port": port,
+                    "protocol": "", "service": service}
+        hosts = {m["host"] for m in unique.values()}
+        if len(hosts) == 1:
+            return {"host": next(iter(hosts)), "port": "",
+                    "protocol": "", "service": service}
+    return None
 
 
 def _refresh_finding_identity(finding: dict) -> None:
@@ -965,6 +1268,181 @@ def _refresh_finding_identity(finding: dict) -> None:
                     ("service", "host", "port", "protocol", "severity",
                      "evidence_identity", "user", "key", "artifact_id"))
     finding["finding_id"] = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(seed.encode()).hexdigest()[:14]}"
+
+
+# ---------------------------------------------------- echo dedup (D1.4, G06)
+_ECHO_JACCARD_MIN = 0.5
+_PROSE_STOPWORDS = frozenset(
+    {"at", "on", "the", "is", "to", "of", "a", "an", "via", "for", "and", "with"})
+# A file whose name starts with "_" directly under a service dir is a dispatcher
+# summary (``<svc>/_dispatcher.log``, ``_findings.txt``, ``_hints.txt``). A
+# per-host finding lives one level deeper (``<svc>/<host>/<file>``).
+
+
+def _is_dispatcher_echo(finding: dict) -> bool:
+    parts = Path(str(finding.get("evidence_path", ""))).parts
+    return len(parts) == 2 and parts[-1].startswith("_")
+
+
+def _protected_tokens(line: str, host: str = "", port: str = "") -> frozenset:
+    """Load-bearing tokens whose difference means a DIFFERENT fact: addresses,
+    ports, filesystem/UNC paths, admin/hidden shares, credential pairs, and
+    secret/hash blobs. Equality of this set is a hard gate for echo dedup, so
+    two distinct dispatcher facts about one host never merge.
+
+    The attributed endpoint (host, port) is folded in as a canonical token and
+    the line's own copy of that address/port is removed first, so a terse
+    per-host echo ("Jenkins API exposed") and its verbose dispatcher twin
+    ("UNAUTH: Jenkins API exposed: http://10.0.0.20:8080") — same endpoint —
+    carry the same protected set, while a different port or path still differs.
+    """
+    s = _clean_line(line)
+    toks: set = set()
+    toks.update(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", s))
+    toks.update(m.group(0) for m in re.finditer(
+        r"(?<![:.\w])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![:.\w])", s))
+    toks.update("port:" + p for p in re.findall(r":(\d{1,5})(?!\d)", s))
+    toks.update("port:" + p for p in re.findall(r"\bport\s+(\d{1,5})\b", s, re.I))
+    # Paths with at least one alphabetic segment (so a URL authority like
+    # //10.0.0.20:8080 is not mistaken for a path).
+    toks.update(re.findall(r"(?:[A-Za-z]:\\|\\\\|/)(?=[^\s]*[A-Za-z])[\w$.\\/-]+", s))
+    toks.update(t.rstrip(",.;") for t in re.findall(r"\b\w+\$", s))          # IPC$, C$
+    toks.update(m.group(1).lower() for m in re.finditer(                      # user:pass
+        r"\b([A-Za-z][\w.-]*:[\w.$!@#%^&*+-]+)\b(?=\s+(?:auth|works|succeed|valid|login|logon|cred))",
+        s, re.I))
+    toks.update(re.findall(r"\b[0-9A-Fa-f]{12,}\b", s))                       # hex blobs
+    toks.update(re.findall(r"\b[A-Za-z0-9+/]{20,}={0,2}\b", s))               # base64 blobs
+    toks.update(t.upper() for t in re.findall(r"\bCVE-\d{4}-\d+\b", s, re.I))
+    # Enumerated list items (REVIEW #2): a run of 2+ comma-separated items is a
+    # load-bearing enumeration — shares, users, accounts, hashes. Folding each
+    # item into the protected set makes echo dedup conservative: a multi-item
+    # enumeration can only merge with a line carrying the SAME set, never with a
+    # different or subset list (which would silently drop the extra items). A
+    # terse single-item line has no comma run, so true verbose/terse echoes that
+    # carry no list are unaffected and still collapse.
+    for run_items in _ENUM_RUN_RE.findall(s):
+        # The whole run is an opaque token: any membership difference changes it,
+        # so a multi-value summary never merges with a subset per-host line.
+        toks.add("enumrun:" + re.sub(r"\s+", " ", run_items).strip())
+        for item in run_items.split(","):
+            item = re.sub(r"\s+", " ", item).strip().rstrip(".;:")
+            if item:
+                toks.add("enum:" + item)
+    norm = {t.lower() for t in toks}
+    # Fold the attributed endpoint in and drop the line's own copy of it, so an
+    # address-asymmetric echo pair on the same endpoint matches.
+    if host:
+        norm.discard(host.lower())
+        norm.add("host:" + host.lower())
+    if port:
+        norm.discard("port:" + str(port))
+        norm.add("port:" + str(port))
+    return frozenset(norm)
+
+
+def _prose_tokens(line: str) -> frozenset:
+    """Alphabetic words only, markers/addresses/stopwords stripped — the prose
+    of a finding, used by Jaccard to confirm (never to decide) an echo match."""
+    s = _clean_line(line).lower()
+    return frozenset(w for w in re.findall(r"[a-z]{2,}", s) if w not in _PROSE_STOPWORDS)
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _merge_echo_pair(a: dict, b: dict) -> dict:
+    """Return one finding from an echo pair: the higher-severity grading wins
+    (per-host breaks a tie), the per-host evidence file stays the primary link,
+    and both findings' evidence paths are unioned."""
+    a_rank = (_SEV_ORDER.get(a["severity"], 9), 0 if not _is_dispatcher_echo(a) else 1)
+    b_rank = (_SEV_ORDER.get(b["severity"], 9), 0 if not _is_dispatcher_echo(b) else 1)
+    winner, loser = (a, b) if a_rank <= b_rank else (b, a)
+    survivor = dict(winner)
+    paths: list = []
+    for src in (winner, loser):
+        for p in src.get("evidence_paths") or ([src.get("evidence_path")] if src.get("evidence_path") else []):
+            if p and p not in paths:
+                paths.append(p)
+    survivor["evidence_paths"] = paths
+    # Prefer a per-host file as the clickable primary over a dispatcher summary.
+    if _is_dispatcher_echo(survivor):
+        per_host = next((p for p in paths if not Path(p).parts[-1].startswith("_")), "")
+        if per_host:
+            survivor["evidence_path"] = per_host
+    _refresh_finding_identity(survivor)
+    return survivor
+
+
+def _dedup_echoes(findings: list[dict]) -> list[dict]:
+    """Collapse a dispatcher summary line into the per-host finding it echoes —
+    across that boundary ONLY. Hard gates: same host+service, compatible
+    port/protocol, and EQUAL protected-token sets. Among the survivors, prose
+    Jaccard >= _ECHO_JACCARD_MIN confirms the match and one-to-one greedy
+    assignment (best prose first) prevents any fan-in/fan-out collapse. Two
+    per-host lines are never merged, so SUID / share enumerations are safe."""
+    groups: dict = defaultdict(lambda: {"echo": [], "host": []})
+    passthrough: list = []
+    for f in findings:
+        host = str(f.get("host", ""))
+        if host == "(dispatcher)" or not f.get("service"):
+            passthrough.append(f)
+            continue
+        groups[(host, str(f.get("service", "")))]["echo" if _is_dispatcher_echo(f) else "host"].append(f)
+
+    result: list = []
+    for (_h, _svc), bucket in groups.items():
+        echoes, hosts = bucket["echo"], bucket["host"]
+        if not echoes or not hosts:
+            result.extend(echoes)
+            result.extend(hosts)
+            continue
+        host_tok = {id(hf): _protected_tokens(hf.get("line", ""), hf.get("host", ""), hf.get("port", ""))
+                    for hf in hosts}
+        host_prose = {id(hf): _prose_tokens(hf.get("line", "")) for hf in hosts}
+        pairs: list = []
+        for ef in echoes:
+            et = _protected_tokens(ef.get("line", ""), ef.get("host", ""), ef.get("port", ""))
+            ep = _prose_tokens(ef.get("line", ""))
+            for hf in hosts:
+                if not _ports_compatible(ef, hf) or not _protocols_compatible(ef, hf):
+                    continue
+                if et != host_tok[id(hf)]:
+                    continue
+                score = _jaccard(ep, host_prose[id(hf)])
+                if score >= _ECHO_JACCARD_MIN:
+                    pairs.append((score, ef, hf))
+        pairs.sort(key=lambda t: t[0], reverse=True)
+        used_echo: set = set()
+        used_host: dict = {}
+        merged_for: dict = {}
+        for score, ef, hf in pairs:
+            if id(ef) in used_echo or id(hf) in used_host:
+                continue
+            used_echo.add(id(ef))
+            used_host[id(hf)] = True
+            merged_for[id(hf)] = _merge_echo_pair(ef, hf)
+        for hf in hosts:
+            result.append(merged_for.get(id(hf), hf))
+        for ef in echoes:
+            if id(ef) not in used_echo:
+                result.append(ef)
+    result.extend(passthrough)
+    return result
+
+
+def _ports_compatible(a: dict, b: dict) -> bool:
+    pa, pb = str(a.get("port", "")), str(b.get("port", ""))
+    return not pa or not pb or pa == pb
+
+
+def _protocols_compatible(a: dict, b: dict) -> bool:
+    pa, pb = str(a.get("protocol", "")), str(b.get("protocol", ""))
+    return not pa or not pb or pa == pb
 
 
 def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
@@ -988,8 +1466,26 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
             elif not endpoint:
                 endpoint = _endpoint_in_text(str(finding.get("line", "")), endpoints, service)
         if endpoint:
-            finding.update(endpoint)
+            # REVIEW #5: never overwrite a value the finding already carries
+            # with an emptier one. A host-only fallback (port="") must promote
+            # the host without erasing a port the finding already resolved.
+            for k, v in endpoint.items():
+                if not v and finding.get(k):
+                    continue
+                finding[k] = v
         finding.setdefault("protocol", "")
+        # D1.3 — additive scope label. A line we could not attribute keeps
+        # host="(dispatcher)" and is run-scoped; the dashboard collapses these
+        # into an Unattributed panel and excludes them from host tables and
+        # severity KPIs. An attributed line is endpoint-scoped when it carries a
+        # port, host-scoped when only the host is known.
+        if finding.get("host") == "(dispatcher)":
+            finding["scope"] = "run"
+        elif finding.get("port"):
+            finding["scope"] = "endpoint"
+        else:
+            finding["scope"] = "host"
+        finding["attribution"] = finding["scope"]
         identity = str(finding.get("evidence_identity", ""))
         if not identity:
             identity = hashlib.sha256(str(finding.get("line", "")).encode()).hexdigest()
@@ -1011,7 +1507,9 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
         # dispatcher stdout as secondary provenance.
         if "_dispatcher.log" in str(prior.get("evidence_path", "")) and path:
             prior["evidence_path"] = path
-    return list(deduped.values())
+    # D1.4 — after exact-identity dedup, collapse dispatcher summary lines into
+    # the per-host finding they echo (token-safe, one-to-one, boundary-only).
+    return _dedup_echoes(list(deduped.values()))
 
 
 def _coverage(out_dir: Path, findings: list[dict]) -> list[dict]:
@@ -1179,18 +1677,19 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
                 except Exception:
                     continue
                 for line in text.splitlines():
-                    sev = _classify(line, rules)
-                    if sev is None:
+                    matched = _classify_line(line, rules)
+                    if matched is None:
                         continue
                     yield _structured_finding(
                         host,
                         port,
                         service,
-                        sev,
+                        matched.severity,
                         line,
                         str(fp.relative_to(out_dir)),
                         service_metadata,
                         protocol,
+                        rule_id=matched.rule_id,
                     )
         # Also scan top-level _dispatcher.log / _hints.txt / _findings.txt
         for top_fp in sorted(svc_dir.glob("_*")):
@@ -1201,17 +1700,18 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None) ->
             except Exception:
                 continue
             for line in text.splitlines():
-                sev = _classify(line, rules)
-                if sev is None:
+                matched = _classify_line(line, rules)
+                if matched is None:
                     continue
                 yield _structured_finding(
                     "(dispatcher)",
                     "",
                     service,
-                    sev,
+                    matched.severity,
                     line,
                     str(top_fp.relative_to(out_dir)),
                     service_metadata,
+                    rule_id=matched.rule_id,
                 )
 
 
@@ -1304,8 +1804,8 @@ def walk_findings_bulk(
     # LAPS, ADCS/ESC, PrintNightmare, writable pipes, coercion primitives — actually
     # get graded. They were only wired into the auto-enum classifier path, so a
     # bulk-windows sweep produced ungraded (LOW-looking) AD-depth signals.
-    linux_rules = list(_BULK_RULES) + list(_AD_DEPTH_RULES) + extras
-    win_rules   = list(_BULK_RULES_WIN) + list(_AD_DEPTH_RULES) + extras
+    linux_rules = _compose_rules(_BULK_RULES, _AD_DEPTH_RULES, extras)
+    win_rules   = _compose_rules(_BULK_RULES_WIN, _AD_DEPTH_RULES, extras)
     for host_dir in sorted(p for p in out_dir.iterdir() if p.is_dir() and not p.is_symlink()):
         meta = host_dir / "_meta.json"
         if not meta.is_file():
@@ -1366,18 +1866,19 @@ def walk_findings_bulk(
             except Exception:
                 continue
             for line in text.splitlines():
-                sev = _classify(line, rules)
-                if sev is None:
+                matched = _classify_line(line, rules)
+                if matched is None:
                     continue
                 yield _with_bulk_identity(_structured_finding(
                     identity["host"],
                     identity["port"],
                     svc,
-                    sev,
+                    matched.severity,
                     line,
                     str(evidence.relative_to(out_dir)),
                     service_metadata,
                     identity["protocol"],
+                    rule_id=matched.rule_id,
                 ), identity)
 
 
@@ -1640,6 +2141,45 @@ def _to_sarif(findings: list[dict], label: str) -> dict:
     }
 
 
+# ---------------------------------------------------- shared collector (D1.6)
+class Collection(NamedTuple):
+    """The one structured result both report.main and report-dashboard render
+    from, so neither re-implements collection and they cannot diverge.
+
+    S1 populates `findings`, `per_host`, `mode`, and `diagnostics`. `posture`
+    and `domains` are filled by S3 (host posture + AD rollups); `layout` carries
+    the mixed-tree sub-counts (S4/D4.4). The field list never changes — a later
+    sprint constructs a Collection with a field S1 leaves `None`; consumers read
+    `collection.posture or {}`. (A NamedTuple, like Rule, so the module loads
+    cleanly however a test imports it.)"""
+    findings: "list[dict]"
+    per_host: "dict | None"
+    mode: str                                        # auto-enum | bulk-enum | mixed
+    layout: "dict | None" = None
+    posture: "dict | None" = None
+    domains: "dict | None" = None
+    diagnostics: "list[dict] | None" = None
+
+
+def collect(out_dir: Path, rules, service_metadata: "dict | None" = None,
+            *, diagnostics: "list[dict] | None" = None) -> Collection:
+    """Walk, grade, attribute, and dedup one output tree into a Collection.
+
+    This is the single collection path. `report.main` and
+    `report-dashboard.build_index` both call it; neither detects bulk layout or
+    walks findings on its own."""
+    diags = diagnostics if diagnostics is not None else []
+    if service_metadata is None:
+        service_metadata = _load_service_metadata(out_dir)
+    if _is_bulk_enum_dir(out_dir):
+        findings = finalize_findings(
+            out_dir, walk_findings_bulk(out_dir, rules, service_metadata, diags))
+        return Collection(findings=findings, per_host=_per_host_verdicts(findings),
+                          mode="bulk-enum", diagnostics=diags)
+    findings = finalize_findings(out_dir, walk_findings(out_dir, rules, service_metadata))
+    return Collection(findings=findings, per_host=None, mode="auto-enum", diagnostics=diags)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1662,23 +2202,22 @@ def main() -> int:
 
     rules = _load_rules(Path(args.severity_rules) if args.severity_rules else None)
     # D1.5: layer the AD-depth rules on top of the default + operator rules.
-    # These are general (apply to both auto-enum and bulk-enum trees).
-    rules = list(rules) + list(_AD_DEPTH_RULES)
+    # _compose_rules keeps the generic fallbacks LAST (REVIEW #1) so they never
+    # shadow a specific rule — including the AD-depth rules layered in here.
+    rules = _compose_rules(rules, _AD_DEPTH_RULES)
     service_metadata = _load_service_metadata(out_dir)
     redactor = Redactor(args.redact)
     label = args.label or out_dir.name
 
-    # Auto-detect bulk-enum vs auto-enum layout
-    bulk_mode = _is_bulk_enum_dir(out_dir)
+    # Single shared collection path (D1.6): collect() detects layout, walks,
+    # grades, attributes, and dedups into one structured result.
     report_diagnostics: list[dict] = []
+    collection = collect(out_dir, rules, service_metadata, diagnostics=report_diagnostics)
+    findings = collection.findings
+    per_host = collection.per_host
+    bulk_mode = collection.mode == "bulk-enum"
     if bulk_mode:
-        print(_c(f"[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
-        findings = finalize_findings(out_dir, walk_findings_bulk(
-            out_dir, rules, service_metadata, report_diagnostics))
-        per_host = _per_host_verdicts(findings)
-    else:
-        findings = finalize_findings(out_dir, walk_findings(out_dir, rules, service_metadata))
-        per_host = None
+        print(_c("[+] bulk-enum layout detected — using linenum-fast.sh rules", "G"))
 
     summary = _summary(findings, out_dir)
 
@@ -1688,7 +2227,7 @@ def main() -> int:
         "label":         label,
         "generated_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "redacted":      args.redact,
-        "mode":          "bulk-enum" if bulk_mode else "auto-enum",
+        "mode":          collection.mode,
         "summary":       summary,
         "findings":      findings,
     }

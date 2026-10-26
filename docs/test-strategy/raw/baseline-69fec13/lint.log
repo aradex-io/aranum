@@ -1,0 +1,8 @@
+shellcheck not installed — SKIPPING shellcheck lint.
+  This is expected on an offline box. Install to enable full lint:
+    pip install shellcheck-py
+    sudo dnf install ShellCheck     (Fedora)
+    sudo apt-get install shellcheck (Debian/Ubuntu)
+  Falling back to 'bash -n' syntax check on every tracked .sh ...
+  bash -n: all tracked .sh parse cleanly.
+rc=0

@@ -29,7 +29,14 @@ def _run_apt(root: Path, *, apt_config: Path | None = None):
 
 def _apt_tree(tmp_path: Path) -> Path:
     root = tmp_path / "root"
-    (root / "etc/apt/apt.conf.d").mkdir(parents=True)
+    conf_d = root / "etc/apt/apt.conf.d"
+    conf_d.mkdir(parents=True)
+    # A hardened host's apt.conf.d is 0755 root:root. Under a group-writable
+    # umask (002) mkdir would create it 0775, which apt-source-check.sh then
+    # correctly flags as a WRITABLE hook dir — a fixture artifact, not a real
+    # finding. Normalize to 0755 so the base tree is genuinely clean; the
+    # writable-surface tests add their own 0666 file on top.
+    conf_d.chmod(0o755)
     return root
 
 

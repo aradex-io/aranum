@@ -378,55 +378,34 @@ def read_guidance(out_dir: Path) -> list[dict]:
 
 
 # --------------------------------------------------------------- aggregation
+def _is_run_scope(f: dict) -> bool:
+    """A finding the collector could not attribute to a known endpoint. Prefer
+    the additive `scope` field (D1.3); fall back to the legacy `(dispatcher)`
+    host sentinel for a findings.json written before scope existed."""
+    scope = f.get("scope")
+    if scope:
+        return scope == "run"
+    return f.get("host") == "(dispatcher)"
+
+
 def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
-    """Produce the in-memory model that every renderer reads from."""
+    """Produce the in-memory model that every renderer reads from.
+
+    Collection is delegated to `report.collect()` (D1.6): the dashboard no
+    longer detects bulk layout or walks findings itself, so its data can never
+    diverge from findings.json. Layout is now auto-detected inside collect()
+    and is authoritative — the `bulk` parameter (the CLI `--bulk` flag) is
+    overwritten by the detected mode. This fixes the old path, which walked a
+    bulk tree as auto-enum whenever `--bulk` was omitted; the flag survives
+    only as an advisory no-op. Endpoint attribution (dispatcher -> host:port)
+    already happened inside collect(), so the old known-hosts re-attribution
+    pass is gone."""
     # Mirror report.py:main — the AD-depth rules (Kerberoast/AS-REP, ESC1,
     # cpassword, LAPS-readable, PwnKit, writable-pipe) are CRITICAL findings.
-    # Omitting them here silently hid them from the dashboard vs findings.json.
-    rules = list(rpt._load_rules(rules_path)) + list(rpt._AD_DEPTH_RULES)
-    if bulk:
-        findings = rpt.finalize_findings(out_dir, rpt.walk_findings_bulk(out_dir, rules))
-    else:
-        findings = rpt.finalize_findings(out_dir, rpt.walk_findings(out_dir, rules))
-
-    # ----- re-attribute (dispatcher)-bucketed findings to real hosts -----
-    # `report.walk_findings` assigns `host="(dispatcher)"` to lines scraped
-    # from `$OUTDIR/<svc>/_dispatcher.log`. The lines themselves frequently
-    # name a host (e.g. "UNAUTH: Jenkins API exposed: http://10.0.0.20:8080").
-    # Promote those to the actual host so the per-host page sees them.
-    # Collect the known-host set from per-host directories.
-    known_hosts: set[str] = set()
-    if not bulk:
-        for svc_dir in out_dir.iterdir():
-            if (
-                not svc_dir.is_dir()
-                or svc_dir.name.startswith("_")
-                or rpt._is_generated_dashboard_dir(svc_dir)
-            ):
-                continue
-            for host_dir in svc_dir.iterdir():
-                if host_dir.is_dir():
-                    name = host_dir.name
-                    if "_" in name and name.rsplit("_", 1)[-1].isdigit():
-                        known_hosts.add(name.rsplit("_", 1)[0])
-                    else:
-                        known_hosts.add(name)
-        # Also accept hosts that appear in _targets_*.txt files
-        for tf in out_dir.glob("_targets_*.txt"):
-            try:
-                for line in tf.read_text(errors="replace").splitlines():
-                    line = line.strip()
-                    if not line or line.startswith("#") or ":" not in line:
-                        continue
-                    if line.startswith("["):
-                        ip = line.split("]:", 1)[0].lstrip("[")
-                    else:
-                        ip = line.rsplit(":", 1)[0]
-                    known_hosts.add(ip)
-            except Exception:
-                pass
-
-    # report.finalize_findings performs shared IPv4/IPv6 endpoint attribution.
+    rules = rpt._compose_rules(rpt._load_rules(rules_path), rpt._AD_DEPTH_RULES)
+    collection = rpt.collect(out_dir, rules)
+    findings = collection.findings
+    bulk = collection.mode == "bulk-enum"
 
     summary = rpt._summary(findings, out_dir)
 
@@ -463,7 +442,7 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
                     hosts_per_service[svc].add(host_dir.name)
 
     events = read_run_log(out_dir)
-    per_host_verdicts = rpt._per_host_verdicts(findings) if bulk else {}
+    per_host_verdicts = collection.per_host or {}
 
     # ----- port discovery (three sources, unioned) -----
     # Map (host, service) -> set[int] of ports observed.
@@ -519,7 +498,7 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     for f in findings:
         for m in _PORT_IN_TEXT.finditer(f["line"]):
             p = int(m.group(1) or m.group(2) or 0)
-            if 1 <= p <= 65535 and f["host"] != "(dispatcher)":
+            if 1 <= p <= 65535 and not _is_run_scope(f):
                 ports_per_host_svc[(f["host"], f["service"])].add(p)
 
     # Last-resort defaults: if a (host, service) ended up with no port at
@@ -530,7 +509,7 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
         for s in services_per_host[h]:
             seen_pairs.add((h, s))
     for f in findings:
-        if f["host"] != "(dispatcher)":
+        if not _is_run_scope(f):
             seen_pairs.add((f["host"], f["service"]))
     for (h, s) in seen_pairs:
         if not ports_per_host_svc.get((h, s)):
@@ -608,6 +587,7 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     return {
         "out_dir": str(out_dir),
         "bulk": bulk,
+        "mode": collection.mode,
         "findings": findings,
         "summary": summary,
         "by_host": dict(by_host),
