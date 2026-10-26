@@ -1,0 +1,885 @@
+{
+  "b-rubrik-cohesity-backup-dell-powerprotect-data-manager-e0232ea0": {
+    "category": "backup",
+    "title": "Enterprise backup management API exposed",
+    "why": "A reachable Rubrik, Cohesity, or Dell PowerProtect API identifies a high-value management plane that commonly holds infrastructure inventories and privileged integration credentials. Attackers target backup systems to steal data and impair recovery before disruptive operations.",
+    "test": [
+      {
+        "label": "Check Rubrik API fingerprint",
+        "cmd": "curl -k -i '<service>://<host>:<port>/api/v1/cluster/me'"
+      },
+      {
+        "label": "Check Cohesity API fingerprint",
+        "cmd": "curl -k -i '<service>://<host>:<port>/irisservices/api/v1/public/cluster'"
+      },
+      {
+        "label": "Check PowerProtect API fingerprint",
+        "cmd": "curl -k -i '<service>://<host>:<port>/api/v2/about'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict management access",
+        "text": "Place the backup API on a dedicated management network and permit access only from approved administration hosts and monitoring systems."
+      },
+      {
+        "label": "Harden administrator authentication",
+        "text": "Require MFA or centralized identity for administrators, remove dormant accounts, rotate integration credentials, and install supported security updates."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1490/",
+      "https://www.dell.com/support/security/en-us"
+    ]
+  },
+  "bartifact-docker-registry-sonatype-nexus-jfrog-artifact-ce6dbbf7": {
+    "category": "devops",
+    "title": "Artifact repository or registry exposed",
+    "why": "An exposed Docker Registry, Nexus, Artifactory, or Harbor service reveals a software-supply-chain management plane and may disclose repository names, versions, or internal package metadata. Compromise of a privileged account could let an attacker obtain proprietary artifacts or tamper with software consumed by deployment pipelines.",
+    "test": [
+      {
+        "label": "Fingerprint the service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      },
+      {
+        "label": "Inspect HTTP response headers",
+        "cmd": "curl -k -i '<service>://<host>:<port>/'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Limit registry reachability",
+        "text": "Expose the service only to authorized developer, CI, and administration networks through firewall rules or an authenticated reverse proxy."
+      },
+      {
+        "label": "Enforce repository controls",
+        "text": "Disable anonymous access unless explicitly required, apply least-privilege repository roles, require MFA for administrators, and use separate scoped CI tokens."
+      }
+    ],
+    "refs": [
+      "https://distribution.github.io/distribution/spec/api/",
+      "https://attack.mitre.org/techniques/T1195/"
+    ]
+  },
+  "bartifact-docker-registry-unauth-catalog-surface-b79f8ff4": {
+    "category": "devops",
+    "title": "Docker Registry catalog allows anonymous access",
+    "why": "The registry catalog can be listed without authentication, exposing repository names and potentially enabling anonymous tag or manifest enumeration. These details reveal internal applications and versions that help attackers identify sensitive images and vulnerable components.",
+    "test": [
+      {
+        "label": "List the anonymous registry catalog",
+        "cmd": "curl -kfsS '<service>://<host>:<port>/v2/_catalog?n=100'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require registry authentication",
+        "text": "Configure the registry or its reverse proxy to require authentication for catalog, repository, tag, manifest, pull, and push operations."
+      },
+      {
+        "label": "Restrict network access",
+        "text": "Limit registry access to approved CI workers, deployment systems, and administrator networks."
+      }
+    ],
+    "refs": [
+      "https://distribution.github.io/distribution/about/deploying/#restricting-access",
+      "https://distribution.github.io/distribution/spec/api/"
+    ]
+  },
+  "bauth-ok-b-18ccdbe4": {
+    "category": "creds",
+    "title": "RabbitMQ management credentials accepted",
+    "why": "Operator-supplied credentials successfully authenticated to the RabbitMQ management API. Depending on their assigned tags and virtual-host permissions, the account may expose users, queues, exchanges, messages, connections, or administrative functions.",
+    "test": [
+      {
+        "label": "Query RabbitMQ overview",
+        "cmd": "curl -kfsS -u '<user>:<pass>' '<service>://<host>:<port>/api/overview'"
+      },
+      {
+        "label": "List authorized virtual hosts",
+        "cmd": "curl -kfsS -u '<user>:<pass>' '<service>://<host>:<port>/api/vhosts'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Review the authenticated account",
+        "text": "Confirm that the account is expected, rotate it if its use is unexplained, and restrict its RabbitMQ tags and virtual-host permissions to the minimum required."
+      },
+      {
+        "label": "Protect the management API",
+        "text": "Restrict management API access to administration networks, require TLS, and use centralized authentication or MFA where supported."
+      }
+    ],
+    "refs": [
+      "https://www.rabbitmq.com/docs/management#http-api",
+      "https://attack.mitre.org/techniques/T1078/"
+    ]
+  },
+  "bbmc-hpe-ilo-dell-idrac-supermicro-ipmi-lenovo-xcc-imm-e5c59b40": {
+    "category": "infra",
+    "title": "Server baseboard management controller exposed",
+    "why": "A reachable iLO, iDRAC, IPMI, XCC, IMM, or CIMC interface provides out-of-band control that can remain available even when the operating system is offline. Administrative compromise may permit console access, power control, virtual-media mounting, firmware changes, or recovery bypass.",
+    "test": [
+      {
+        "label": "Fingerprint the management service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      },
+      {
+        "label": "Query IPMI version information",
+        "cmd": "nmap -Pn -sU -p <port> --script ipmi-version <host>"
+      },
+      {
+        "label": "Inspect the web interface",
+        "cmd": "curl -k -I '<service>://<host>:<port>/'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Isolate out-of-band management",
+        "text": "Move BMC interfaces to a dedicated management network with firewall or jump-host enforcement and no direct Internet or user-LAN access."
+      },
+      {
+        "label": "Harden controller access",
+        "text": "Change default credentials, disable unused legacy protocols, require MFA where supported, install current firmware, and forward audit events to monitoring."
+      }
+    ],
+    "refs": [
+      "https://csrc.nist.gov/publications/detail/sp/800-193/final",
+      "https://attack.mitre.org/techniques/T1133/"
+    ]
+  },
+  "bcommvault-detected-5f2f4842": {
+    "category": "backup",
+    "title": "Commvault management service exposed",
+    "why": "A reachable Commvault web service exposes a backup-management plane with visibility into protected systems, stored data, and operational credentials. Attackers frequently target backup infrastructure to obtain broad access and prevent reliable restoration.",
+    "test": [
+      {
+        "label": "Query the Commvault web-service endpoint",
+        "cmd": "curl -k -i '<service>://<host>:<port>/SearchSvc/CVWebService.svc/'"
+      },
+      {
+        "label": "Fingerprint the listening service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict CommServe access",
+        "text": "Allow the web service only from dedicated administration and backup networks, preferably through a controlled jump host."
+      },
+      {
+        "label": "Harden and update Commvault",
+        "text": "Apply supported maintenance releases, require strong administrator authentication, rotate service credentials, and review roles and audit logs."
+      }
+    ],
+    "refs": [
+      "https://documentation.commvault.com/",
+      "https://attack.mitre.org/techniques/T1490/"
+    ]
+  },
+  "bdefault-cred-6077e4eb": {
+    "category": "creds",
+    "title": "Default credentials accepted",
+    "why": "A service accepted a vendor-default or commonly shipped credential pair. Attackers routinely test these credentials because they can provide immediate administrative access without exploiting a software vulnerability.",
+    "test": [
+      {
+        "label": "Recheck web authentication",
+        "cmd": "curl -k -u '<user>:<pass>' -o /dev/null -w '%{http_code}\\n' '<service>://<host>:<port>/'"
+      },
+      {
+        "label": "Recheck supported network-service credentials",
+        "cmd": "nxc <service> <host> -u <user> -p <pass> -d <domain>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Replace the default credential",
+        "text": "Set a unique, randomly generated password or managed service credential and invalidate every vendor-default account or secret."
+      },
+      {
+        "label": "Check for prior use",
+        "text": "Review authentication and configuration logs for access using the default credential, rotate related secrets, and investigate unexplained activity."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1078/001/",
+      "https://www.cisa.gov/securebydesign"
+    ]
+  },
+  "bdell-avamar-powerprotect-legacy-service-reachable-95e93e9d": {
+    "category": "backup",
+    "title": "Legacy Avamar or PowerProtect service reachable",
+    "why": "A legacy Dell Avamar or PowerProtect service is reachable over the network, increasing the attack surface of a system that stores or controls backups. Older management protocols may lack modern authentication and transport protections and should not be accessible from general-purpose networks.",
+    "test": [
+      {
+        "label": "Confirm and fingerprint the TCP service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict the legacy service",
+        "text": "Allow the port only between documented backup components on a dedicated network and block it from user, guest, and Internet-facing segments."
+      },
+      {
+        "label": "Upgrade or retire the interface",
+        "text": "Install current supported PowerProtect or Avamar releases and disable legacy listeners that are no longer required."
+      }
+    ],
+    "refs": [
+      "https://www.dell.com/support/security/en-us",
+      "https://attack.mitre.org/techniques/T1190/"
+    ]
+  },
+  "bhypervisor-vmware-esxi-host-proxmox-ve-nutanix-prism-d-96b15af5": {
+    "category": "infra",
+    "title": "Hypervisor management plane exposed",
+    "why": "A VMware ESXi, Proxmox VE, or Nutanix Prism management interface is reachable. These systems control many workloads, so stolen administrator access or exploitation can expose virtual disks, consoles, snapshots, credentials, and multiple hosted services at once.",
+    "test": [
+      {
+        "label": "Fingerprint the management service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      },
+      {
+        "label": "Inspect the management web response",
+        "cmd": "curl -k -i '<service>://<host>:<port>/'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Segment hypervisor management",
+        "text": "Permit access only from a dedicated management network and approved jump hosts; block direct access from user networks and the Internet."
+      },
+      {
+        "label": "Harden privileged access",
+        "text": "Require MFA or centralized identity, remove unused local administrators, apply security updates, and alert on privileged logins and configuration changes."
+      }
+    ],
+    "refs": [
+      "https://core.vmware.com/security-configuration-guide",
+      "https://attack.mitre.org/techniques/T1133/"
+    ]
+  },
+  "bkey-only-b-adfd43e9": {
+    "category": "creds",
+    "title": "SSH permits public-key authentication only",
+    "why": "The SSH server advertises public-key authentication but not password or keyboard-interactive authentication. This reduces password-spraying risk, but defenders must still protect private keys, constrain authorized keys, and remove stale access because possession of a trusted key may be sufficient for login.",
+    "test": [
+      {
+        "label": "Read advertised SSH authentication methods",
+        "cmd": "ssh -vv -p <port> -o BatchMode=yes -o PreferredAuthentications=none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null <user>@<host> true 2>&1 | grep -i 'authentication methods'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Maintain key-only authentication",
+        "text": "Keep password authentication disabled, inventory authorized keys, remove stale keys, and require passphrases or hardware-backed keys for privileged access."
+      },
+      {
+        "label": "Constrain key privileges",
+        "text": "Apply least privilege to SSH accounts and use authorized_keys restrictions such as source-address, command, or forwarding constraints where appropriate."
+      }
+    ],
+    "refs": [
+      "https://man.openbsd.org/sshd_config",
+      "https://attack.mitre.org/techniques/T1078/004/"
+    ]
+  },
+  "bopenstack-keystone-detected-856681df": {
+    "category": "infra",
+    "title": "OpenStack Keystone API exposed",
+    "why": "A reachable Keystone endpoint identifies the identity control plane for an OpenStack environment and can disclose API versions and service topology. Although version discovery may be intentionally public, unnecessary reachability increases reconnaissance value and exposes a high-impact authentication surface.",
+    "test": [
+      {
+        "label": "Query Keystone version discovery",
+        "cmd": "curl -kfsS '<service>://<host>:<port>/v3'"
+      },
+      {
+        "label": "Fingerprint the API listener",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict identity API exposure",
+        "text": "Expose administrative Keystone endpoints only to trusted management networks and publish only the interfaces required by legitimate clients."
+      },
+      {
+        "label": "Harden Keystone",
+        "text": "Use TLS, federated or MFA-protected administrative identities, least-privilege roles, supported releases, and centralized audit logging."
+      }
+    ],
+    "refs": [
+      "https://docs.openstack.org/keystone/latest/",
+      "https://docs.openstack.org/security-guide/identity.html"
+    ]
+  },
+  "bplatform-hashicorp-nomad-portainer-rancher-argo-cd-det-53d5ee0c": {
+    "category": "devops",
+    "title": "Workload platform control plane exposed",
+    "why": "A Nomad, Portainer, Rancher, or Argo CD control plane is reachable and reveals a high-value workload-management surface. Compromised access could expose cluster inventories, deployment configuration, registry credentials, secrets, or the ability to alter running applications.",
+    "test": [
+      {
+        "label": "Probe product discovery endpoints",
+        "cmd": "for p in /v1/status/leader /api/status /v3/settings/server-version /api/version; do curl -k -i '<service>://<host>:<port>'\"$p\"; done"
+      },
+      {
+        "label": "Fingerprint the listener",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict control-plane access",
+        "text": "Limit the interface to trusted administration and cluster networks through firewall rules, a VPN, or an authenticated access proxy."
+      },
+      {
+        "label": "Enforce strong authorization",
+        "text": "Enable the product's authentication and authorization features, require SSO and MFA for administrators, use scoped automation tokens, and remove anonymous access."
+      }
+    ],
+    "refs": [
+      "https://developer.hashicorp.com/nomad/docs/secure",
+      "https://argo-cd.readthedocs.io/en/stable/operator-manual/security/"
+    ]
+  },
+  "bplatform-nomad-unauth-job-inventory-f098d3eb": {
+    "category": "devops",
+    "title": "Nomad job inventory accessible anonymously",
+    "why": "The Nomad jobs API returns workload inventory without authentication. Job names, namespaces, types, and deployment metadata reveal internal architecture and can guide attacks against applications, images, or supporting services.",
+    "test": [
+      {
+        "label": "List jobs without a token",
+        "cmd": "curl -kfsS '<service>://<host>:<port>/v1/jobs'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable Nomad ACLs",
+        "text": "Enable the Nomad ACL system, set an appropriate default-deny policy, and grant job-listing permissions only to authenticated identities that require them."
+      },
+      {
+        "label": "Limit API reachability",
+        "text": "Bind or firewall the HTTP API so it is reachable only from trusted cluster and administration networks, and require TLS for remote clients."
+      }
+    ],
+    "refs": [
+      "https://developer.hashicorp.com/nomad/docs/secure/acl",
+      "https://developer.hashicorp.com/nomad/api-docs/jobs"
+    ]
+  },
+  "bpotential-cred-leak-b-314c9b48": {
+    "category": "creds",
+    "title": "Potential credentials exposed through search data",
+    "why": "A read-only Elasticsearch query found documents matching credential-related terms such as passwords, secrets, or tokens. Search indexes often aggregate logs and application records, so anonymous or overprivileged query access can expose reusable credentials at scale.",
+    "test": [
+      {
+        "label": "Count password-like search matches",
+        "cmd": "curl -kfsS '<service>://<host>:<port>/_search?size=0&q=password*'"
+      },
+      {
+        "label": "Check cluster authentication boundary",
+        "cmd": "curl -k -i '<service>://<host>:<port>/_security/_authenticate'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authenticated search access",
+        "text": "Enable Elasticsearch security, block anonymous cluster access, and grant index privileges only to applications and users with a documented need."
+      },
+      {
+        "label": "Remove and rotate exposed secrets",
+        "text": "Identify the originating data source, purge unnecessary secret-bearing records according to retention policy, and rotate every credential that may have been indexed."
+      }
+    ],
+    "refs": [
+      "https://www.elastic.co/guide/en/elasticsearch/reference/current/security-minimal-setup.html",
+      "https://attack.mitre.org/techniques/T1552/001/"
+    ]
+  },
+  "brmi-registry-02db4e39": {
+    "category": "devops",
+    "title": "Java RMI registry exposed",
+    "why": "A reachable Java RMI registry can disclose bound object names, remote endpoints, and implementation details. Exposed registries also increase the risk from unsafe remote-object configurations or vulnerable applications registered behind them.",
+    "test": [
+      {
+        "label": "List bound RMI objects",
+        "cmd": "nmap -Pn -p <port> --script rmi-dumpregistry <host>"
+      },
+      {
+        "label": "Fingerprint the RMI listener",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict registry reachability",
+        "text": "Bind the registry to an internal interface where possible and firewall it so only explicitly authorized application hosts can connect."
+      },
+      {
+        "label": "Harden registered services",
+        "text": "Remove obsolete bindings, avoid exposing unsafe remote methods or serialized-object entry points, and update the JRE and hosting application."
+      }
+    ],
+    "refs": [
+      "https://docs.oracle.com/en/java/javase/21/docs/api/java.rmi/java/rmi/registry/Registry.html",
+      "https://attack.mitre.org/techniques/T1046/"
+    ]
+  },
+  "bslp-open-service-registry-b7a3b96f": {
+    "category": "devops",
+    "title": "Service Location Protocol registry exposed",
+    "why": "A reachable SLP service registry permits network clients to discover advertised services and related attributes. Internet or broad-network exposure assists reconnaissance and may also expose implementations affected by historical SLP vulnerabilities or amplification abuse.",
+    "test": [
+      {
+        "label": "Confirm the UDP SLP listener",
+        "cmd": "nmap -Pn -sU -sV -p <port> <host>"
+      },
+      {
+        "label": "Check for a TCP SLP listener",
+        "cmd": "nmap -Pn -sT -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable SLP when unnecessary",
+        "text": "Disable the SLP daemon or product integration if service discovery is not required."
+      },
+      {
+        "label": "Constrain SLP traffic",
+        "text": "Permit SLP only within the smallest required management segment and block TCP and UDP port 427 at external and inter-segment boundaries."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc2608",
+      "https://www.cisa.gov/news-events/alerts/2023/04/25/abuse-service-location-protocol-may-lead-dos-attacks"
+    ]
+  },
+  "bsource-ci-gerrit-atlassian-confluence-atlassian-jira-a-99e1463a": {
+    "category": "devops",
+    "title": "Source or Atlassian service exposed",
+    "why": "A Gerrit, Confluence, Jira, or Bamboo interface is reachable and may reveal project names, users, versions, build information, or internal documentation. These systems frequently contain source-code context and integration credentials, making their administrative and anonymous-access boundaries important attack paths.",
+    "test": [
+      {
+        "label": "Probe product information endpoints",
+        "cmd": "for p in /config/server/version /status /rest/api/2/serverInfo /rest/api/latest/info; do curl -k -i '<service>://<host>:<port>'\"$p\"; done"
+      },
+      {
+        "label": "Fingerprint the web service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict anonymous visibility",
+        "text": "Disable unneeded anonymous project, issue, page, build, and user-directory access and review all public or broadly shared content."
+      },
+      {
+        "label": "Protect administration",
+        "text": "Require SSO and MFA for administrators, apply current vendor security updates, scope integration tokens, and restrict management interfaces to trusted networks."
+      }
+    ],
+    "refs": [
+      "https://www.gerritcodereview.com/Documentation/access-control.html",
+      "https://confluence.atlassian.com/security/atlassian-security-practices-140909295.html"
+    ]
+  },
+  "bsource-ci-teamcity-github-enterprise-azure-devops-serv-d5520cfb": {
+    "category": "devops",
+    "title": "Enterprise source or CI service exposed",
+    "why": "A TeamCity, GitHub Enterprise, or Azure DevOps Server interface is reachable and may expose organization, repository, build, or version metadata. These platforms hold source code and powerful automation credentials, so compromised access can affect both intellectual property and the software supply chain.",
+    "test": [
+      {
+        "label": "Probe service metadata endpoints",
+        "cmd": "for p in /app/rest/server /api/v3/meta '/_apis/connectionData?connectOptions=0'; do curl -k -i '<service>://<host>:<port>'\"$p\"; done"
+      },
+      {
+        "label": "Fingerprint the web listener",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Limit external reachability",
+        "text": "Publish only required user-facing endpoints and restrict administrative, agent, and maintenance interfaces to trusted networks."
+      },
+      {
+        "label": "Harden identities and tokens",
+        "text": "Require SSO and MFA, disable anonymous access, use short-lived least-privilege automation tokens, protect build agents, and apply vendor security updates promptly."
+      }
+    ],
+    "refs": [
+      "https://www.jetbrains.com/help/teamcity/security-notes.html",
+      "https://docs.github.com/en/enterprise-server/admin/managing-iam"
+    ]
+  },
+  "bthickclient-rdp-creds-vpn-profile-browser-logindb-80f687d1": {
+    "category": "creds",
+    "title": "Local client credential artifact present",
+    "why": "An RDP credential reference, VPN profile, or browser login database exists on the assessed workstation. Even when values are encrypted, an attacker with local user access may recover connection targets, usernames, tokens, or secrets using the user's security context.",
+    "test": [
+      {
+        "label": "Inspect the reported artifact metadata",
+        "cmd": "stat -- <evidence_path>"
+      },
+      {
+        "label": "Identify the artifact type",
+        "cmd": "file -- <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove unnecessary saved access",
+        "text": "Delete obsolete profiles and cached credentials through the owning application, and configure clients to avoid retaining credentials where operationally practical."
+      },
+      {
+        "label": "Protect workstation secrets",
+        "text": "Use full-disk encryption, strong screen-lock policy, endpoint protection, and separate privileged accounts; require MFA for RDP and VPN services."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1555/",
+      "https://attack.mitre.org/techniques/T1552/001/"
+    ]
+  },
+  "bthickclient-sshkey-at-rest-saved-session-cred-at-rest-63b86eaf": {
+    "category": "creds",
+    "title": "High-risk client secret stored locally",
+    "why": "A private SSH key, saved session, credential store, or configuration secret was found on the workstation. Local compromise could turn these artifacts into immediate access to servers, databases, file-transfer systems, or administrative interfaces.",
+    "test": [
+      {
+        "label": "Inspect the reported artifact metadata",
+        "cmd": "stat -- <evidence_path>"
+      },
+      {
+        "label": "Identify the stored artifact",
+        "cmd": "file -- <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Move secrets into managed storage",
+        "text": "Replace plaintext or reversibly stored credentials with an approved password manager, operating-system credential vault, hardware-backed key, or short-lived identity mechanism."
+      },
+      {
+        "label": "Rotate affected credentials",
+        "text": "Rotate any key, password, or token whose local protection or access history cannot be assured, then remove stale saved sessions and secret-bearing configuration files."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1552/004/",
+      "https://attack.mitre.org/techniques/T1555/"
+    ]
+  },
+  "bunauth-proxmox-version-api-exposed-86383247": {
+    "category": "infra",
+    "title": "Proxmox version API accessible anonymously",
+    "why": "The Proxmox API returns release, version, and repository information without authentication. This gives attackers a reliable product fingerprint for vulnerability matching and confirms the location of a high-impact virtualization management plane.",
+    "test": [
+      {
+        "label": "Query version data without credentials",
+        "cmd": "curl -kfsS '<service>://<host>:<port>/api2/json/version'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict the Proxmox API",
+        "text": "Limit management-interface access to a dedicated administration network, VPN, or authenticated proxy even if the version endpoint itself cannot be disabled."
+      },
+      {
+        "label": "Maintain current packages",
+        "text": "Apply supported Proxmox VE and Debian security updates and monitor the management plane for unexpected reconnaissance and login activity."
+      }
+    ],
+    "refs": [
+      "https://pve.proxmox.com/pve-docs/api-viewer/",
+      "https://attack.mitre.org/techniques/T1595/"
+    ]
+  },
+  "buser-exists-b-90f92a5a": {
+    "category": "creds",
+    "title": "XMPP account existence can be inferred",
+    "why": "The XMPP authentication flow produced a response or repeatable timing difference that may distinguish an existing username. Reliable account enumeration helps attackers construct targeted password-spraying and social-engineering campaigns, although results should be compared with randomized controls to exclude uniform SASL failures.",
+    "test": [
+      {
+        "label": "Repeat SASL differential checks with controls",
+        "cmd": "python3 standalones/jabber/jabber-user-enum.py --host <host> --port <port> --domain <domain> --user-list <evidence_path> --repeats 3 --control-count 3"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Normalize authentication failures",
+        "text": "Configure or update the XMPP server and identity backend so nonexistent and valid accounts receive indistinguishable SASL failure responses and comparable processing times."
+      },
+      {
+        "label": "Limit automated probing",
+        "text": "Rate-limit failed authentication attempts, monitor distributed enumeration patterns, require MFA where supported, and avoid exposing unnecessary user-directory information."
+      }
+    ],
+    "refs": [
+      "https://www.rfc-editor.org/rfc/rfc6120",
+      "https://attack.mitre.org/techniques/T1087/"
+    ]
+  },
+  "bvault-not-initialized-claim-init-opportunity-99d4466d": {
+    "category": "devops",
+    "title": "HashiCorp Vault is not initialized",
+    "why": "The Vault API reports that the instance has not been initialized. The first party to initialize it receives the initial root token and key shares, so an attacker who reaches this state could claim control of the new Vault before its owner completes provisioning.",
+    "test": [
+      {
+        "label": "Read Vault initialization status",
+        "cmd": "curl -kfsS '<service>://<host>:<port>/v1/sys/init'"
+      },
+      {
+        "label": "Confirm Vault seal-status shape",
+        "cmd": "curl -kfsS '<service>://<host>:<port>/v1/sys/seal-status'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict access immediately",
+        "text": "Block untrusted network access to the Vault API before initialization; do not allow testing personnel or unattended automation to initialize the instance."
+      },
+      {
+        "label": "Perform a controlled initialization ceremony",
+        "text": "Have designated custodians initialize Vault using the approved seal design, securely distribute recovery material, protect the initial root token, and revoke it after setup."
+      }
+    ],
+    "refs": [
+      "https://developer.hashicorp.com/vault/api-docs/system/init",
+      "https://developer.hashicorp.com/vault/docs/concepts/seal"
+    ]
+  },
+  "bveeam-b-r-rest-detected-dbcaa69e": {
+    "category": "backup",
+    "title": "Veeam Backup REST API exposed",
+    "why": "A reachable Veeam Backup & Replication REST endpoint identifies a high-value backup-management system and may disclose version or authentication details. Veeam servers commonly possess broad infrastructure access, and vulnerable or stolen administrative access can undermine both protected workloads and recovery data.",
+    "test": [
+      {
+        "label": "Query Veeam server information",
+        "cmd": "curl -k -i '<service>://<host>:<port>/api/v1/serverInfo'"
+      },
+      {
+        "label": "Fingerprint the API listener",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict the REST API",
+        "text": "Allow API access only from designated backup administration hosts and automation systems on a protected management network."
+      },
+      {
+        "label": "Patch and protect Veeam",
+        "text": "Install current Veeam security updates, require strong unique administrative identities, rotate service credentials, and monitor privileged API activity."
+      }
+    ],
+    "refs": [
+      "https://www.veeam.com/kb4649",
+      "https://attack.mitre.org/techniques/T1490/"
+    ]
+  },
+  "bveritas-netbackup-detected-8aa2feba": {
+    "category": "backup",
+    "title": "Veritas NetBackup service exposed",
+    "why": "A reachable NetBackup service reveals backup infrastructure that may communicate with many protected hosts and storage systems. Compromise can expose backup data, privileged service relationships, and the organization's ability to recover from destructive activity.",
+    "test": [
+      {
+        "label": "Fingerprint the NetBackup listener",
+        "cmd": "nmap -Pn -sV -p <port> --script banner <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict NetBackup communications",
+        "text": "Permit the service only between documented NetBackup components and administration hosts on protected backup networks."
+      },
+      {
+        "label": "Update and audit NetBackup",
+        "text": "Apply supported security fixes, remove obsolete clients and trust relationships, rotate service credentials, and review administrator and restore activity."
+      }
+    ],
+    "refs": [
+      "https://www.veritas.com/content/support/en_US/security",
+      "https://attack.mitre.org/techniques/T1490/"
+    ]
+  },
+  "bvmware-vcenter-sdk-reachable-24c791fc": {
+    "category": "infra",
+    "title": "VMware vCenter SDK endpoint exposed",
+    "why": "The vCenter SDK endpoint is reachable and exposes the automation interface for managing virtual infrastructure. While authentication is normally required, unnecessary reachability provides a precise management-plane target and increases the impact of stolen credentials or unpatched vulnerabilities.",
+    "test": [
+      {
+        "label": "Inspect the vCenter SDK response",
+        "cmd": "curl -k -i '<service>://<host>:<port>/sdk'"
+      },
+      {
+        "label": "Fingerprint the listener",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict SDK access",
+        "text": "Allow the SDK only from approved management and automation hosts, and block it from Internet-facing and user workstation networks."
+      },
+      {
+        "label": "Harden API identities",
+        "text": "Use dedicated least-privilege service accounts, rotate automation credentials, require MFA for human administrators, and keep vCenter fully patched."
+      }
+    ],
+    "refs": [
+      "https://developer.broadcom.com/xapis/vsphere-web-services-api/latest/",
+      "https://core.vmware.com/security-configuration-guide"
+    ]
+  },
+  "bvmware-vcenter-ui-a99e5695": {
+    "category": "infra",
+    "title": "VMware vCenter management UI exposed",
+    "why": "A reachable vCenter web interface identifies the central management plane for VMware infrastructure. Compromised administrative access can affect numerous virtual machines, networks, datastores, snapshots, and console sessions.",
+    "test": [
+      {
+        "label": "Inspect the vCenter UI response",
+        "cmd": "curl -k -i '<service>://<host>:<port>/'"
+      },
+      {
+        "label": "Fingerprint the HTTPS service",
+        "cmd": "nmap -Pn -sV -p <port> <host>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Segment vCenter management",
+        "text": "Restrict the UI to a dedicated management network, approved jump hosts, or a strongly authenticated administrative access proxy."
+      },
+      {
+        "label": "Protect administrator access",
+        "text": "Require MFA through the configured identity provider, remove stale privileged accounts, apply vCenter updates, and alert on unusual login or role changes."
+      }
+    ],
+    "refs": [
+      "https://core.vmware.com/security-configuration-guide",
+      "https://attack.mitre.org/techniques/T1133/"
+    ]
+  },
+  "defaultpassword-4522eb4c": {
+    "category": "creds",
+    "title": "Windows AutoLogon password stored in registry",
+    "why": "The Winlogon registry configuration contains a DefaultPassword value used for automatic logon. Any principal able to read the value can recover a plaintext Windows credential that may also be valid for remote access or other systems.",
+    "test": [
+      {
+        "label": "Read the AutoLogon password value",
+        "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v DefaultPassword"
+      },
+      {
+        "label": "Review related AutoLogon settings",
+        "cmd": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v AutoAdminLogon"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable plaintext AutoLogon",
+        "text": "Disable automatic logon and remove DefaultPassword from Winlogon; use a managed kiosk or service-account design when unattended startup is required."
+      },
+      {
+        "label": "Remove the exposed value",
+        "cmd": "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v DefaultPassword /f"
+      },
+      {
+        "label": "Rotate the account password",
+        "text": "Change the affected account password and investigate whether it was reused or accessed by unauthorized local principals."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/sysinternals/downloads/autologon",
+      "https://attack.mitre.org/techniques/T1552/002/"
+    ]
+  },
+  "password-passwd-secret-api-key-token-s-s-s-4-e4f94259": {
+    "category": "creds",
+    "title": "Possible plaintext secret in a file",
+    "why": "A file contains a password-, secret-, API-key-, or token-like assignment with a nonempty value. The match requires validation because configuration examples can cause false positives, but a real value may grant access to applications, cloud services, databases, or infrastructure.",
+    "test": [
+      {
+        "label": "Confirm matching files without printing values",
+        "cmd": "rg -l -i '(password|passwd|secret|api[_-]?key|token)[[:space:]]*[=:][[:space:]]*[^[:space:]]{4,}' <evidence_path>"
+      },
+      {
+        "label": "Inspect file permissions",
+        "cmd": "stat -- <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Move the secret out of the file",
+        "text": "Store production secrets in an approved secret manager or protected operating-system credential facility and inject them only at runtime."
+      },
+      {
+        "label": "Rotate confirmed secrets",
+        "text": "Revoke and replace any genuine credential found in plaintext, remove it from backups and version history where feasible, and restrict access to residual files."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1552/001/",
+      "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html"
+    ]
+  },
+  "password-passwd-secret-api-key-token-s-s-s-4-efaf1c6b": {
+    "category": "creds",
+    "title": "Possible plaintext secret on Windows",
+    "why": "A Windows enumeration artifact contains a password-, secret-, API-key-, or token-like assignment. Examples and placeholders can match the pattern, but a real value may expose local, domain, application, or cloud access and should be treated as compromised until validated.",
+    "test": [
+      {
+        "label": "Locate matches without displaying values",
+        "cmd": "rg -l -i '(password|passwd|secret|api[_-]?key|token)[[:space:]]*[=:][[:space:]]*[^[:space:]]{4,}' <evidence_path>"
+      },
+      {
+        "label": "Review the file access control list",
+        "cmd": "icacls <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Use managed secret storage",
+        "text": "Move the value to Windows Credential Manager, DPAPI-protected application storage, a managed service account, or an enterprise secret manager as appropriate."
+      },
+      {
+        "label": "Rotate and remove the value",
+        "text": "Revoke confirmed credentials, replace them with unique scoped secrets, remove plaintext copies and stale backups, and restrict the containing file's ACL."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1552/001/",
+      "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/group-managed-service-accounts/group-managed-service-accounts/group-managed-service-accounts-overview"
+    ]
+  },
+  "rw-s-sid-rsa-ed25519-ecdsa-dsa-b-23e3e3c9": {
+    "category": "creds",
+    "title": "SSH private key stored on disk",
+    "why": "A file named like a standard SSH private key is present in the assessed user context. If the key lacks a strong passphrase or can be read by an attacker, it may provide direct access to every system that trusts its corresponding public key.",
+    "test": [
+      {
+        "label": "Inspect key ownership and permissions",
+        "cmd": "stat -- <evidence_path>"
+      },
+      {
+        "label": "Read the key fingerprint",
+        "cmd": "ssh-keygen -l -f <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict private-key permissions",
+        "cmd": "chmod 600 <evidence_path>"
+      },
+      {
+        "label": "Protect and rotate the key",
+        "text": "Use a strong passphrase or hardware-backed key, rotate keys whose confidentiality is uncertain, and remove the old public key from every authorized_keys file and service that trusted it."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1552/004/",
+      "https://man.openbsd.org/ssh-keygen"
+    ]
+  }
+}

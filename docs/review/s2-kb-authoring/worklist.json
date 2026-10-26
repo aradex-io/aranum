@@ -1,0 +1,1198 @@
+{
+ "rules": {
+  "all-s-s-all-s-all-46200da3": {
+   "severity": "critical",
+   "pattern": "\\(ALL\\s*:\\s*ALL\\)\\s*ALL",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "alwaysinstallelevated-enabled-6495dbaa": {
+   "severity": "critical",
+   "pattern": "AlwaysInstallElevated ENABLED",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "as-rep-roastable-hash-es-captured-5c4e283a": {
+   "severity": "critical",
+   "pattern": "AS-REP-roastable hash\\(es\\) captured",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "b-deprecated-read-only-kubelet-b-ec66886f": {
+   "severity": "high",
+   "pattern": "\\b(?:deprecated )?read-only kubelet\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "b-jenkins-gitlab-sonarqube-grafana-prometheus-detected-27a0349d": {
+   "severity": "medium",
+   "pattern": "\\b(?:Jenkins|GitLab|SonarQube|Grafana|Prometheus) detected:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "b-release-agent-notify-on-release-core-pattern-sysrq-tr-a3f639e8": {
+   "severity": "critical",
+   "pattern": "\\b(release_agent|notify_on_release|core_pattern|sysrq-trigger) writable\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "b-rubrik-cohesity-backup-dell-powerprotect-data-manager-e0232ea0": {
+   "severity": "high",
+   "pattern": "\\b(?:(?:Rubrik|Cohesity) backup|Dell PowerProtect Data Manager|Backup (?:Rubrik|Cohesity|Dell PowerProtect Data Manager)) API detected:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "badfs-sign-on-page-detected-b-120f5ed6": {
+   "severity": "medium",
+   "pattern": "\\bADFS sign-on page detected\\b",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "badmin-admin-works-b-479f083c": {
+   "severity": "critical",
+   "pattern": "\\badmin:admin WORKS\\b",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "baggressive-mode-psk-hash-harvested-0f76f82f": {
+   "severity": "critical",
+   "pattern": "\\bAGGRESSIVE MODE PSK HASH HARVESTED:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bajp-responding-without-auth-b-ecbc49c7": {
+   "severity": "high",
+   "pattern": "\\bAJP responding without auth\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "balg-none-b-4f564b03": {
+   "severity": "high",
+   "pattern": "\\balg=none\\b",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "banon-auth-b-465b30a5": {
+   "severity": "high",
+   "pattern": "\\bANON AUTH\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bartifact-docker-registry-sonatype-nexus-jfrog-artifact-ce6dbbf7": {
+   "severity": "medium",
+   "pattern": "\\bArtifact (Docker Registry|Sonatype Nexus|JFrog Artifactory|Harbor registry) detected:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bartifact-docker-registry-unauth-catalog-surface-b79f8ff4": {
+   "severity": "high",
+   "pattern": "\\bArtifact Docker Registry UNAUTH catalog surface:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bauth-bypass-b-749346eb": {
+   "severity": "critical",
+   "pattern": "\\bauth bypass\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bauth-ok-b-18ccdbe4": {
+   "severity": "medium",
+   "pattern": "\\bAUTH OK\\b",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bbloodhound-collection-e26e0ea7": {
+   "severity": "high",
+   "pattern": "\\bBloodHound collection:",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "bbmc-hpe-ilo-dell-idrac-supermicro-ipmi-lenovo-xcc-imm-e5c59b40": {
+   "severity": "medium",
+   "pattern": "\\bBMC (HPE iLO|Dell iDRAC|Supermicro IPMI|Lenovo XCC/IMM|Cisco CIMC) detected:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bcap-net-raw-net-bind-service-kill-sys-rawio-b-ep-5d5ddc68": {
+   "severity": "high",
+   "pattern": "\\bcap_(net_raw|net_bind_service|kill|sys_rawio)\\b\\+ep",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "bcap-setuid-setgid-dac-read-search-dac-override-sys-adm-8660c37c": {
+   "severity": "high",
+   "pattern": "\\bcap_(setuid|setgid|dac_read_search|dac_override|sys_admin|sys_ptrace|sys_module|sys_rawio)\\S*\\+ep",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bcap-setuid-setgid-dac-read-search-dac-override-sys-adm-e867ba82": {
+   "severity": "critical",
+   "pattern": "\\bcap_(setuid|setgid|dac_read_search|dac_override|sys_admin|sys_ptrace|sys_module|chown|fowner|net_admin)\\b\\+ep",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "bcap-sys-admin-held-b-blooks-privileged-b-9c8a77ca": {
+   "severity": "critical",
+   "pattern": "\\bCAP_SYS_ADMIN held\\b|\\blooks privileged\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bcassandra-unauth-cql-ac0e71d3": {
+   "severity": "high",
+   "pattern": "\\bCassandra UNAUTH CQL:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcipher-0-b-bcd10171": {
+   "severity": "critical",
+   "pattern": "\\bcipher 0\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcommvault-detected-5f2f4842": {
+   "severity": "high",
+   "pattern": "\\bCommVault detected:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bconsul-unauth-agent-api-7a30187a": {
+   "severity": "medium",
+   "pattern": "\\bConsul UNAUTH agent API:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bconsul-unauth-kv-dump-high-value-7158887e": {
+   "severity": "high",
+   "pattern": "\\bConsul UNAUTH KV dump \\(HIGH-VALUE\\)",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcors-b-breflect-04062725": {
+   "severity": "medium",
+   "pattern": "\\bCORS\\b.*\\breflect",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcpassword-s-s-e9039ab6": {
+   "severity": "critical",
+   "pattern": "\\bcpassword\\s*=\\s*['\\\"][^'\\\"]+['\\\"]",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "bcritical-jenkins-groovy-script-console-reachable-d6f1e955": {
+   "severity": "critical",
+   "pattern": "\\bCRITICAL: Jenkins Groovy script console reachable:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bcritical-radius-access-accept-to-bogus-credential-0c62414f": {
+   "severity": "critical",
+   "pattern": "\\bCRITICAL: RADIUS Access-Accept to bogus credential:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcritical-unauth-clickhouse-b-72d2b408": {
+   "severity": "critical",
+   "pattern": "\\bCRITICAL: UNAUTH ClickHouse\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcritical-unauth-nats-b-fcf83e67": {
+   "severity": "critical",
+   "pattern": "\\bCRITICAL: UNAUTH NATS\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcups-unauth-518ab9d3": {
+   "severity": "medium",
+   "pattern": "\\bCUPS UNAUTH:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcups-unauth-and-potentially-vuln-b-40d34d81": {
+   "severity": "high",
+   "pattern": "\\bCUPS UNAUTH and POTENTIALLY VULN\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bcve-2022-0543-candidate-b-ec7e6cec": {
+   "severity": "critical",
+   "pattern": "\\bCVE-2022-0543 candidate\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcve-d-4-d-4-7-b-b-candidate-vulnerable-signal-b-b9afbb09": {
+   "severity": "medium",
+   "pattern": "\\bCVE-\\d{4}-\\d{4,7}\\b.*\\b(candidate|VULNERABLE|signal)\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bdefault-cred-6077e4eb": {
+   "severity": "high",
+   "pattern": "\\bdefault[- ]cred",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bdell-avamar-powerprotect-legacy-service-reachable-95e93e9d": {
+   "severity": "high",
+   "pattern": "\\bDell Avamar / PowerProtect legacy service reachable:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bdocker-sock-present-b-01283762": {
+   "severity": "critical",
+   "pattern": "\\bdocker\\.sock present\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "besc8-relay-target-b-e9ab15ea": {
+   "severity": "high",
+   "pattern": "\\bESC8 relay target\\b",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "beval-scripting-reachable-b-69a50af1": {
+   "severity": "high",
+   "pattern": "\\bEVAL scripting REACHABLE\\b",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bexchange-endpoint-detected-b-b3d82fbe": {
+   "severity": "medium",
+   "pattern": "\\bExchange endpoint .* detected\\b",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "bfinger-responds-with-user-info-b-03a48456": {
+   "severity": "medium",
+   "pattern": "\\bfinger responds with user info\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bflexnet-flexlm-license-server-reachable-3e87f151": {
+   "severity": "medium",
+   "pattern": "\\bFlexNet/FLEXlm license server reachable:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bflexnet-unauth-lmstat-disclosure-fb2ca9fa": {
+   "severity": "high",
+   "pattern": "\\bFlexNet UNAUTH lmstat disclosure:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bguest-guest-b-34b991e6": {
+   "severity": "critical",
+   "pattern": "\\bguest:guest\\b",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "bhadoop-jmx-endpoint-exposed-dd698ded": {
+   "severity": "high",
+   "pattern": "\\bHadoop JMX endpoint exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bhadoop-namenode-ui-exposed-a60d53ee": {
+   "severity": "high",
+   "pattern": "\\bHadoop NameNode UI exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bhmac-brute-the-secret-b-23317e71": {
+   "severity": "medium",
+   "pattern": "\\bHMAC; brute the secret\\b",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bhypervisor-vmware-esxi-host-proxmox-ve-nutanix-prism-d-96b15af5": {
+   "severity": "medium",
+   "pattern": "\\bHypervisor (VMware ESXi host|Proxmox VE|Nutanix Prism) detected:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bimap-plaintext-auth-allowed-auth-success-8d8ff4b1": {
+   "severity": "high",
+   "pattern": "\\bIMAP (?:plaintext-auth allowed|AUTH SUCCESS)",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "binfluxdb-unauth-query-api-fc5f9a20": {
+   "severity": "high",
+   "pattern": "\\bInfluxDB UNAUTH query API:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "binsecure-apiserver-b-d69cfcc5": {
+   "severity": "critical",
+   "pattern": "\\binsecure apiserver\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bjenkins-user-enumeration-exposed-77ad88c0": {
+   "severity": "high",
+   "pattern": "\\bJenkins user enumeration exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bjetdirect-pjl-unauth-a6716c58": {
+   "severity": "high",
+   "pattern": "\\bJetDirect / PJL UNAUTH:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bkafka-unauth-broker-94c84874": {
+   "severity": "high",
+   "pattern": "\\bKafka UNAUTH broker:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bkey-only-b-adfd43e9": {
+   "severity": "medium",
+   "pattern": "\\bKEY_ONLY\\b",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bkibana-api-responds-b-416b14a3": {
+   "severity": "medium",
+   "pattern": "\\bKIBANA API responds\\b",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "blaps-d-computer-object-s-expose-b-e3bda0bf": {
+   "severity": "critical",
+   "pattern": "\\bLAPS: \\d+ computer object\\(s\\) expose\\b",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "blocalaccounttokenfilterpolicy-1-b-deda8b2f": {
+   "severity": "high",
+   "pattern": "\\bLocalAccountTokenFilterPolicy=1\\b",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "bloodhound-zip-b0e51d91": {
+   "severity": "high",
+   "pattern": "^BLOODHOUND_ZIP:",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "blpd-reachable-45a47068": {
+   "severity": "medium",
+   "pattern": "\\bLPD reachable:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "blua-rce-cve-2024-31449-candidate-b-81dadca3": {
+   "severity": "high",
+   "pattern": "\\bLUA_RCE: CVE-2024-31449 candidate\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bmqtt-unauth-broker-b-2c618f3f": {
+   "severity": "high",
+   "pattern": "\\bMQTT UNAUTH broker\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bms-ds-machineaccountquota-d-d534b185": {
+   "severity": "medium",
+   "pattern": "\\bms-DS-MachineAccountQuota=\\d",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "bmsds-allowedtoactonbehalfofotheridentity-e73bfbd9": {
+   "severity": "high",
+   "pattern": "\\bmsDS-AllowedToActOnBehalfOfOtherIdentity",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "bmsrpc-anonymous-srvinfo-33223179": {
+   "severity": "medium",
+   "pattern": "\\bMSRPC anonymous srvinfo:",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "bnagios-nrpe-reachable-397121a9": {
+   "severity": "medium",
+   "pattern": "\\bNagios NRPE reachable:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bnats-auth-required-false-b-43f5d2e1": {
+   "severity": "critical",
+   "pattern": "\\bNATS auth_required=false\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bneo4j-default-cred-neo4j-neo4j-worked-f215aaf6": {
+   "severity": "high",
+   "pattern": "\\bNeo4j DEFAULT CRED \\(neo4j/neo4j\\) WORKED:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bneo4j-unauth-http-api-58500a90": {
+   "severity": "high",
+   "pattern": "\\bNeo4j UNAUTH HTTP API:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bnetbios-workgroup-mismatch-high-value-b27dc95e": {
+   "severity": "high",
+   "pattern": "\\bNetBIOS workgroup mismatch \\(HIGH-VALUE",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "bno-all-squash-b-862fbcde": {
+   "severity": "medium",
+   "pattern": "\\bno_all_squash\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bno-root-squash-b-b4bfb72e": {
+   "severity": "critical",
+   "pattern": "\\bno_root_squash\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bntp-amplification-vector-cve-2013-5211-bcdb9ee1": {
+   "severity": "critical",
+   "pattern": "\\bNTP AMPLIFICATION VECTOR \\(CVE-2013-5211",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bntp-responds-to-mode-6-readvar-b-80229e5f": {
+   "severity": "medium",
+   "pattern": "\\bNTP responds to mode-6 readvar\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bopen-proxy-f8b23707": {
+   "severity": "critical",
+   "pattern": "\\bOPEN PROXY:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bopen-relay-candidate-b-a3a3ed2b": {
+   "severity": "high",
+   "pattern": "\\bOPEN RELAY CANDIDATE\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bopenstack-keystone-detected-856681df": {
+   "severity": "medium",
+   "pattern": "\\bOpenStack Keystone detected:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "boracle-tns-sids-discovered-85744d13": {
+   "severity": "high",
+   "pattern": "\\bOracle (?:TNS:|SIDs discovered)",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bplatform-hashicorp-nomad-portainer-rancher-argo-cd-det-53d5ee0c": {
+   "severity": "medium",
+   "pattern": "\\bPlatform (HashiCorp Nomad|Portainer|Rancher|Argo CD) detected:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bplatform-nomad-unauth-job-inventory-f098d3eb": {
+   "severity": "high",
+   "pattern": "\\bPlatform Nomad UNAUTH job inventory:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bpop3-plaintext-auth-allowed-auth-success-9f125574": {
+   "severity": "high",
+   "pattern": "\\bPOP3 (?:plaintext-auth allowed|AUTH SUCCESS)",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bpossible-host-pid-namespace-b-dbd24c2f": {
+   "severity": "high",
+   "pattern": "\\bpossible host PID namespace\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "bpotential-cred-leak-b-314c9b48": {
+   "severity": "high",
+   "pattern": "\\bPOTENTIAL CRED LEAK\\b",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bradius-blastradius-cve-2024-3596-precondition-32164df1": {
+   "severity": "high",
+   "pattern": "\\bRADIUS BlastRADIUS \\(CVE-2024-3596\\) precondition:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "brealvnc-b-bbypass-b-f7c5fe0d": {
+   "severity": "high",
+   "pattern": "\\bRealVNC\\b.*\\bbypass\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bredis-sentinel-b-master-topology-6723368b": {
+   "severity": "medium",
+   "pattern": "\\bRedis Sentinel\\b.*master topology",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bremote-command-execution-b-ca19f4c9": {
+   "severity": "critical",
+   "pattern": "\\bremote command execution\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "brmi-registry-02db4e39": {
+   "severity": "medium",
+   "pattern": "\\bRMI registry:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "brsync-high-value-module-exposed-daedaa19": {
+   "severity": "high",
+   "pattern": "\\brsync HIGH-VALUE module exposed",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bsccm-client-present-b-06b233a7": {
+   "severity": "medium",
+   "pattern": "\\bSCCM client present\\b",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "bse-backup-restore-takeownership-managevolume-security-75436e54": {
+   "severity": "high",
+   "pattern": "\\bSe(Backup|Restore|TakeOwnership|ManageVolume|Security)Privilege\\s*\\(ENABLED\\)",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "bse-impersonate-assignprimarytoken-debug-backup-restore-5c02ab8b": {
+   "severity": "medium",
+   "pattern": "\\bSe(Impersonate|AssignPrimaryToken|Debug|Backup|Restore|TakeOwnership)Privilege\\s*\\(disabled",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "bse-impersonate-assignprimarytoken-debug-tcb-createtoke-6ff3ed2a": {
+   "severity": "critical",
+   "pattern": "\\bSe(Impersonate|AssignPrimaryToken|Debug|Tcb|CreateToken|LoadDriver)Privilege\\s*\\(ENABLED\\)",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "bsigning-disabled-b-bsigning-enabled-but-not-required-b-65edaf46": {
+   "severity": "medium",
+   "pattern": "\\bsigning disabled\\b|\\bsigning enabled but not required\\b",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "bsip-service-cfa45a0d": {
+   "severity": "high",
+   "pattern": "\\bSIP service:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bslp-amplification-vector-cve-2023-29552-301f655f": {
+   "severity": "critical",
+   "pattern": "\\bSLP AMPLIFICATION VECTOR \\(CVE-2023-29552\\):",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bslp-open-service-registry-b7a3b96f": {
+   "severity": "medium",
+   "pattern": "\\bSLP open service registry:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bslp-service-type-list-exposed-high-value-38b641f2": {
+   "severity": "high",
+   "pattern": "\\bSLP service-type list exposed \\(HIGH-VALUE\\):",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bsolr-cores-exposed-ceb00229": {
+   "severity": "medium",
+   "pattern": "\\bSolr cores exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bsource-ci-gerrit-atlassian-confluence-atlassian-jira-a-99e1463a": {
+   "severity": "medium",
+   "pattern": "\\bSource/CI (Gerrit|Atlassian Confluence|Atlassian Jira|Atlassian Bamboo) detected:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bsource-ci-teamcity-github-enterprise-azure-devops-serv-d5520cfb": {
+   "severity": "medium",
+   "pattern": "\\bSource/CI (TeamCity|GitHub Enterprise|Azure DevOps Server) detected:",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bspark-ui-applications-api-exposed-cb7d2b93": {
+   "severity": "medium",
+   "pattern": "\\bSpark UI applications API exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bsplunk-mgmt-api-unauth-aab28122": {
+   "severity": "high",
+   "pattern": "\\bSplunk mgmt API UNAUTH:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bssdp-upnp-responder-b-256bafda": {
+   "severity": "medium",
+   "pattern": "\\bSSDP/UPnP responder\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bstorage-iscsi-target-exposed-48ec7863": {
+   "severity": "high",
+   "pattern": "\\bStorage iSCSI target exposed:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bstorage-minio-ceph-radosgw-object-gateway-ceph-monitor-35dacc88": {
+   "severity": "medium",
+   "pattern": "\\bStorage (MinIO|Ceph/RADOSGW object gateway|Ceph monitor|Gluster management) (?:detected|reachable):",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "btelnet-open-device-129976a8": {
+   "severity": "high",
+   "pattern": "\\bTelnet (?:open|device):",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bterrapin-ssh-audit-66181601": {
+   "severity": "medium",
+   "pattern": "\\bTerrapin \\(ssh-audit\\)",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "btftp-readable-config-f856f6cb": {
+   "severity": "critical",
+   "pattern": "\\bTFTP readable config",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bthickclient-rdp-creds-vpn-profile-browser-logindb-80f687d1": {
+   "severity": "medium",
+   "pattern": "\\bTHICKCLIENT-(RDP-CREDS|VPN-PROFILE|BROWSER-LOGINDB):",
+   "list": "BULK",
+   "category": "creds"
+  },
+  "bthickclient-sshkey-at-rest-saved-session-cred-at-rest-63b86eaf": {
+   "severity": "high",
+   "pattern": "\\bTHICKCLIENT-(SSHKEY-AT-REST|SAVED-SESSION|CRED-AT-REST|CONFIG-SECRET):",
+   "list": "BULK",
+   "category": "creds"
+  },
+  "btrust-auth-b-920e530b": {
+   "severity": "high",
+   "pattern": "\\bTRUST AUTH\\b",
+   "list": "DEFAULT",
+   "category": "ad"
+  },
+  "bunauth-couchbase-mgmt-b-b4140a91": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH Couchbase mgmt\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-docker-etcd-v2-keys-kubelet-apiserver-b-fafceec3": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH (?:Docker|etcd|/v2/keys|kubelet|apiserver)\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-git-daemon-b-39d5d84c": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH git daemon\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bunauth-gitlab-api-exposed-ca3c738d": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: GitLab API exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-grafana-datasources-exposed-a6f19bc3": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: Grafana datasources exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-jenkins-api-exposed-ebd449e2": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH: Jenkins API exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-jira-serverinfo-exposed-a75ffe0d": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: Jira serverInfo exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-prometheus-config-exposed-9ee7e88d": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: Prometheus config exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-proxmox-version-api-exposed-86383247": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: Proxmox version API exposed:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bunauth-redis-b-1a97399e": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH Redis\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-rethinkdb-b-5b87cecc": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH RethinkDB\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-sonarqube-system-info-exposed-10a47127": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: SonarQube system info exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-tomcat-host-manager-exposed-8a74679c": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH: Tomcat host-manager exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-tomcat-manager-exposed-004a31c6": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH: Tomcat Manager exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunconstrained-delegation-b-d66ecf6e": {
+   "severity": "high",
+   "pattern": "\\bUNCONSTRAINED DELEGATION\\b",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "buser-exists-b-90f92a5a": {
+   "severity": "high",
+   "pattern": "\\bUSER_EXISTS\\b",
+   "list": "DEFAULT",
+   "category": "creds"
+  },
+  "bvault-not-initialized-claim-init-opportunity-99d4466d": {
+   "severity": "high",
+   "pattern": "\\bVault NOT INITIALIZED \\(claim-init opportunity\\)",
+   "list": "DEFAULT",
+   "category": "devops"
+  },
+  "bveeam-b-r-rest-detected-dbcaa69e": {
+   "severity": "high",
+   "pattern": "\\bVeeam B&R REST detected:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bveritas-netbackup-detected-8aa2feba": {
+   "severity": "high",
+   "pattern": "\\bVeritas NetBackup detected:",
+   "list": "DEFAULT",
+   "category": "backup"
+  },
+  "bvmware-vcenter-sdk-reachable-24c791fc": {
+   "severity": "high",
+   "pattern": "\\bVMware vCenter SDK reachable:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bvmware-vcenter-ui-a99e5695": {
+   "severity": "medium",
+   "pattern": "\\bVMware vCenter UI:",
+   "list": "DEFAULT",
+   "category": "infra"
+  },
+  "bvpn-cisco-anyconnect-asa-ssl-vpn-fortinet-ssl-vpn-palo-ee1ab2b1": {
+   "severity": "high",
+   "pattern": "\\bVPN (Cisco AnyConnect/ASA SSL VPN|Fortinet SSL VPN|Palo Alto GlobalProtect|Pulse/Ivanti Connect Secure|Citrix NetScaler Gateway|SonicWall SMA/NetExtender) detected:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bvrfy-enabled-b-03eb095d": {
+   "severity": "medium",
+   "pattern": "\\bVRFY enabled\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bwdigest-uselogoncredential-1-b-909bd9e4": {
+   "severity": "medium",
+   "pattern": "\\bWDigest UseLogonCredential=1\\b",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "bwebclient-service-running-coercion-b-3bb4dc31": {
+   "severity": "high",
+   "pattern": "\\bWebClient service running \u2014 coercion\\b",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "bwritable-b-etc-cron-78249dc5": {
+   "severity": "high",
+   "pattern": "\\bwritable\\b.*/etc/cron",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "bwritable-b-etc-systemd-f4b4a67c": {
+   "severity": "high",
+   "pattern": "\\bwritable\\b.*/etc/systemd",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "bwsus-over-http-69eee442": {
+   "severity": "high",
+   "pattern": "\\bWSUS over HTTP:",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "bx11-open-display-b-ee0898b0": {
+   "severity": "critical",
+   "pattern": "\\bX11 OPEN DISPLAY\\b",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "byarn-resourcemanager-unauth-dda5ab1e": {
+   "severity": "high",
+   "pattern": "\\bYARN ResourceManager UNAUTH:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "byarn-unauth-app-inventory-d7eaf3ca": {
+   "severity": "high",
+   "pattern": "\\bYARN UNAUTH app inventory:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bzabbix-agent-unauth-metric-query-9c344bed": {
+   "severity": "high",
+   "pattern": "\\bZabbix agent UNAUTH metric query:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bzabbix-server-reachable-bfba7fc4": {
+   "severity": "medium",
+   "pattern": "\\bZabbix server reachable:",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "bzookeeper-4lw-exposed-103b92c9": {
+   "severity": "high",
+   "pattern": "\\bZookeeper 4LW exposed:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bzookeeper-config-exposed-high-value-7ed7fd76": {
+   "severity": "high",
+   "pattern": "\\bZookeeper config exposed \\(HIGH-VALUE\\)",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "ccm-logs-passwordhash-naa-credential-1843150a": {
+   "severity": "high",
+   "pattern": "\\\\CCM\\\\Logs\\\\.*PasswordHash|naa[_-]?credential",
+   "list": "BULK_WIN",
+   "category": "ad"
+  },
+  "cve-2024-6387-regresshion-27d5471e": {
+   "severity": "high",
+   "pattern": "CVE-2024-6387 \\(regreSSHion\\)",
+   "list": "DEFAULT",
+   "category": "network"
+  },
+  "defaultpassword-4522eb4c": {
+   "severity": "critical",
+   "pattern": "DefaultPassword=",
+   "list": "BULK_WIN",
+   "category": "creds"
+  },
+  "docker-sock-ca319bcd": {
+   "severity": "high",
+   "pattern": "docker.sock",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "encrypted-lapsv2-2540a156": {
+   "severity": "high",
+   "pattern": "ENCRYPTED \\(LAPSv2\\)",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "env-keep-ld-preload-library-path-f389f6e9": {
+   "severity": "critical",
+   "pattern": "env_keep.*LD_(PRELOAD|LIBRARY_PATH)",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "esc-1-9-1-0-6-s-vulnerable-a432e7de": {
+   "severity": "critical",
+   "pattern": "ESC([1-9]|1[0-6])\\s*\\(Vulnerable\\)",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "etc-apt-sources-list-writable-3e435145": {
+   "severity": "critical",
+   "pattern": "/etc/apt/sources\\.list WRITABLE",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "etc-usr-lib-lib64-sbin-bin-s-s-s-world-writable-0e6b08c2": {
+   "severity": "critical",
+   "pattern": "^/(etc|usr|lib|lib64|sbin|bin)/.*\\s.*\\s.*\\s.*world.*writable",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "glibc-s-s-s-in-vulnerable-window-s-2-34-2-38-s-s-looney-5edd47d9": {
+   "severity": "high",
+   "pattern": "glibc\\s+\\S+\\s+in vulnerable window\\s+2\\.34-2\\.38\\s+\u2014\\s+Looney",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "gpp-cpassword-in-36f4a9ed": {
+   "severity": "critical",
+   "pattern": "GPP cpassword= in ",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "groups-services-scheduledtasks-datasources-printers-dri-6642dd0f": {
+   "severity": "critical",
+   "pattern": "^\\[\\+\\] .*\\\\(Groups|Services|Scheduledtasks|DataSources|Printers|Drives)\\.xml",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "hardening-ptrace-scope-0-unprivileged-bpf-disabled-0-su-3c34f507": {
+   "severity": "medium",
+   "pattern": "HARDENING:.*(ptrace_scope=0|unprivileged_bpf_disabled=0|suid_dumpable)",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "io-uring-reachable-to-current-user-s-s-known-cve-surfac-de45adbf": {
+   "severity": "high",
+   "pattern": "io_uring reachable to current user\\s+\u2014\\s+known CVE surface",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "kerberoastable-hash-es-captured-aada6591": {
+   "severity": "critical",
+   "pattern": "kerberoastable hash\\(es\\) captured",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "kernel-s-s-s-in-ubuntu-hwe-cve-2023-0386-vulnerable-d094a0e0": {
+   "severity": "critical",
+   "pattern": "kernel\\s+\\S+\\s+in Ubuntu HWE.*CVE-2023-0386 vulnerable",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "linux-s-s-s-2-3-4-5-0-9-1-0-5-3ce6a6fb": {
+   "severity": "medium",
+   "pattern": "Linux\\s+\\S+\\s+(2\\.|3\\.|4\\.|5\\.([0-9]|1[0-5])\\.)",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "lsarpc-anonymous-reachable-on-dc-4e8a4248": {
+   "severity": "critical",
+   "pattern": "lsarpc anonymous reachable on DC",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "member-of-account-operators-print-operators-dnsadmins-a5c8368a": {
+   "severity": "high",
+   "pattern": "^\\[\\+\\] Member of (Account Operators|Print Operators|DnsAdmins)",
+   "list": "BULK_WIN",
+   "category": "ad"
+  },
+  "member-of-domain-admins-enterprise-admins-schema-admins-c3590659": {
+   "severity": "critical",
+   "pattern": "^\\[\\+\\] Member of (Domain Admins|Enterprise Admins|Schema Admins|Administrators|Backup Operators|Server Operators|Hyper-V Administrators)",
+   "list": "BULK_WIN",
+   "category": "ad"
+  },
+  "member-of-remote-desktop-users-remote-management-users-b4482fee": {
+   "severity": "medium",
+   "pattern": "^\\[\\+\\] Member of (Remote Desktop Users|Remote Management Users)",
+   "list": "BULK_WIN",
+   "category": "ad"
+  },
+  "nopasswd-4f47cfff": {
+   "severity": "critical",
+   "pattern": "NOPASSWD",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "os-s-microsoft-windows-7-server-2008-server-2012-b-d3cd5385": {
+   "severity": "medium",
+   "pattern": "OS:\\s+Microsoft Windows (7|Server 2008|Server 2012)\\b",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "password-passwd-secret-api-key-token-s-s-s-4-e4f94259": {
+   "severity": "high",
+   "pattern": "(?:password|passwd|secret|api[_-]?key|token)\\s*[=:]\\s*\\S{4,}",
+   "list": "BULK",
+   "category": "creds"
+  },
+  "password-passwd-secret-api-key-token-s-s-s-4-efaf1c6b": {
+   "severity": "medium",
+   "pattern": "(?:password|passwd|secret|api[_-]?key|token=)\\s*[=:]\\s*\\S{4,}",
+   "list": "BULK_WIN",
+   "category": "creds"
+  },
+  "petitpotam-coerce-chain-available-f4420e19": {
+   "severity": "high",
+   "pattern": "PetitPotam coerce chain available",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "polkit-s-s-s-s-0-120-s-s-pwnkit-vulnerable-candidate-11f39eeb": {
+   "severity": "high",
+   "pattern": "polkit\\s+\\S+\\s+<\\s+0\\.120\\s+\u2014\\s+PwnKit (?:vulnerable|candidate)",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "printnightmare-configuration-is-exploitable-b4028094": {
+   "severity": "critical",
+   "pattern": "PrintNightmare configuration is exploitable",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "privileged-s-true-bdcd4765": {
+   "severity": "critical",
+   "pattern": "Privileged:\\s*true",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "readable-lapsv-12-d043180c": {
+   "severity": "critical",
+   "pattern": "READABLE \\(LAPSv[12]",
+   "list": "AD_DEPTH",
+   "category": "ad"
+  },
+  "rw-r-rw-s-etc-passwd-shadow-sudoers-sudoers-d-6acf62fc": {
+   "severity": "critical",
+   "pattern": "^-rw.r..rw.\\s.*/etc/(passwd|shadow|sudoers|sudoers\\.d)",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "rw-s-sid-rsa-ed25519-ecdsa-dsa-b-23e3e3c9": {
+   "severity": "high",
+   "pattern": "^-rw-+\\s.*\\sid_(rsa|ed25519|ecdsa|dsa)\\b",
+   "list": "BULK",
+   "category": "creds"
+  },
+  "rws-b-s-bash-sh-dash-ksh-zsh-csh-tcsh-less-more-vi-vim-5cb6db9a": {
+   "severity": "critical",
+   "pattern": "^-rws.*\\b/((?:[^/\\s]+/)*)(bash|sh|dash|ksh|zsh|csh|tcsh|less|more|vi|vim|nvim|nano|ed|emacs|awk|gawk|mawk|sed|grep|find|xargs|perl|python|python2|python3|ruby|lua|node|nodejs|php|gdb|strace|ltrace|ftrace|env|nice|nohup|time|timeout|watch|mount|umount|fusermount|nmap|ncat|nc|socat|ssh|scp|sftp|rsync|tar|zip|unzip|gzip|gunzip|bzip2|xz|7z|base32|base64|xxd|hexdump|wget|curl|tftp|busybox|make|cmake|msfconsole|apt|apt\\-get|dpkg|rpm|yum|dnf|pip|pip3|gem|npm|cp|mv|dd|install|tee|tail|head|expect|screen|tmux|ar|ld|git|ssh\\-keyscan)\\s*$",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "rws-de23ca2d": {
+   "severity": "medium",
+   "pattern": "^-rws",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "s-a-za-z-program-files-s-startmode-b57c099c": {
+   "severity": "high",
+   "pattern": "^\\[\\+\\] \\S+ -> [A-Za-z]:\\\\Program Files\\\\.*\\s.*\\(StartMode=",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "s-s-docker-lxd-lxc-disk-shadow-adm-b-1d99aa01": {
+   "severity": "high",
+   "pattern": "^\\s*\\[\\+\\]\\s*(docker|lxd|lxc|disk|shadow|adm)\\b",
+   "list": "DEFAULT",
+   "category": "linlocal"
+  },
+  "seimpersonate-dcom-reachable-roguepotato-e8db2689": {
+   "severity": "high",
+   "pattern": "SeImpersonate \\+ DCOM reachable.*RoguePotato",
+   "list": "AD_DEPTH",
+   "category": "winlocal"
+  },
+  "seimpersonate-spooler-running-printspoofer-a2b0d2aa": {
+   "severity": "critical",
+   "pattern": "SeImpersonate \\+ Spooler running.*PrintSpoofer",
+   "list": "AD_DEPTH",
+   "category": "winlocal"
+  },
+  "serviceaccount-token-b-7f1ea010": {
+   "severity": "high",
+   "pattern": "serviceaccount/token\\b",
+   "list": "DEFAULT",
+   "category": "winlocal"
+  },
+  "solr-reachable-1-2-3-4-5-6-7-8-0-9-8-10-8-11-0-3-d71e68f0": {
+   "severity": "medium",
+   "pattern": "Solr reachable:.+ \u2014 (1\\.|2\\.|3\\.|4\\.|5\\.|6\\.|7\\.|8\\.[0-9]\\.|8\\.10|8\\.11\\.[0-3])",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "sudo-version-1-8-0-9-1-8-1-0-9-1-8-2-0-9-1-8-31p1-1-9-0-6ec6c06d": {
+   "severity": "high",
+   "pattern": "sudo version (1\\.8\\.[0-9]|1\\.8\\.1[0-9]|1\\.8\\.2[0-9]|1\\.8\\.31p1|1\\.9\\.[0-4])\\b",
+   "list": "BULK",
+   "category": "linlocal"
+  },
+  "system-network-service-administrators-2af202a3": {
+   "severity": "high",
+   "pattern": "^\\[\\+\\] \\[(SYSTEM|NETWORK SERVICE|.*Administrators)\\] ",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "unattend-ed-xml-sysprep-xml-inf-unattend-xml-inf-txt-d7be63e8": {
+   "severity": "critical",
+   "pattern": "^\\[\\+\\] .*\\\\(Unattend(ed)?\\.xml|sysprep\\.(xml|inf)|unattend\\.(xml|inf|txt))",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "unshare-ru-succeeded-s-s-unprivileged-userns-creation-w-b96b8d69": {
+   "severity": "high",
+   "pattern": "unshare -rU succeeded\\s+\u2014\\s+unprivileged userns creation works",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  },
+  "writable-a-za-z-30aabd46": {
+   "severity": "high",
+   "pattern": "^\\[\\+\\] WRITABLE: [A-Za-z]:\\\\",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "writable-binary-921ba2b9": {
+   "severity": "critical",
+   "pattern": "WRITABLE BINARY:",
+   "list": "BULK_WIN",
+   "category": "winlocal"
+  },
+  "writable-pipe-1c761405": {
+   "severity": "high",
+   "pattern": "WRITABLE PIPE:",
+   "list": "AD_DEPTH",
+   "category": "winlocal"
+  },
+  "writable-root-runs-scripts-from-here-on-apt-operations-45cf6e05": {
+   "severity": "critical",
+   "pattern": "WRITABLE.*root runs scripts from here on apt operations",
+   "list": "AD_DEPTH",
+   "category": "linlocal"
+  }
+ }
+}

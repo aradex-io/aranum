@@ -1,0 +1,5 @@
+KB file present: False
+total findings: 10
+non-low findings: 9
+non-low findings with kb_id+category: 0
+M6 coverage (baseline): 0.0%

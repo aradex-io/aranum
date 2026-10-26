@@ -1,0 +1,3 @@
+# Ephemeral peer-delegation handoff artifacts (regenerated each run)
+*.log
+*.exit

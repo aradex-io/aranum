@@ -39,6 +39,7 @@ import datetime
 import html
 import ipaddress
 import json
+import os
 import re
 import sys
 from collections import defaultdict
@@ -142,6 +143,123 @@ def _coerce_service_metadata_services(raw: object) -> dict[str, dict]:
         if cfg_obj:
             out[service] = cfg_obj
     return out
+
+
+# ---------------------------------------------------- finding knowledge base
+# S2/D2.1 — the remediation knowledge base. Keyed by the `rule_id` attached at
+# classification time (D1.0), so a finding's "why / how to test / how to fix"
+# comes from the very rule that graded it — there is no second regex pass that
+# could drift from the grading pass. A custom or absent rule id falls back to a
+# service -> category map in the same file. Commands are templates: <host>,
+# <port>, <service> are filled at render time; nothing ever executes here.
+_FINDING_KB_DEFAULT = Path(__file__).resolve().parent / "finding-kb.json"
+_FINDING_KB_CACHE: "dict | None" = None
+_FINDING_KB_CACHE_PATH: "str | None" = None
+
+
+def _finding_kb_path() -> Path:
+    """The KB file path. `ARANUM_FINDING_KB` overrides it (the coverage gate's
+    RED proof points it at a temp copy with a class removed)."""
+    override = os.environ.get("ARANUM_FINDING_KB", "").strip()
+    return Path(override) if override else _FINDING_KB_DEFAULT
+
+
+def _load_finding_kb() -> dict:
+    """Load and cache the finding KB. Returns a dict with `categories`,
+    `classes`, and `service_categories`. A missing or malformed file yields an
+    empty KB (every finding then falls back to `kb_match=''`), so report
+    generation never hard-fails on a KB problem."""
+    global _FINDING_KB_CACHE, _FINDING_KB_CACHE_PATH
+    path = str(_finding_kb_path())
+    if _FINDING_KB_CACHE is not None and _FINDING_KB_CACHE_PATH == path:
+        return _FINDING_KB_CACHE
+    empty = {"categories": {}, "classes": {}, "service_categories": {}}
+    try:
+        raw = json.loads(Path(path).read_text(errors="replace"))
+    except Exception:
+        raw = None
+    if not isinstance(raw, dict):
+        kb = empty
+    else:
+        # Normalize nested structure so a syntactically valid but structurally
+        # malformed KB (a null category value, a class with `test: null` or no
+        # title) can never reach a renderer and raise. Category values must be
+        # dicts; a class must point at a known category and is coerced to safe
+        # field types (missing/wrong-typed fields become empty, not None). A
+        # class whose category is absent/non-string is dropped (it then falls
+        # back to the service->category map), honoring the "never hard-fail on
+        # a KB problem" contract.
+        raw_cats = raw.get("categories") if isinstance(raw.get("categories"), dict) else {}
+        categories = {k: v for k, v in raw_cats.items() if isinstance(v, dict)}
+        raw_classes = raw.get("classes") if isinstance(raw.get("classes"), dict) else {}
+        classes: dict = {}
+        for rid, c in raw_classes.items():
+            if not isinstance(c, dict):
+                continue
+            cat = c.get("category")
+            if not isinstance(cat, str) or cat not in categories:
+                continue
+            classes[rid] = {
+                "category": cat,
+                "title": str(c.get("title") or rid),
+                "why": str(c.get("why") or ""),
+                "test": [t for t in c.get("test", []) if isinstance(t, dict)]
+                        if isinstance(c.get("test"), list) else [],
+                "fix": [x for x in c.get("fix", []) if isinstance(x, dict)]
+                       if isinstance(c.get("fix"), list) else [],
+                "refs": [r for r in c.get("refs", []) if isinstance(r, str)]
+                        if isinstance(c.get("refs"), list) else [],
+            }
+        raw_svc = raw.get("service_categories") if isinstance(raw.get("service_categories"), dict) else {}
+        service_categories = {k: v for k, v in raw_svc.items() if isinstance(v, str) and v}
+        kb = {"categories": categories, "classes": classes,
+              "service_categories": service_categories}
+    _FINDING_KB_CACHE = kb
+    _FINDING_KB_CACHE_PATH = path
+    return kb
+
+
+def _service_category(service: str, kb: dict, host_ports: "set[str] | None" = None) -> str:
+    """Map a service to a KB category when no rule class matched. The `smb`
+    special case (relay vs plain file service) needs the host's other open
+    ports: smb -> ad only when the host also exposes 88 (Kerberos) or 389
+    (LDAP), else network. `host_ports` is that host's port set."""
+    table = kb.get("service_categories", {})
+    service = (service or "").lower()
+    if service == "smb":
+        ports = host_ports or set()
+        if "88" in ports or "389" in ports:
+            return str(table.get("smb_dc", table.get("smb", "network")))
+        return str(table.get("smb", "network"))
+    mapped = table.get(service)
+    return str(mapped) if isinstance(mapped, str) and mapped else "network"
+
+
+def _attach_kb(finding: dict, kb: dict, host_ports: "set[str] | None" = None) -> None:
+    """Attach additive `category` / `kb_id` / `kb_match` to a finding in place.
+
+    `kb_match` is `"rule"` when the finding's rule_id has its own KB class,
+    `"service-default"` when it falls back to the service->category map, and
+    `""` when neither resolves (no KB loaded, or an unknown service)."""
+    classes = kb.get("classes", {})
+    categories = kb.get("categories", {})
+    rule_id = str(finding.get("rule_id", ""))
+    cls = classes.get(rule_id) if rule_id else None
+    if isinstance(cls, dict) and isinstance(cls.get("category"), str) \
+            and cls["category"] in categories:
+        finding["category"] = cls["category"]
+        finding["kb_id"] = rule_id
+        finding["kb_match"] = "rule"
+        return
+    category = _service_category(str(finding.get("service", "")), kb, host_ports)
+    if category in categories:
+        finding["category"] = category
+        finding["kb_id"] = ""
+        finding["kb_match"] = "service-default"
+    else:
+        finding["category"] = category or ""
+        finding["kb_id"] = ""
+        finding["kb_match"] = ""
 
 
 def _coerce_list_text(value: object) -> list[str]:
@@ -1448,6 +1566,12 @@ def _protocols_compatible(a: dict, b: dict) -> bool:
 def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
     """Attribute dispatcher evidence, preserve protocol, and deduplicate it."""
     endpoints = _inventory_endpoints(out_dir)
+    kb = _load_finding_kb()
+    # host -> set of open ports, for the smb relay-vs-fileservice KB split.
+    host_ports: dict[str, set[str]] = defaultdict(set)
+    for e in endpoints:
+        if e.get("host") and e.get("port"):
+            host_ports[str(e["host"])].add(str(e["port"]))
     deduped: dict[tuple[str, ...], dict] = {}
     for original in findings:
         finding = dict(original)
@@ -1486,6 +1610,9 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
         else:
             finding["scope"] = "host"
         finding["attribution"] = finding["scope"]
+        # S2/D2.1 — additive KB keys (category / kb_id / kb_match). The smb
+        # special case keys on this host's other open ports.
+        _attach_kb(finding, kb, host_ports.get(str(finding.get("host", "")), set()))
         identity = str(finding.get("evidence_identity", ""))
         if not identity:
             identity = hashlib.sha256(str(finding.get("line", "")).encode()).hexdigest()
@@ -1946,6 +2073,105 @@ def _summary(findings: list[dict], out_dir: Path | None = None) -> dict:
     }
 
 
+def _md_text(s: object) -> str:
+    """Flatten an untrusted value to a single safe markdown-inline fragment: no
+    CR/LF (so it cannot forge a heading or section), angle brackets escaped (so
+    it cannot inject raw HTML in renderers that pass HTML through). Used for
+    every interpolated title / why / label / fix-text in the Top-risks section,
+    where a value can originate from a matched engagement line or an override
+    KB."""
+    s = str(s).replace("\r", " ").replace("\n", " ")
+    return s.replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _md_code(s: object) -> str:
+    """Render a command as a backtick-safe inline code span. Picks a backtick
+    fence longer than any run inside the value so a backtick in the command can
+    never break out of the span; newlines are flattened."""
+    s = str(s).replace("\r", " ").replace("\n", " ")
+    longest = max((len(m) for m in re.findall(r"`+", s)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if (s.startswith("`") or s.endswith("`")) else ""
+    return f"{fence}{pad}{s}{pad}{fence}"
+
+
+def _render_top_risks(findings: list[dict], kb: dict, redactor: Redactor) -> list[str]:
+    """S2/D2.2 — a 'Top risks by category' section. Non-low findings are grouped
+    by KB category (category `order`), then by finding class; each class shows
+    Why / How to test / How to fix drawn from the rule's KB class. Classes
+    without KB content (custom rules, service-default fallback) are listed by
+    title with their affected hosts but no test/fix block."""
+    categories = kb.get("categories", {})
+    classes = kb.get("classes", {})
+    risk = [f for f in findings if f.get("severity") in ("critical", "high", "medium")]
+    if not risk:
+        return []
+    # group: category -> class_key -> {rule_id, sev, title, hosts}
+    by_cat: "dict[str, dict]" = defaultdict(dict)
+    for f in risk:
+        cat = str(f.get("category") or "network")
+        rule_id = str(f.get("rule_id", ""))
+        has_cls = f.get("kb_match") == "rule" and rule_id in classes
+        class_key = rule_id if has_cls else ("title:" + str(f.get("title", "")))
+        slot = by_cat[cat].setdefault(class_key, {
+            "rule_id": rule_id if has_cls else "",
+            "sev": f.get("severity", ""),
+            "title": _md_text(classes[rule_id]["title"]) if has_cls
+                     else _md_text(f.get("title", "finding")),
+            "hosts": set()})
+        if _SEV_ORDER.get(f.get("severity", "low"), 9) < _SEV_ORDER.get(slot["sev"], 9):
+            slot["sev"] = f.get("severity", "")
+        host = str(f.get("host", ""))
+        if host and host != "(dispatcher)":
+            slot["hosts"].add(redactor(host))
+    out = ["## Top risks by category", ""]
+    ordered_cats = sorted(by_cat, key=lambda c: (categories.get(c, {}).get("order", 99), c))
+    for cat in ordered_cats:
+        title = categories.get(cat, {}).get("title", cat)
+        out.append(f"### {title}")
+        out.append("")
+        slots = sorted(by_cat[cat].values(),
+                       key=lambda s: (_SEV_ORDER.get(s["sev"], 9), s["title"].lower()))
+        for s in slots:
+            n = len(s["hosts"])
+            affected = f" — {n} host{'s' if n != 1 else ''} affected" if n else ""
+            out.append(f"#### {s['title']} ({s['sev']}){affected}")
+            out.append("")
+            cls = classes.get(s["rule_id"]) if s["rule_id"] else None
+            if not isinstance(cls, dict):
+                out.append("_No remediation guidance in the knowledge base for this class yet._")
+                out.append("")
+                continue
+            if cls.get("why"):
+                out.append(f"**Why:** {_md_text(cls['why'])}")
+                out.append("")
+            tests = [t for t in cls.get("test", []) if isinstance(t, dict)]
+            if tests:
+                out.append("**How to test:**")
+                out.append("")
+                for t in tests:
+                    label = _md_text(str(t.get("label", "")).strip())
+                    cmd = str(t.get("cmd", "")).strip()
+                    out.append(f"- {label}: {_md_code(cmd)}" if cmd else f"- {label}")
+                out.append("")
+            fixes = [x for x in cls.get("fix", []) if isinstance(x, dict)]
+            if fixes:
+                out.append("**How to fix:**")
+                out.append("")
+                for x in fixes:
+                    label = _md_text(str(x.get("label", "")).strip())
+                    if x.get("cmd"):
+                        out.append(f"- {label}: {_md_code(str(x['cmd']).strip())}")
+                    else:
+                        out.append(f"- {label}: {_md_text(str(x.get('text', '')).strip())}")
+                out.append("")
+            refs = [r for r in cls.get("refs", []) if isinstance(r, str)]
+            if refs:
+                out.append("**References:** " + ", ".join(_md_text(r) for r in refs))
+                out.append("")
+    return out
+
+
 def render_markdown(findings: list[dict], summary: dict, run_label: str,
                     redactor: Redactor, per_host: dict | None = None) -> str:
     out = [f"# Findings report — {run_label}", ""]
@@ -1985,6 +2211,11 @@ def render_markdown(findings: list[dict], summary: dict, run_label: str,
         c = summary["by_service"][svc]
         out.append(f"| {svc} | {c.get('critical',0)} | {c.get('high',0)} | {c.get('medium',0)} | {c.get('low',0)} |")
     out.append("")
+
+    # S2/D2.2 — Top risks by category, with Why / How to test / How to fix
+    # drawn from the finding knowledge base (keyed on each finding's rule_id).
+    out.extend(_render_top_risks(findings, _load_finding_kb(), redactor))
+
     out.append("## Findings detail (CRITICAL + HIGH only)")
     out.append("")
     bucket = defaultdict(list)
@@ -2005,9 +2236,10 @@ def render_markdown(findings: list[dict], summary: dict, run_label: str,
 
 _HTML_STYLE = """
 body { font-family: -apple-system, sans-serif; max-width: 1200px; margin: 2em auto; padding: 0 1em; color:#222; }
-h1, h2, h3 { color: #111; }
+h1, h2, h3, h4 { color: #111; }
 h1 { border-bottom: 2px solid #444; padding-bottom: 0.2em; }
 h2 { border-bottom: 1px solid #aaa; padding-bottom: 0.1em; margin-top: 2em; }
+h4 { margin: 1em 0 0.3em 0; font-size: 1.02em; }
 table { border-collapse: collapse; width: 100%; margin: 0.5em 0 1em 0; font-size: 0.92em; }
 th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: left; vertical-align: top; }
 th { background: #f4f4f4; }
@@ -2051,7 +2283,7 @@ def render_html(md_text: str) -> str:
     for raw in lines:
         line = html.escape(raw)
         # Headings
-        m = re.match(r"^(#{1,3}) (.+)$", line)
+        m = re.match(r"^(#{1,6}) (.+)$", line)
         if m:
             close_para(); close_list(); close_table()
             level = len(m.group(1))

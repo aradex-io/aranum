@@ -1,0 +1,290 @@
+{
+ "category_set": [
+  "data",
+  "web"
+ ],
+ "rules": {
+  "b-deprecated-read-only-kubelet-b-ec66886f": {
+   "severity": "high",
+   "pattern": "\\b(?:deprecated )?read-only kubelet\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "b-jenkins-gitlab-sonarqube-grafana-prometheus-detected-27a0349d": {
+   "severity": "medium",
+   "pattern": "\\b(?:Jenkins|GitLab|SonarQube|Grafana|Prometheus) detected:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "balg-none-b-4f564b03": {
+   "severity": "high",
+   "pattern": "\\balg=none\\b",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "banon-auth-b-465b30a5": {
+   "severity": "high",
+   "pattern": "\\bANON AUTH\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcassandra-unauth-cql-ac0e71d3": {
+   "severity": "high",
+   "pattern": "\\bCassandra UNAUTH CQL:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bconsul-unauth-agent-api-7a30187a": {
+   "severity": "medium",
+   "pattern": "\\bConsul UNAUTH agent API:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bconsul-unauth-kv-dump-high-value-7158887e": {
+   "severity": "high",
+   "pattern": "\\bConsul UNAUTH KV dump \\(HIGH-VALUE\\)",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcritical-jenkins-groovy-script-console-reachable-d6f1e955": {
+   "severity": "critical",
+   "pattern": "\\bCRITICAL: Jenkins Groovy script console reachable:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bcritical-unauth-clickhouse-b-72d2b408": {
+   "severity": "critical",
+   "pattern": "\\bCRITICAL: UNAUTH ClickHouse\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcritical-unauth-nats-b-fcf83e67": {
+   "severity": "critical",
+   "pattern": "\\bCRITICAL: UNAUTH NATS\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bcve-2022-0543-candidate-b-ec7e6cec": {
+   "severity": "critical",
+   "pattern": "\\bCVE-2022-0543 candidate\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "beval-scripting-reachable-b-69a50af1": {
+   "severity": "high",
+   "pattern": "\\bEVAL scripting REACHABLE\\b",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bhadoop-jmx-endpoint-exposed-dd698ded": {
+   "severity": "high",
+   "pattern": "\\bHadoop JMX endpoint exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bhadoop-namenode-ui-exposed-a60d53ee": {
+   "severity": "high",
+   "pattern": "\\bHadoop NameNode UI exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bhmac-brute-the-secret-b-23317e71": {
+   "severity": "medium",
+   "pattern": "\\bHMAC; brute the secret\\b",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "binfluxdb-unauth-query-api-fc5f9a20": {
+   "severity": "high",
+   "pattern": "\\bInfluxDB UNAUTH query API:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "binsecure-apiserver-b-d69cfcc5": {
+   "severity": "critical",
+   "pattern": "\\binsecure apiserver\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bjenkins-user-enumeration-exposed-77ad88c0": {
+   "severity": "high",
+   "pattern": "\\bJenkins user enumeration exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bkafka-unauth-broker-94c84874": {
+   "severity": "high",
+   "pattern": "\\bKafka UNAUTH broker:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bkibana-api-responds-b-416b14a3": {
+   "severity": "medium",
+   "pattern": "\\bKIBANA API responds\\b",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "blua-rce-cve-2024-31449-candidate-b-81dadca3": {
+   "severity": "high",
+   "pattern": "\\bLUA_RCE: CVE-2024-31449 candidate\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bmqtt-unauth-broker-b-2c618f3f": {
+   "severity": "high",
+   "pattern": "\\bMQTT UNAUTH broker\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bneo4j-default-cred-neo4j-neo4j-worked-f215aaf6": {
+   "severity": "high",
+   "pattern": "\\bNeo4j DEFAULT CRED \\(neo4j/neo4j\\) WORKED:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bneo4j-unauth-http-api-58500a90": {
+   "severity": "high",
+   "pattern": "\\bNeo4j UNAUTH HTTP API:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "boracle-tns-sids-discovered-85744d13": {
+   "severity": "high",
+   "pattern": "\\bOracle (?:TNS:|SIDs discovered)",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bredis-sentinel-b-master-topology-6723368b": {
+   "severity": "medium",
+   "pattern": "\\bRedis Sentinel\\b.*master topology",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "brsync-high-value-module-exposed-daedaa19": {
+   "severity": "high",
+   "pattern": "\\brsync HIGH-VALUE module exposed",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bsolr-cores-exposed-ceb00229": {
+   "severity": "medium",
+   "pattern": "\\bSolr cores exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bspark-ui-applications-api-exposed-cb7d2b93": {
+   "severity": "medium",
+   "pattern": "\\bSpark UI applications API exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bsplunk-mgmt-api-unauth-aab28122": {
+   "severity": "high",
+   "pattern": "\\bSplunk mgmt API UNAUTH:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bstorage-iscsi-target-exposed-48ec7863": {
+   "severity": "high",
+   "pattern": "\\bStorage iSCSI target exposed:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bstorage-minio-ceph-radosgw-object-gateway-ceph-monitor-35dacc88": {
+   "severity": "medium",
+   "pattern": "\\bStorage (MinIO|Ceph/RADOSGW object gateway|Ceph monitor|Gluster management) (?:detected|reachable):",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-couchbase-mgmt-b-b4140a91": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH Couchbase mgmt\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-docker-etcd-v2-keys-kubelet-apiserver-b-fafceec3": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH (?:Docker|etcd|/v2/keys|kubelet|apiserver)\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-gitlab-api-exposed-ca3c738d": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: GitLab API exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-grafana-datasources-exposed-a6f19bc3": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: Grafana datasources exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-jenkins-api-exposed-ebd449e2": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH: Jenkins API exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-jira-serverinfo-exposed-a75ffe0d": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: Jira serverInfo exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-prometheus-config-exposed-9ee7e88d": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: Prometheus config exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-redis-b-1a97399e": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH Redis\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-rethinkdb-b-5b87cecc": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH RethinkDB\\b",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bunauth-sonarqube-system-info-exposed-10a47127": {
+   "severity": "high",
+   "pattern": "\\bUNAUTH: SonarQube system info exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-tomcat-host-manager-exposed-8a74679c": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH: Tomcat host-manager exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bunauth-tomcat-manager-exposed-004a31c6": {
+   "severity": "critical",
+   "pattern": "\\bUNAUTH: Tomcat Manager exposed:",
+   "list": "DEFAULT",
+   "category": "web"
+  },
+  "bzookeeper-4lw-exposed-103b92c9": {
+   "severity": "high",
+   "pattern": "\\bZookeeper 4LW exposed:",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "bzookeeper-config-exposed-high-value-7ed7fd76": {
+   "severity": "high",
+   "pattern": "\\bZookeeper config exposed \\(HIGH-VALUE\\)",
+   "list": "DEFAULT",
+   "category": "data"
+  },
+  "solr-reachable-1-2-3-4-5-6-7-8-0-9-8-10-8-11-0-3-d71e68f0": {
+   "severity": "medium",
+   "pattern": "Solr reachable:.+ \u2014 (1\\.|2\\.|3\\.|4\\.|5\\.|6\\.|7\\.|8\\.[0-9]\\.|8\\.10|8\\.11\\.[0-3])",
+   "list": "DEFAULT",
+   "category": "web"
+  }
+ }
+}

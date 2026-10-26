@@ -35,6 +35,19 @@
       }
     },
     {
+      "id": "finding-knowledge-base",
+      "path": "aranumtoolkit/network/finding-kb.json",
+      "source": "Vendor hardening guides, MITRE ATT&CK, and CVE/vendor advisories cited per finding class",
+      "owner": "network/report maintainers",
+      "refreshed": "2026-10-25",
+      "max_age_days": 180,
+      "freshness_policy": "Review test/fix guidance and refs whenever severity rules change or a referenced tool/vendor guidance changes; at least every six months",
+      "derivation": {
+        "type": "json-structure",
+        "required_keys": ["schema", "categories", "classes", "service_categories"]
+      }
+    },
+    {
       "id": "engagement-profile-rules",
       "path": "aranumtoolkit/network/engagement-profiles.json",
       "source": "Aranum planning and engagement-profile contracts",

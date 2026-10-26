@@ -1,0 +1,43 @@
+You are an independent Tier-2 security-tooling reviewer. Review ONLY the diff for
+correctness, security, and robustness. Do not rewrite it; report findings.
+
+Repo: aranum — an AUTHORIZED-TESTING-ONLY network/host enumeration toolkit.
+Sprint S2 adds a "finding knowledge base" (remediation guidance keyed by the
+classifier's rule_id) and three dashboard surfaces. Read these files (read-only):
+
+  /srv/share/dev/aranum/docs/review/s2-kb-authoring/diffrev/s2-code.diff   (the change under review)
+  /srv/share/dev/aranum/docs/review/s2-kb-authoring/diffrev/kb-sample.json (KB schema + one class per category; the full KB is 199 classes)
+
+What the code must do:
+- report.py: _load_finding_kb() loads network/finding-kb.json (cached; ARANUM_FINDING_KB
+  overrides path; malformed/missing => empty KB, never crash). _attach_kb() adds additive
+  category/kb_id/kb_match to each finding; rule-matched => kb_match="rule" & kb_id==rule_id;
+  else service-default via _service_category(); smb maps to the ad category ONLY when the host
+  also exposes port 88 or 389, else network. _render_top_risks() emits a markdown section.
+- report-dashboard.py: render_ad / render_categories / render_run_health_panel / build_run_health /
+  _dc_hosts / kb_guidance_html. build_run_health lists dispatcher [!] lines that NO rule grades.
+  All HTML must be escaped (adversarial engagement data).
+
+Judge specifically:
+1. Correctness bugs: KB cache keyed only on path (stale across tests?); _service_category /
+   _attach_kb edge cases (empty service, missing category, smb without ports); build_run_health
+   double-counting or mis-grouping; _dc_hosts port-type assumptions; any KeyError/None deref on
+   malformed findings or empty KB.
+2. Security of OUR tool: HTML/attribute injection in the new dashboard rendering (unescaped
+   rule_id/line/host/cmd into HTML or into data-copy attributes); the clipboard JS; markdown
+   injection into report.md. This is defensive hardening of our own output.
+3. OPSEC (CLAUDE.md section 9): any KB *test* command that writes to a target (test steps must be
+   read-only confirmation only); any auto-exec of KB commands (they must be inert templates);
+   any phone-home. (fix steps are remediation on the owner's own host and MAY write — that is allowed.)
+4. Test quality: does the coverage gate actually fail when a class is missing; is any absence
+   assertion vacuous; is the denominator pinned.
+
+OUT OF SCOPE — do not report these (they will be rejected):
+- Generic tool-hardening/compliance checklist items unrelated to this diff.
+- The accuracy of individual remediation text in the 199 KB classes (separately authored/verified).
+- Deliberate constants, severity choices, or the 199-rule denominator value.
+- Style/formatting preferences with no correctness or security impact.
+
+For each finding give: SEVERITY (blocker/high/medium/low), FILE:approx-line, the concrete
+failure scenario (inputs -> wrong/unsafe output), and a one-line fix. If you find nothing in a
+class, say so explicitly. Be precise; a wrong claim wastes a review round.

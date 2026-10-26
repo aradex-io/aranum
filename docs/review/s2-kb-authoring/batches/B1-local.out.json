@@ -1,0 +1,1176 @@
+{
+  "all-s-s-all-s-all-46200da3": {
+    "category": "linlocal",
+    "title": "Unrestricted sudo access",
+    "why": "A sudoers rule granting (ALL:ALL) ALL allows the affected user to execute any command as any user or group. This is effectively full root access, so defenders must verify that the grant is intentional and tightly controlled.",
+    "test": [
+      {
+        "label": "List effective sudo rules",
+        "cmd": "sudo -l -U <user>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Apply least privilege",
+        "text": "Replace the unrestricted rule with an explicit allowlist of required commands, target users, and groups; remove the rule entirely if it is unnecessary."
+      }
+    ],
+    "refs": [
+      "https://www.sudo.ws/docs/man/sudoers.man/",
+      "https://attack.mitre.org/techniques/T1548/003/"
+    ]
+  },
+  "alwaysinstallelevated-enabled-6495dbaa": {
+    "category": "winlocal",
+    "title": "AlwaysInstallElevated enabled",
+    "why": "When AlwaysInstallElevated is enabled in both the machine and user policy hives, Windows Installer packages can run with elevated privileges. A local user may therefore obtain SYSTEM-level execution by launching a malicious MSI package.",
+    "test": [
+      {
+        "label": "Query machine installer policy",
+        "cmd": "reg query \"HKLM\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+      },
+      {
+        "label": "Query user installer policy",
+        "cmd": "reg query \"HKCU\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable machine policy",
+        "cmd": "reg add \"HKLM\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated /t REG_DWORD /d 0 /f"
+      },
+      {
+        "label": "Disable user policy",
+        "cmd": "reg add \"HKCU\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated /t REG_DWORD /d 0 /f"
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/win32/msi/alwaysinstallelevated",
+      "https://attack.mitre.org/techniques/T1548/002/"
+    ]
+  },
+  "b-release-agent-notify-on-release-core-pattern-sysrq-tr-a3f639e8": {
+    "category": "linlocal",
+    "title": "Writable kernel control interface",
+    "why": "A non-root user can write a sensitive kernel or cgroup control such as release_agent, notify_on_release, core_pattern, or sysrq-trigger. Depending on the interface and surrounding isolation, this can alter privileged execution behavior, expose host control, or destabilize the system.",
+    "test": [
+      {
+        "label": "Inspect matched control permissions",
+        "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+      },
+      {
+        "label": "Resolve path and mount context",
+        "cmd": "findmnt -T <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict ownership and writes",
+        "text": "Make the control root-owned and remove write access from untrusted users; also prevent sensitive host procfs, sysfs, and cgroup paths from being mounted writable inside containers."
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/notify_on_release.html",
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html"
+    ]
+  },
+  "bcap-net-raw-net-bind-service-kill-sys-rawio-b-ep-5d5ddc68": {
+    "category": "linlocal",
+    "title": "Executable has elevated Linux capabilities",
+    "why": "The executable carries an effective capability such as raw networking, privileged-port binding, process signaling, or raw device I/O. If the program is unnecessary, writable, or can invoke user-controlled behavior, that capability may enable traffic manipulation, service impersonation, process interference, or hardware access.",
+    "test": [
+      {
+        "label": "Read file capabilities",
+        "cmd": "getcap -v <evidence_path>"
+      },
+      {
+        "label": "Inspect file ownership and mode",
+        "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove unnecessary capabilities",
+        "cmd": "setcap -r <evidence_path>"
+      },
+      {
+        "label": "Constrain required capability use",
+        "text": "If the capability is required, use a narrowly scoped service account, protect the executable and its dependencies from modification, and restrict execution to authorized users."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man7/capabilities.7.html",
+      "https://attack.mitre.org/techniques/T1548/001/"
+    ]
+  },
+  "bcap-setuid-setgid-dac-read-search-dac-override-sys-adm-8660c37c": {
+    "category": "linlocal",
+    "title": "Executable has high-impact capabilities",
+    "why": "The executable has an effective capability that can bypass file permissions, alter identities, trace processes, load modules, administer the system, or access raw devices. A flaw or user-controlled execution path in that binary can turn the delegated capability into local privilege escalation or sensitive-data access.",
+    "test": [
+      {
+        "label": "Read assigned capabilities",
+        "cmd": "getcap -v <evidence_path>"
+      },
+      {
+        "label": "Check executable integrity controls",
+        "cmd": "namei -l <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove file capabilities",
+        "cmd": "setcap -r <evidence_path>"
+      },
+      {
+        "label": "Replace broad delegation",
+        "text": "Use a dedicated privileged service or a minimal capability set instead of granting broad capabilities to a general-purpose executable."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man7/capabilities.7.html",
+      "https://attack.mitre.org/techniques/T1548/001/"
+    ]
+  },
+  "bcap-setuid-setgid-dac-read-search-dac-override-sys-adm-e867ba82": {
+    "category": "linlocal",
+    "title": "Dangerous effective file capability",
+    "why": "An executable is effective with a powerful capability covering identity changes, discretionary-access bypass, system administration, tracing, module loading, ownership changes, or network administration. These privileges can cross important security boundaries and should not be attached to general-purpose or user-modifiable programs.",
+    "test": [
+      {
+        "label": "Confirm effective capabilities",
+        "cmd": "getcap -v <evidence_path>"
+      },
+      {
+        "label": "Inspect the complete path",
+        "cmd": "namei -l <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove the capability assignment",
+        "cmd": "setcap -r <evidence_path>"
+      },
+      {
+        "label": "Redesign privileged operation",
+        "text": "Delegate only the minimum required operation through a protected service, and ensure the executable, libraries, configuration, and parent directories are not writable by untrusted users."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man7/capabilities.7.html",
+      "https://attack.mitre.org/techniques/T1548/001/"
+    ]
+  },
+  "bcap-sys-admin-held-b-blooks-privileged-b-9c8a77ca": {
+    "category": "linlocal",
+    "title": "Container holds broad host capability",
+    "why": "CAP_SYS_ADMIN is an exceptionally broad capability associated with mounts, namespaces, and many kernel administration operations; a privileged container commonly holds still more authority. If the container is compromised, weak isolation or exposed host resources can make host compromise substantially easier.",
+    "test": [
+      {
+        "label": "Read current capability masks",
+        "cmd": "grep -E '^Cap(Inh|Prm|Eff|Bnd|Amb):' /proc/self/status"
+      },
+      {
+        "label": "Decode effective capabilities",
+        "cmd": "capsh --decode=$(awk '/^CapEff:/{print $2}' /proc/self/status)"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Drop broad capabilities",
+        "text": "Run the workload without privileged mode, drop all capabilities by default, and add back only capabilities proven necessary; never grant CAP_SYS_ADMIN unless the workload is fully trusted."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man7/capabilities.7.html",
+      "https://docs.docker.com/engine/containers/run/#runtime-privilege-and-linux-capabilities"
+    ]
+  },
+  "bdocker-sock-present-b-01283762": {
+    "category": "linlocal",
+    "title": "Docker control socket exposed",
+    "why": "Access to the Docker daemon socket permits control of containers and commonly provides a path to host-level root authority. Exposing the socket inside a workload turns compromise of that workload into compromise of the container-management plane.",
+    "test": [
+      {
+        "label": "Inspect socket permissions",
+        "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+      },
+      {
+        "label": "Query daemon information",
+        "cmd": "docker -H unix://<evidence_path> info"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove socket exposure",
+        "text": "Do not mount the Docker socket into containers. Where management access is unavoidable, use a narrowly authorized proxy and restrict socket membership to trusted administrators."
+      }
+    ],
+    "refs": [
+      "https://docs.docker.com/engine/security/",
+      "https://attack.mitre.org/techniques/T1611/"
+    ]
+  },
+  "bno-all-squash-b-862fbcde": {
+    "category": "linlocal",
+    "title": "NFS export preserves client identities",
+    "why": "An NFS export using no_all_squash preserves client-supplied user identities rather than mapping every request to an anonymous account. In environments without strong NFS authentication, matching or spoofed numeric UIDs can grant unintended access to exported data.",
+    "test": [
+      {
+        "label": "List effective NFS exports",
+        "cmd": "exportfs -v"
+      },
+      {
+        "label": "Read configured export options",
+        "cmd": "grep -Rns -- 'no_all_squash' /etc/exports /etc/exports.d"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Map untrusted clients",
+        "text": "Use all_squash with a dedicated anonymous UID/GID for untrusted clients, restrict each export to necessary client networks, and use Kerberos-secured NFS where identity assurance is required."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/exports.5.html",
+      "https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/configuring_and_using_network_file_services/deploying-an-nfs-server_configuring-and-using-network-file-services"
+    ]
+  },
+  "bno-root-squash-b-b4bfb72e": {
+    "category": "linlocal",
+    "title": "NFS root squashing disabled",
+    "why": "An NFS export with no_root_squash accepts client root as root on the exported filesystem. A compromised or attacker-controlled authorized client can create root-owned files, alter executable content, or plant privileged configuration consumed by the server.",
+    "test": [
+      {
+        "label": "List effective export options",
+        "cmd": "exportfs -v"
+      },
+      {
+        "label": "Locate unsafe configuration",
+        "cmd": "grep -Rns -- 'no_root_squash' /etc/exports /etc/exports.d"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Enable root squashing",
+        "text": "Remove no_root_squash or explicitly use root_squash, restrict the export to required clients, and reload the export table with exportfs -ra."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/exports.5.html",
+      "https://attack.mitre.org/techniques/T1021/002/"
+    ]
+  },
+  "bpossible-host-pid-namespace-b-dbd24c2f": {
+    "category": "linlocal",
+    "title": "Possible host PID namespace sharing",
+    "why": "A container that shares the host PID namespace can enumerate and potentially interact with host processes subject to its capabilities and other controls. This weakens process isolation and can expose command lines, environment data, signals, or debugging interfaces.",
+    "test": [
+      {
+        "label": "Inspect visible process namespace",
+        "cmd": "readlink /proc/1/ns/pid && ps -eo pid,user,comm,args"
+      },
+      {
+        "label": "Inspect current process capabilities",
+        "cmd": "grep -E '^Cap(Eff|Bnd):' /proc/self/status"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restore PID isolation",
+        "text": "Disable host PID sharing for the workload, retain the runtime's private PID namespace, and drop process-control capabilities such as SYS_PTRACE and KILL unless explicitly required."
+      }
+    ],
+    "refs": [
+      "https://docs.docker.com/engine/containers/run/#pid-settings---pid",
+      "https://attack.mitre.org/techniques/T1611/"
+    ]
+  },
+  "bse-backup-restore-takeownership-managevolume-security-75436e54": {
+    "category": "winlocal",
+    "title": "High-impact Windows privilege enabled",
+    "why": "The current token has an enabled privilege capable of bypassing file ACLs, restoring protected content, taking ownership, managing volumes, or accessing security auditing functions. Abuse can expose protected credentials or let a compromised process alter security-sensitive resources.",
+    "test": [
+      {
+        "label": "List token privileges",
+        "cmd": "whoami /priv"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict user-right assignments",
+        "text": "Remove the account from the corresponding User Rights Assignment unless operationally required, and run backup, restore, storage, and security-management duties through dedicated, monitored service accounts."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/win32/secauthz/privilege-constants",
+      "https://attack.mitre.org/techniques/T1134/"
+    ]
+  },
+  "bse-impersonate-assignprimarytoken-debug-backup-restore-5c02ab8b": {
+    "category": "winlocal",
+    "title": "Dangerous Windows privilege assigned",
+    "why": "A sensitive privilege is present in the process token but currently disabled. Windows may enable an assigned privilege when an authorized operation requests it, so assignment still expands the impact of process compromise and warrants least-privilege review.",
+    "test": [
+      {
+        "label": "Review assigned token privileges",
+        "cmd": "whoami /priv"
+      },
+      {
+        "label": "Review account group membership",
+        "cmd": "whoami /groups"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove unnecessary assignments",
+        "text": "Use Local Security Policy or Group Policy to remove unneeded sensitive user rights from the account and its groups; separate administrative duties into dedicated identities."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/win32/secauthz/privileges",
+      "https://attack.mitre.org/techniques/T1134/"
+    ]
+  },
+  "bse-impersonate-assignprimarytoken-debug-tcb-createtoke-6ff3ed2a": {
+    "category": "winlocal",
+    "title": "Critical Windows privilege enabled",
+    "why": "The current token has an enabled privilege permitting impersonation, primary-token assignment, debugging, trusted-computing-base behavior, token creation, or driver loading. These rights can cross user and kernel trust boundaries and frequently make compromise of the process equivalent to full system compromise.",
+    "test": [
+      {
+        "label": "Confirm enabled token privileges",
+        "cmd": "whoami /priv"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove sensitive user rights",
+        "text": "Remove the affected rights from ordinary users and services through Group Policy, use dedicated service identities, and grant only the specific right required by the application."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/win32/secauthz/privilege-constants",
+      "https://attack.mitre.org/techniques/T1134/"
+    ]
+  },
+  "bwritable-b-etc-cron-78249dc5": {
+    "category": "linlocal",
+    "title": "Writable system cron configuration",
+    "why": "An untrusted user can modify a system cron file or directory whose jobs may execute as root or another privileged account. Injected commands would then run automatically under that job's security context.",
+    "test": [
+      {
+        "label": "Inspect matched path permissions",
+        "cmd": "namei -l <evidence_path>"
+      },
+      {
+        "label": "List cron ownership and modes",
+        "cmd": "find /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.monthly /etc/cron.weekly -maxdepth 1 -printf '%M %u:%g %p\\n'"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restore protected permissions",
+        "cmd": "chown root:root <evidence_path> && chmod go-w <evidence_path>"
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/crontab.5.html",
+      "https://attack.mitre.org/techniques/T1053/003/"
+    ]
+  },
+  "bwritable-b-etc-systemd-f4b4a67c": {
+    "category": "linlocal",
+    "title": "Writable systemd configuration",
+    "why": "An untrusted user can modify a systemd unit, override, or related configuration under /etc/systemd. If a privileged unit is started, restarted, or reloaded, attacker-controlled directives may execute with that unit's privileges.",
+    "test": [
+      {
+        "label": "Inspect matched path permissions",
+        "cmd": "namei -l <evidence_path>"
+      },
+      {
+        "label": "Show unit definition",
+        "cmd": "systemctl cat <service>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Protect systemd files",
+        "cmd": "chown root:root <evidence_path> && chmod go-w <evidence_path>"
+      },
+      {
+        "label": "Review unit integrity",
+        "text": "Compare the unit and all drop-ins with trusted package or configuration-management sources, then run systemctl daemon-reload after correcting them."
+      }
+    ],
+    "refs": [
+      "https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html",
+      "https://attack.mitre.org/techniques/T1543/002/"
+    ]
+  },
+  "docker-sock-ca319bcd": {
+    "category": "linlocal",
+    "title": "Docker socket accessible",
+    "why": "The Docker API socket is present in the assessed environment. Any user or workload able to access it can often create or alter containers with host mounts and elevated settings, effectively obtaining host-level control.",
+    "test": [
+      {
+        "label": "Inspect socket access",
+        "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+      },
+      {
+        "label": "Perform read-only daemon query",
+        "cmd": "docker -H unix://<evidence_path> version"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Limit daemon access",
+        "text": "Remove the socket from containers, restrict membership in the docker group to trusted administrators, and use an authorization proxy when applications require limited API access."
+      }
+    ],
+    "refs": [
+      "https://docs.docker.com/engine/security/",
+      "https://attack.mitre.org/techniques/T1611/"
+    ]
+  },
+  "env-keep-ld-preload-library-path-f389f6e9": {
+    "category": "linlocal",
+    "title": "Sudo preserves dynamic-loader variables",
+    "why": "A sudoers env_keep rule preserves LD_PRELOAD or LD_LIBRARY_PATH across a privilege boundary. When the invoked program honors these variables, user-selected libraries may be loaded into a privileged process and execute with elevated rights.",
+    "test": [
+      {
+        "label": "Show effective sudo policy",
+        "cmd": "sudo -l -U <user>"
+      },
+      {
+        "label": "Locate loader-variable exceptions",
+        "cmd": "grep -RnsE 'env_keep.*LD_(PRELOAD|LIBRARY_PATH)' /etc/sudoers /etc/sudoers.d"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove loader variables",
+        "text": "Delete LD_PRELOAD and LD_LIBRARY_PATH from sudoers env_keep entries, retain env_reset, and validate the resulting policy with visudo -c."
+      }
+    ],
+    "refs": [
+      "https://www.sudo.ws/docs/man/sudoers.man/",
+      "https://attack.mitre.org/techniques/T1574/006/"
+    ]
+  },
+  "etc-apt-sources-list-writable-3e435145": {
+    "category": "linlocal",
+    "title": "Writable APT repository configuration",
+    "why": "An untrusted user can alter an APT source definition and redirect package retrieval to an attacker-controlled repository. A later privileged update or installation could introduce untrusted software, especially where repository-signing controls are weak or misconfigured.",
+    "test": [
+      {
+        "label": "Inspect source-list permissions",
+        "cmd": "stat -Lc '%A %a %U:%G %n' /etc/apt/sources.list"
+      },
+      {
+        "label": "Inspect path components",
+        "cmd": "namei -l /etc/apt/sources.list"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Protect repository configuration",
+        "cmd": "chown root:root /etc/apt/sources.list && chmod 0644 /etc/apt/sources.list"
+      },
+      {
+        "label": "Verify repository trust",
+        "text": "Review configured repository URLs and signing-key scopes, remove unknown entries, and use Signed-By with a dedicated keyring for each external repository."
+      }
+    ],
+    "refs": [
+      "https://manpages.debian.org/apt/sources.list.5",
+      "https://wiki.debian.org/DebianRepository/UseThirdParty"
+    ]
+  },
+  "etc-usr-lib-lib64-sbin-bin-s-s-s-world-writable-0e6b08c2": {
+    "category": "linlocal",
+    "title": "World-writable system path",
+    "why": "A file or directory beneath a trusted system path is writable by every local user. Attackers may replace executables, libraries, configuration, or scripts that privileged users and services rely upon, creating a durable privilege-escalation path.",
+    "test": [
+      {
+        "label": "Inspect the matched path",
+        "cmd": "namei -l <evidence_path>"
+      },
+      {
+        "label": "Read ownership and mode",
+        "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove world write access",
+        "cmd": "chmod o-w <evidence_path>"
+      },
+      {
+        "label": "Restore trusted ownership",
+        "text": "Set ownership to the package- or service-appropriate administrative account and verify the file against the operating-system package database or a trusted baseline."
+      }
+    ],
+    "refs": [
+      "https://attack.mitre.org/techniques/T1574/",
+      "https://refspecs.linuxfoundation.org/FHS_3.0/fhs/index.html"
+    ]
+  },
+  "glibc-s-s-s-in-vulnerable-window-s-2-34-2-38-s-s-looney-5edd47d9": {
+    "category": "linlocal",
+    "title": "Potential Looney Tunables exposure",
+    "why": "The detected glibc release falls in the upstream version range associated with CVE-2023-4911, an ld.so environment-variable parsing flaw that can permit local privilege escalation through set-user-ID programs. Distribution packages may contain backported fixes, so the vendor package revision must be checked rather than relying only on the upstream version.",
+    "test": [
+      {
+        "label": "Read glibc runtime version",
+        "cmd": "ldd --version"
+      },
+      {
+        "label": "Read installed package revision",
+        "cmd": "dpkg-query -W -f='${Package} ${Version}\\n' libc6"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Install vendor-fixed glibc",
+        "text": "Apply the distribution's security update for CVE-2023-4911 and restart affected long-running services or reboot according to vendor guidance."
+      }
+    ],
+    "refs": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2023-4911",
+      "https://www.openwall.com/lists/oss-security/2023/10/03/2"
+    ]
+  },
+  "groups-services-scheduledtasks-datasources-printers-dri-6642dd0f": {
+    "category": "winlocal",
+    "title": "Group Policy Preferences file exposed",
+    "why": "A legacy Group Policy Preferences XML file was found in SYSVOL or a local policy cache. Such files can disclose account names and configuration details, and older entries containing cpassword values expose reversibly encrypted credentials to any domain user who can read SYSVOL.",
+    "test": [
+      {
+        "label": "Inspect the matched policy file",
+        "cmd": "powershell -NoProfile -Command \"Get-Item -LiteralPath '<evidence_path>' | Select-Object FullName,Length,LastWriteTime\""
+      },
+      {
+        "label": "Check for legacy password fields",
+        "cmd": "powershell -NoProfile -Command \"Select-String -LiteralPath '<evidence_path>' -Pattern 'cpassword|userName|accountName'\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove embedded credentials",
+        "text": "Delete legacy cpassword-bearing preference items, rotate every referenced credential, purge stale copies from SYSVOL, and deploy managed service accounts or LAPS instead."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/troubleshoot/windows-server/group-policy/cpassword-known-issue",
+      "https://attack.mitre.org/techniques/T1552/006/"
+    ]
+  },
+  "hardening-ptrace-scope-0-unprivileged-bpf-disabled-0-su-3c34f507": {
+    "category": "linlocal",
+    "title": "Weak Linux kernel hardening setting",
+    "why": "One or more kernel controls permit broad process tracing, unprivileged BPF use, or dumpable privileged processes. These settings enlarge the local attack surface and can expose process memory, kernel interfaces, or sensitive crash data after another foothold is obtained.",
+    "test": [
+      {
+        "label": "Read relevant kernel controls",
+        "cmd": "sysctl kernel.yama.ptrace_scope kernel.unprivileged_bpf_disabled fs.suid_dumpable"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Apply hardened sysctl values",
+        "text": "Set kernel.yama.ptrace_scope to at least 1, kernel.unprivileged_bpf_disabled to the vendor-recommended restrictive value, and fs.suid_dumpable to 0 unless a documented operational need exists."
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/doc/html/latest/admin-guide/LSM/Yama.html",
+      "https://www.kernel.org/doc/html/latest/admin-guide/sysctl/fs.html"
+    ]
+  },
+  "io-uring-reachable-to-current-user-s-s-known-cve-surfac-de45adbf": {
+    "category": "linlocal",
+    "title": "io_uring available to unprivileged users",
+    "why": "The current unprivileged user can reach the io_uring kernel subsystem, which has historically contained several locally exploitable memory-safety flaws. Availability is not proof of a vulnerability, but it increases kernel attack surface and should be restricted where applications do not require it.",
+    "test": [
+      {
+        "label": "Read io_uring restriction policy",
+        "cmd": "sysctl kernel.io_uring_disabled"
+      },
+      {
+        "label": "Check kernel version",
+        "cmd": "uname -r"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable unused io_uring",
+        "text": "Patch to the vendor-supported kernel and set kernel.io_uring_disabled=2 when io_uring is not required, or use the supported restrictive mode and authorized group where available."
+      }
+    ],
+    "refs": [
+      "https://docs.kernel.org/admin-guide/sysctl/kernel.html",
+      "https://attack.mitre.org/techniques/T1068/"
+    ]
+  },
+  "kernel-s-s-s-in-ubuntu-hwe-cve-2023-0386-vulnerable-d094a0e0": {
+    "category": "linlocal",
+    "title": "Ubuntu kernel vulnerable to CVE-2023-0386",
+    "why": "The detected Ubuntu HWE kernel appears to fall within the vulnerable range for CVE-2023-0386, an OverlayFS flaw that can allow a local user to gain elevated privileges. Vendor package revisions must be checked because Ubuntu fixes are backported without necessarily changing the upstream version family.",
+    "test": [
+      {
+        "label": "Read running kernel release",
+        "cmd": "uname -r"
+      },
+      {
+        "label": "Read installed Ubuntu kernel package",
+        "cmd": "dpkg-query -W -f='${Package} ${Version}\\n' 'linux-image-*' | grep \"$(uname -r)\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Install a fixed Ubuntu kernel",
+        "text": "Apply the Ubuntu security update for CVE-2023-0386, reboot into the fixed kernel, and remove unsupported old kernels after confirming successful operation."
+      }
+    ],
+    "refs": [
+      "https://ubuntu.com/security/CVE-2023-0386",
+      "https://nvd.nist.gov/vuln/detail/CVE-2023-0386"
+    ]
+  },
+  "linux-s-s-s-2-3-4-5-0-9-1-0-5-3ce6a6fb": {
+    "category": "linlocal",
+    "title": "Legacy Linux kernel detected",
+    "why": "The running kernel belongs to an old major or minor family frequently outside normal security support. Unsupported kernels accumulate publicly documented local privilege-escalation and isolation flaws, although the exact risk depends on vendor backports and lifecycle status.",
+    "test": [
+      {
+        "label": "Read kernel and platform details",
+        "cmd": "uname -a"
+      },
+      {
+        "label": "Read operating-system release",
+        "cmd": "cat /etc/os-release"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Upgrade to a supported kernel",
+        "text": "Move to a vendor-supported OS and kernel stream, install all security updates, reboot into the updated kernel, and verify the old kernel is no longer running."
+      }
+    ],
+    "refs": [
+      "https://www.kernel.org/category/releases.html",
+      "https://attack.mitre.org/techniques/T1068/"
+    ]
+  },
+  "nopasswd-4f47cfff": {
+    "category": "linlocal",
+    "title": "Passwordless sudo rule",
+    "why": "A sudoers NOPASSWD rule allows the affected user to execute one or more commands without reauthentication. Broad commands, interpreters, editors, package managers, or writable command paths can make this equivalent to immediate privilege escalation.",
+    "test": [
+      {
+        "label": "List passwordless sudo grants",
+        "cmd": "sudo -l -U <user>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Require authentication and narrow scope",
+        "text": "Remove NOPASSWD unless noninteractive execution is essential, then allowlist only fixed root-owned commands with constrained arguments and use a dedicated service identity."
+      }
+    ],
+    "refs": [
+      "https://www.sudo.ws/docs/man/sudoers.man/",
+      "https://attack.mitre.org/techniques/T1548/003/"
+    ]
+  },
+  "os-s-microsoft-windows-7-server-2008-server-2012-b-d3cd5385": {
+    "category": "winlocal",
+    "title": "Unsupported Windows release",
+    "why": "The host runs Windows 7, Windows Server 2008, or Windows Server 2012, releases that are outside standard support. Unless covered by an applicable extended security program, newly discovered vulnerabilities may remain unpatched and modern security controls may be unavailable.",
+    "test": [
+      {
+        "label": "Read Windows version",
+        "cmd": "powershell -NoProfile -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Migrate to a supported release",
+        "text": "Upgrade or replace the host with a supported Windows version, apply current cumulative updates, and isolate the system with compensating controls until migration is complete."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/lifecycle/products/",
+      "https://attack.mitre.org/techniques/T1068/"
+    ]
+  },
+  "polkit-s-s-s-s-0-120-s-s-pwnkit-vulnerable-candidate-11f39eeb": {
+    "category": "linlocal",
+    "title": "Potential PwnKit vulnerability",
+    "why": "The installed polkit version is a candidate for CVE-2021-4034, a pkexec memory-corruption flaw that permits local privilege escalation to root. Because distributions backported fixes, the complete package revision and vendor advisory determine whether the host is actually vulnerable.",
+    "test": [
+      {
+        "label": "Read pkexec version",
+        "cmd": "pkexec --version"
+      },
+      {
+        "label": "Read installed polkit package revision",
+        "cmd": "dpkg-query -W -f='${Package} ${Version}\\n' policykit-1"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Install vendor-fixed polkit",
+        "text": "Apply the distribution security update for CVE-2021-4034. If immediate patching is impossible, follow vendor guidance for temporarily removing the set-user-ID bit from pkexec."
+      }
+    ],
+    "refs": [
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-4034",
+      "https://ubuntu.com/security/CVE-2021-4034"
+    ]
+  },
+  "privileged-s-true-bdcd4765": {
+    "category": "linlocal",
+    "title": "Container runs in privileged mode",
+    "why": "Privileged mode grants a container nearly all Linux capabilities and broad access to host devices while weakening normal isolation controls. Compromise of the container can therefore provide a direct route to host control.",
+    "test": [
+      {
+        "label": "Inspect container privilege setting",
+        "cmd": "docker inspect --format '{{.HostConfig.Privileged}}' <service>"
+      },
+      {
+        "label": "Read effective capability mask",
+        "cmd": "grep '^CapEff:' /proc/self/status"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove privileged mode",
+        "text": "Recreate the workload without privileged mode, drop all capabilities by default, add only required capabilities, and expose only explicitly needed devices and host paths."
+      }
+    ],
+    "refs": [
+      "https://docs.docker.com/engine/containers/run/#runtime-privilege-and-linux-capabilities",
+      "https://attack.mitre.org/techniques/T1611/"
+    ]
+  },
+  "rw-r-rw-s-etc-passwd-shadow-sudoers-sudoers-d-6acf62fc": {
+    "category": "linlocal",
+    "title": "Writable account security file",
+    "why": "An untrusted account can write /etc/passwd, /etc/shadow, /etc/sudoers, or a sudoers include file. Modification can create privileged users, replace password hashes, or grant unrestricted sudo access, resulting in direct root compromise.",
+    "test": [
+      {
+        "label": "Inspect matched file permissions",
+        "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+      },
+      {
+        "label": "Inspect parent-directory controls",
+        "cmd": "namei -l <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restore secure ownership and mode",
+        "text": "Restore root ownership and vendor-recommended permissions, remove unauthorized ACLs, validate sudoers with visudo -c where applicable, and review the file for unauthorized changes."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man5/passwd.5.html",
+      "https://www.sudo.ws/docs/man/sudoers.man/"
+    ]
+  },
+  "rws-b-s-bash-sh-dash-ksh-zsh-csh-tcsh-less-more-vi-vim-5cb6db9a": {
+    "category": "linlocal",
+    "title": "Dangerous program has setuid root",
+    "why": "A shell, interpreter, editor, transfer utility, debugger, or other general-purpose program has the set-user-ID bit. Many such programs can execute commands, load files, or preserve privileges, so a root-owned instance may provide a straightforward path to root.",
+    "test": [
+      {
+        "label": "Confirm owner and setuid mode",
+        "cmd": "stat -Lc '%A %a %U:%G %n' <evidence_path>"
+      },
+      {
+        "label": "Identify package ownership",
+        "cmd": "dpkg-query -S <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove setuid",
+        "cmd": "chmod u-s <evidence_path>"
+      },
+      {
+        "label": "Restore trusted package state",
+        "text": "If the bit was not intentionally deployed, reinstall or verify the owning package and investigate how the permission changed."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man2/chmod.2.html",
+      "https://attack.mitre.org/techniques/T1548/001/"
+    ]
+  },
+  "rws-de23ca2d": {
+    "category": "linlocal",
+    "title": "Setuid executable present",
+    "why": "A set-user-ID executable runs with its file owner's effective identity, commonly root. The bit may be legitimate, but vulnerable, obsolete, unexpected, or user-modifiable setuid programs can provide local privilege escalation.",
+    "test": [
+      {
+        "label": "Inventory setuid files",
+        "cmd": "find / -xdev -type f -perm -4000 -exec stat -Lc '%A %a %U:%G %n' {} +"
+      },
+      {
+        "label": "Inspect matched executable",
+        "cmd": "file <evidence_path>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove unnecessary setuid bit",
+        "cmd": "chmod u-s <evidence_path>"
+      },
+      {
+        "label": "Review legitimate exceptions",
+        "text": "Keep only vendor-supported, root-owned setuid programs that are operationally required; patch them and ensure neither the executable nor its path is writable by untrusted users."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man2/setuid.2.html",
+      "https://attack.mitre.org/techniques/T1548/001/"
+    ]
+  },
+  "s-a-za-z-program-files-s-startmode-b57c099c": {
+    "category": "winlocal",
+    "title": "Privileged Windows service candidate",
+    "why": "A Windows service executable under Program Files was identified together with its start mode. This is a privilege-escalation candidate when the service runs as a privileged account and its executable, directory, configuration, or unquoted path is modifiable by a lower-privileged user.",
+    "test": [
+      {
+        "label": "Read service configuration",
+        "cmd": "sc.exe qc <service>"
+      },
+      {
+        "label": "Inspect executable ACL",
+        "cmd": "icacls \"<evidence_path>\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Harden the service",
+        "text": "Quote paths containing spaces, remove untrusted write permissions from the executable and parent directories, use a low-privilege service account, and disable the service if unnecessary."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/win32/services/service-security-and-access-rights",
+      "https://attack.mitre.org/techniques/T1574/009/"
+    ]
+  },
+  "s-s-docker-lxd-lxc-disk-shadow-adm-b-1d99aa01": {
+    "category": "linlocal",
+    "title": "Membership in a sensitive local group",
+    "why": "The account belongs to a group such as docker, lxd, lxc, disk, shadow, or adm. These groups can expose container-management authority, raw storage, password hashes, or sensitive logs and may provide root-equivalent access or valuable credential material.",
+    "test": [
+      {
+        "label": "List account groups",
+        "cmd": "id <user>"
+      },
+      {
+        "label": "Read sensitive group membership",
+        "cmd": "getent group docker lxd lxc disk shadow adm"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove unnecessary memberships",
+        "cmd": "gpasswd -d <user> <service>"
+      },
+      {
+        "label": "Separate administrative duties",
+        "text": "Grant sensitive group membership only to dedicated administrative identities and monitor changes to those groups."
+      }
+    ],
+    "refs": [
+      "https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user",
+      "https://attack.mitre.org/techniques/T1069/001/"
+    ]
+  },
+  "seimpersonate-dcom-reachable-roguepotato-e8db2689": {
+    "category": "winlocal",
+    "title": "Impersonation privilege with DCOM reachability",
+    "why": "The process holds SeImpersonatePrivilege and can reach the local DCOM endpoint mapper, a combination associated with named-pipe and COM token-impersonation escalation paths. No exploit is required to establish the risk: compromise of this service context may enable elevation to SYSTEM on affected configurations.",
+    "test": [
+      {
+        "label": "Confirm impersonation privilege",
+        "cmd": "whoami /priv"
+      },
+      {
+        "label": "Check local DCOM endpoint",
+        "cmd": "powershell -NoProfile -Command \"Test-NetConnection -ComputerName 127.0.0.1 -Port 135 -InformationLevel Detailed\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove or isolate impersonation rights",
+        "text": "Run the service under a minimally privileged identity without SeImpersonatePrivilege where possible, apply current Windows updates, and restrict unnecessary DCOM/RPC exposure."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/impersonate-a-client-after-authentication",
+      "https://attack.mitre.org/techniques/T1134/001/"
+    ]
+  },
+  "seimpersonate-spooler-running-printspoofer-a2b0d2aa": {
+    "category": "winlocal",
+    "title": "Impersonation privilege with active Spooler",
+    "why": "The process has SeImpersonatePrivilege while the Print Spooler is running. This combination expands local token-impersonation attack surface and can allow a compromised service account to reach SYSTEM on susceptible configurations.",
+    "test": [
+      {
+        "label": "Confirm token privilege",
+        "cmd": "whoami /priv"
+      },
+      {
+        "label": "Read Print Spooler status",
+        "cmd": "powershell -NoProfile -Command \"Get-Service -Name Spooler | Select-Object Name,Status,StartType\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Disable unnecessary Spooler",
+        "cmd": "powershell -NoProfile -Command \"Stop-Service Spooler; Set-Service Spooler -StartupType Disabled\""
+      },
+      {
+        "label": "Reduce service privilege",
+        "text": "Remove SeImpersonatePrivilege from service identities that do not require it and apply current Windows security updates."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/impersonate-a-client-after-authentication",
+      "https://attack.mitre.org/techniques/T1134/001/"
+    ]
+  },
+  "serviceaccount-token-b-7f1ea010": {
+    "category": "winlocal",
+    "title": "Service-account token file exposed",
+    "why": "A service-account token path is present, commonly indicating a workload credential mounted into the filesystem. Any process able to read the token may authenticate as that service account and exercise its assigned API permissions.",
+    "test": [
+      {
+        "label": "Inspect token metadata",
+        "cmd": "powershell -NoProfile -Command \"Get-Item -LiteralPath '<evidence_path>' | Select-Object FullName,Length,LastWriteTime\""
+      },
+      {
+        "label": "Inspect token ACL",
+        "cmd": "icacls \"<evidence_path>\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict and rotate the token",
+        "text": "Remove unnecessary token mounts, restrict file access to the workload identity, use short-lived projected tokens, minimize service-account RBAC permissions, and rotate any token that may have been exposed."
+      }
+    ],
+    "refs": [
+      "https://kubernetes.io/docs/concepts/security/service-accounts/",
+      "https://attack.mitre.org/techniques/T1528/"
+    ]
+  },
+  "sudo-version-1-8-0-9-1-8-1-0-9-1-8-2-0-9-1-8-31p1-1-9-0-6ec6c06d": {
+    "category": "linlocal",
+    "title": "Potentially vulnerable sudo version",
+    "why": "The detected sudo version falls in a range containing multiple historical local privilege-escalation flaws. Version matching is only a candidate signal because distributions frequently backport security fixes; the complete package revision must be compared with the vendor advisory.",
+    "test": [
+      {
+        "label": "Read sudo version and build",
+        "cmd": "sudo --version"
+      },
+      {
+        "label": "Read installed package revision",
+        "cmd": "dpkg-query -W -f='${Package} ${Version}\\n' sudo"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Upgrade sudo",
+        "text": "Install the latest vendor-supported sudo package, review the vendor changelog for backported fixes, and retest the effective sudoers policy after upgrading."
+      }
+    ],
+    "refs": [
+      "https://www.sudo.ws/security/advisories/",
+      "https://nvd.nist.gov/vuln/detail/CVE-2021-3156"
+    ]
+  },
+  "system-network-service-administrators-2af202a3": {
+    "category": "winlocal",
+    "title": "Service runs under privileged identity",
+    "why": "A discovered service or process runs as SYSTEM, NETWORK SERVICE, or an administrator-class principal. If its executable, configuration, plugins, or control permissions are weak, a lower-privileged user may influence code that executes in this powerful context.",
+    "test": [
+      {
+        "label": "Read service account and path",
+        "cmd": "powershell -NoProfile -Command \"Get-CimInstance Win32_Service -Filter \\\"Name='<service>'\\\" | Select-Object Name,StartName,State,PathName\""
+      },
+      {
+        "label": "Inspect service security descriptor",
+        "cmd": "sc.exe sdshow <service>"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Apply service least privilege",
+        "text": "Use a dedicated virtual account or gMSA with only required rights, harden service-control permissions, and remove untrusted write access from executables, configuration, and plugin directories."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/win32/services/service-user-accounts",
+      "https://attack.mitre.org/techniques/T1543/003/"
+    ]
+  },
+  "unattend-ed-xml-sysprep-xml-inf-unattend-xml-inf-txt-d7be63e8": {
+    "category": "winlocal",
+    "title": "Unattended-install file exposed",
+    "why": "An unattended Windows setup or Sysprep file was found on disk. These files can contain administrator credentials, product keys, domain-join details, and deployment configuration that remain readable after installation.",
+    "test": [
+      {
+        "label": "Inspect file metadata and ACL",
+        "cmd": "powershell -NoProfile -Command \"Get-Item -LiteralPath '<evidence_path>'; Get-Acl -LiteralPath '<evidence_path>' | Format-List\""
+      },
+      {
+        "label": "Search for credential fields",
+        "cmd": "powershell -NoProfile -Command \"Select-String -LiteralPath '<evidence_path>' -Pattern 'Password|Credentials|AutoLogon|DomainAdmin|ProductKey'\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove secrets and stale files",
+        "text": "Delete unattended-install artifacts when no longer required, remove plaintext credentials from deployment templates, restrict remaining files to administrators, and rotate every credential found."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/update-windows-settings-and-scripts-create-your-own-answer-file-sxs",
+      "https://attack.mitre.org/techniques/T1552/001/"
+    ]
+  },
+  "unshare-ru-succeeded-s-s-unprivileged-userns-creation-w-b96b8d69": {
+    "category": "linlocal",
+    "title": "Unprivileged user namespaces enabled",
+    "why": "An ordinary user can create a new user namespace and map itself to namespace root. This is intentional on some systems, but it exposes additional kernel namespace and filesystem code to unprivileged users and has been a prerequisite for numerous local privilege-escalation flaws.",
+    "test": [
+      {
+        "label": "Read user-namespace policy",
+        "cmd": "sysctl kernel.unprivileged_userns_clone user.max_user_namespaces"
+      },
+      {
+        "label": "Check running kernel",
+        "cmd": "uname -r"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Restrict namespace creation",
+        "text": "If applications do not require unprivileged user namespaces, disable them using the distribution-supported sysctl or set user.max_user_namespaces to 0; otherwise keep the kernel fully patched and confine namespace-using applications."
+      }
+    ],
+    "refs": [
+      "https://man7.org/linux/man-pages/man7/user_namespaces.7.html",
+      "https://attack.mitre.org/techniques/T1068/"
+    ]
+  },
+  "writable-a-za-z-30aabd46": {
+    "category": "winlocal",
+    "title": "Writable Windows path",
+    "why": "A local path is writable by the assessed principal. If a privileged service, scheduled task, installer, or administrator later loads content from that location, an attacker may substitute executable or configuration data and inherit the consumer's privileges.",
+    "test": [
+      {
+        "label": "Read effective path ACL",
+        "cmd": "icacls \"<evidence_path>\""
+      },
+      {
+        "label": "Inspect owner and access rules",
+        "cmd": "powershell -NoProfile -Command \"Get-Acl -LiteralPath '<evidence_path>' | Format-List Owner,AccessToString\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Remove untrusted write access",
+        "text": "Restrict Modify, Write, Create Files, and Create Folders rights to the owning service or administrators, and review privileged consumers of the path before changing inherited ACLs."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/security/identity-protection/access-control/access-control",
+      "https://attack.mitre.org/techniques/T1574/"
+    ]
+  },
+  "writable-binary-921ba2b9": {
+    "category": "winlocal",
+    "title": "Writable privileged executable",
+    "why": "A service or other privileged executable can be modified by a lower-privileged principal. Replacing or patching that binary can cause attacker-controlled code to run when the service or task next starts.",
+    "test": [
+      {
+        "label": "Inspect executable ACL",
+        "cmd": "icacls \"<evidence_path>\""
+      },
+      {
+        "label": "Read file owner and access rules",
+        "cmd": "powershell -NoProfile -Command \"Get-Acl -LiteralPath '<evidence_path>' | Format-List Owner,AccessToString\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Harden executable permissions",
+        "text": "Remove write and modify rights for non-administrative principals, restore ownership to TrustedInstaller or Administrators as appropriate, and replace the binary from a trusted signed source if integrity is uncertain."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/security/identity-protection/access-control/access-control",
+      "https://attack.mitre.org/techniques/T1574/010/"
+    ]
+  },
+  "writable-pipe-1c761405": {
+    "category": "winlocal",
+    "title": "Writable named pipe",
+    "why": "A named pipe permits access from a lower-privileged principal. If a privileged service trusts clients, fails to authenticate peers, or performs impersonation incorrectly, an attacker may inject requests, capture sensitive data, or influence privileged behavior.",
+    "test": [
+      {
+        "label": "List writable named pipes",
+        "cmd": "accesschk64.exe -nobanner -w \\pipe\\*"
+      },
+      {
+        "label": "List active pipe names",
+        "cmd": "powershell -NoProfile -Command \"Get-ChildItem -Path '\\\\.\\pipe\\' | Select-Object Name\""
+      }
+    ],
+    "fix": [
+      {
+        "label": "Harden pipe authorization",
+        "text": "Configure the server to create the pipe with an explicit restrictive security descriptor, authenticate each client, validate impersonation levels, and reject anonymous or unnecessary low-privilege access."
+      }
+    ],
+    "refs": [
+      "https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights",
+      "https://attack.mitre.org/techniques/T1559/"
+    ]
+  },
+  "writable-root-runs-scripts-from-here-on-apt-operations-45cf6e05": {
+    "category": "linlocal",
+    "title": "Writable APT privileged script location",
+    "why": "A writable location supplies scripts or hooks that root executes during APT operations. An untrusted local user can alter that content and obtain root code execution when an administrator or automated updater next invokes APT.",
+    "test": [
+      {
+        "label": "Inspect matched path permissions",
+        "cmd": "namei -l <evidence_path>"
+      },
+      {
+        "label": "Review configured APT hooks",
+        "cmd": "grep -RnsE 'DPkg::Pre-Invoke|DPkg::Post-Invoke|APT::Update::Pre-Invoke|APT::Update::Post-Invoke' /etc/apt/apt.conf /etc/apt/apt.conf.d"
+      }
+    ],
+    "fix": [
+      {
+        "label": "Protect hook content",
+        "cmd": "chown -R root:root <evidence_path> && chmod -R go-w <evidence_path>"
+      },
+      {
+        "label": "Review APT hook integrity",
+        "text": "Remove unnecessary hook directives, compare remaining scripts with trusted package or configuration-management sources, and investigate any unauthorized modifications."
+      }
+    ],
+    "refs": [
+      "https://manpages.debian.org/apt/apt.conf.5",
+      "https://attack.mitre.org/techniques/T1053/"
+    ]
+  }
+}

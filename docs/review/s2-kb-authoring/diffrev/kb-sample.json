@@ -1,0 +1,364 @@
+{
+  "schema": 1,
+  "categories": {
+    "ad": {
+      "title": "Active Directory & Windows Domain",
+      "order": 1
+    },
+    "winlocal": {
+      "title": "Windows Local Privilege Escalation",
+      "order": 2
+    },
+    "linlocal": {
+      "title": "Linux Local Privilege Escalation",
+      "order": 3
+    },
+    "creds": {
+      "title": "Credential Exposure",
+      "order": 4
+    },
+    "web": {
+      "title": "Web Applications & HTTP Services",
+      "order": 5
+    },
+    "data": {
+      "title": "Databases, Caches & Brokers",
+      "order": 6
+    },
+    "devops": {
+      "title": "CI/CD, Source & Artifact Registries",
+      "order": 7
+    },
+    "backup": {
+      "title": "Backup & Data-Protection Platforms",
+      "order": 8
+    },
+    "infra": {
+      "title": "Virtualization & Out-of-Band Management",
+      "order": 9
+    },
+    "network": {
+      "title": "Network Services & Protocols",
+      "order": 10
+    }
+  },
+  "service_categories": {
+    "ldap": "ad",
+    "ldaps": "ad",
+    "kerberos": "ad",
+    "smb_dc": "ad",
+    "smb": "network",
+    "msrpc": "ad",
+    "winrm": "ad",
+    "rpc": "ad",
+    "http": "web",
+    "https": "web",
+    "http-proxy": "web",
+    "redis": "data",
+    "mongodb": "data",
+    "mongo": "data",
+    "mysql": "data",
+    "postgresql": "data",
+    "postgres": "data",
+    "mssql": "data",
+    "oracle": "data",
+    "cassandra": "data",
+    "elasticsearch": "data",
+    "memcached": "data",
+    "ftp": "network",
+    "telnet": "network",
+    "snmp": "network",
+    "ssh": "network",
+    "smtp": "network",
+    "ntp": "network",
+    "vnc": "network",
+    "rdp": "network",
+    "sip": "network",
+    "tftp": "network"
+  },
+  "classes_count": 199,
+  "example_class_per_category": {
+    "kerberoastable-hash-es-captured-aada6591": {
+      "category": "ad",
+      "title": "Kerberoastable service account(s)",
+      "why": "Any domain user can request a Kerberos service ticket (TGS) for an account with an SPN; the ticket is encrypted with the account's NTLM hash and can be cracked offline. Weak service-account passwords yield domain credentials.",
+      "test": [
+        {
+          "label": "Enumerate SPN accounts (read-only)",
+          "cmd": "nxc ldap <host> -u <user> -p <pass> --kerberoasting kerb.txt"
+        },
+        {
+          "label": "Impacket, list only",
+          "cmd": "GetUserSPNs.py <domain>/<user>:<pass> -dc-ip <host>"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Use Group Managed Service Accounts (gMSA)",
+          "text": "Replace SPN-bearing user accounts with gMSAs so Windows manages a 120-char random password that rotates automatically."
+        },
+        {
+          "label": "Enforce strong passwords where gMSA is impossible",
+          "text": "Set service-account passwords to >=25 random characters and audit SPN accounts with `Get-ADUser -Filter {ServicePrincipalName -like '*'}`."
+        }
+      ],
+      "refs": [
+        "https://attack.mitre.org/techniques/T1558/003/",
+        "https://learn.microsoft.com/windows-server/security/group-managed-service-accounts/group-managed-service-accounts-overview"
+      ]
+    },
+    "all-s-s-all-s-all-46200da3": {
+      "category": "linlocal",
+      "title": "Unrestricted sudo access",
+      "why": "A sudoers rule granting (ALL:ALL) ALL allows the affected user to execute any command as any user or group. This is effectively full root access, so defenders must verify that the grant is intentional and tightly controlled.",
+      "test": [
+        {
+          "label": "List effective sudo rules",
+          "cmd": "sudo -l -U <user>"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Apply least privilege",
+          "text": "Replace the unrestricted rule with an explicit allowlist of required commands, target users, and groups; remove the rule entirely if it is unnecessary."
+        }
+      ],
+      "refs": [
+        "https://www.sudo.ws/docs/man/sudoers.man/",
+        "https://attack.mitre.org/techniques/T1548/003/"
+      ]
+    },
+    "alwaysinstallelevated-enabled-6495dbaa": {
+      "category": "winlocal",
+      "title": "AlwaysInstallElevated enabled",
+      "why": "When AlwaysInstallElevated is enabled in both the machine and user policy hives, Windows Installer packages can run with elevated privileges. A local user may therefore obtain SYSTEM-level execution by launching a malicious MSI package.",
+      "test": [
+        {
+          "label": "Query machine installer policy",
+          "cmd": "reg query \"HKLM\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+        },
+        {
+          "label": "Query user installer policy",
+          "cmd": "reg query \"HKCU\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable machine policy",
+          "cmd": "reg add \"HKLM\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated /t REG_DWORD /d 0 /f"
+        },
+        {
+          "label": "Disable user policy",
+          "cmd": "reg add \"HKCU\\Software\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated /t REG_DWORD /d 0 /f"
+        }
+      ],
+      "refs": [
+        "https://learn.microsoft.com/en-us/windows/win32/msi/alwaysinstallelevated",
+        "https://attack.mitre.org/techniques/T1548/002/"
+      ]
+    },
+    "b-deprecated-read-only-kubelet-b-ec66886f": {
+      "category": "data",
+      "title": "Kubelet read-only port exposed",
+      "why": "The deprecated kubelet read-only port can disclose pod specifications, node metadata, environment details, and workload topology without authentication. Attackers can use this information to identify secrets, privileged workloads, and paths for lateral movement.",
+      "test": [
+        {
+          "label": "List pods through the read-only endpoint",
+          "cmd": "curl -fsS http://<host>:<port>/pods"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable the read-only port",
+          "text": "Set the kubelet option --read-only-port=0 and expose only the authenticated HTTPS endpoint with authorization enabled."
+        },
+        {
+          "label": "Restrict kubelet access",
+          "text": "Permit the secure kubelet port only from authorized control-plane and monitoring networks."
+        }
+      ],
+      "refs": [
+        "https://kubernetes.io/docs/reference/access-authn-authz/kubelet-authn-authz/",
+        "https://attack.mitre.org/techniques/T1552/001/"
+      ]
+    },
+    "b-jenkins-gitlab-sonarqube-grafana-prometheus-detected-27a0349d": {
+      "category": "web",
+      "title": "Development or monitoring service exposed",
+      "why": "An externally reachable Jenkins, GitLab, SonarQube, Grafana, or Prometheus instance expands the administrative attack surface and may disclose software versions or operational metadata. Weak authentication, unsafe defaults, or unpatched components can turn simple discovery into credential theft or infrastructure compromise.",
+      "test": [
+        {
+          "label": "Identify the exposed service",
+          "cmd": "nmap -Pn -sV -p <port> <host>"
+        },
+        {
+          "label": "Inspect the HTTP response",
+          "cmd": "curl -fsSI http://<host>:<port>/"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Limit management-plane exposure",
+          "text": "Place the service behind a VPN, identity-aware proxy, or management network and allow access only from approved sources."
+        },
+        {
+          "label": "Harden the application",
+          "text": "Enable strong authentication and MFA where supported, remove anonymous access, and keep the application and plugins patched."
+        }
+      ],
+      "refs": [
+        "https://attack.mitre.org/techniques/T1046/",
+        "https://owasp.org/www-project-application-security-verification-standard/"
+      ]
+    },
+    "baggressive-mode-psk-hash-harvested-0f76f82f": {
+      "category": "network",
+      "title": "IKEv1 aggressive-mode PSK hash exposed",
+      "why": "The VPN completed IKEv1 aggressive-mode negotiation and disclosed material that permits offline guessing of the group pre-shared key. Recovering a weak PSK can enable unauthorized VPN negotiation and compromise every peer sharing that secret.",
+      "test": [
+        {
+          "label": "Repeat one aggressive-mode handshake",
+          "cmd": "ike-scan --aggressive --id=<user> <host>"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Disable aggressive mode",
+          "text": "Disable IKEv1 aggressive mode and migrate peers to IKEv2 with certificate-based authentication."
+        },
+        {
+          "label": "Rotate the exposed PSK",
+          "text": "Replace the shared secret with a long random value after disabling the weak exchange, and use unique credentials for separate peer groups."
+        }
+      ],
+      "refs": [
+        "https://csrc.nist.gov/pubs/sp/800/77/r1/final",
+        "https://www.rfc-editor.org/rfc/rfc7296"
+      ]
+    },
+    "b-rubrik-cohesity-backup-dell-powerprotect-data-manager-e0232ea0": {
+      "category": "backup",
+      "title": "Enterprise backup management API exposed",
+      "why": "A reachable Rubrik, Cohesity, or Dell PowerProtect API identifies a high-value management plane that commonly holds infrastructure inventories and privileged integration credentials. Attackers target backup systems to steal data and impair recovery before disruptive operations.",
+      "test": [
+        {
+          "label": "Check Rubrik API fingerprint",
+          "cmd": "curl -k -i '<service>://<host>:<port>/api/v1/cluster/me'"
+        },
+        {
+          "label": "Check Cohesity API fingerprint",
+          "cmd": "curl -k -i '<service>://<host>:<port>/irisservices/api/v1/public/cluster'"
+        },
+        {
+          "label": "Check PowerProtect API fingerprint",
+          "cmd": "curl -k -i '<service>://<host>:<port>/api/v2/about'"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Restrict management access",
+          "text": "Place the backup API on a dedicated management network and permit access only from approved administration hosts and monitoring systems."
+        },
+        {
+          "label": "Harden administrator authentication",
+          "text": "Require MFA or centralized identity for administrators, remove dormant accounts, rotate integration credentials, and install supported security updates."
+        }
+      ],
+      "refs": [
+        "https://attack.mitre.org/techniques/T1490/",
+        "https://www.dell.com/support/security/en-us"
+      ]
+    },
+    "bartifact-docker-registry-sonatype-nexus-jfrog-artifact-ce6dbbf7": {
+      "category": "devops",
+      "title": "Artifact repository or registry exposed",
+      "why": "An exposed Docker Registry, Nexus, Artifactory, or Harbor service reveals a software-supply-chain management plane and may disclose repository names, versions, or internal package metadata. Compromise of a privileged account could let an attacker obtain proprietary artifacts or tamper with software consumed by deployment pipelines.",
+      "test": [
+        {
+          "label": "Fingerprint the service",
+          "cmd": "nmap -Pn -sV -p <port> <host>"
+        },
+        {
+          "label": "Inspect HTTP response headers",
+          "cmd": "curl -k -i '<service>://<host>:<port>/'"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Limit registry reachability",
+          "text": "Expose the service only to authorized developer, CI, and administration networks through firewall rules or an authenticated reverse proxy."
+        },
+        {
+          "label": "Enforce repository controls",
+          "text": "Disable anonymous access unless explicitly required, apply least-privilege repository roles, require MFA for administrators, and use separate scoped CI tokens."
+        }
+      ],
+      "refs": [
+        "https://distribution.github.io/distribution/spec/api/",
+        "https://attack.mitre.org/techniques/T1195/"
+      ]
+    },
+    "bauth-ok-b-18ccdbe4": {
+      "category": "creds",
+      "title": "RabbitMQ management credentials accepted",
+      "why": "Operator-supplied credentials successfully authenticated to the RabbitMQ management API. Depending on their assigned tags and virtual-host permissions, the account may expose users, queues, exchanges, messages, connections, or administrative functions.",
+      "test": [
+        {
+          "label": "Query RabbitMQ overview",
+          "cmd": "curl -kfsS -u '<user>:<pass>' '<service>://<host>:<port>/api/overview'"
+        },
+        {
+          "label": "List authorized virtual hosts",
+          "cmd": "curl -kfsS -u '<user>:<pass>' '<service>://<host>:<port>/api/vhosts'"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Review the authenticated account",
+          "text": "Confirm that the account is expected, rotate it if its use is unexplained, and restrict its RabbitMQ tags and virtual-host permissions to the minimum required."
+        },
+        {
+          "label": "Protect the management API",
+          "text": "Restrict management API access to administration networks, require TLS, and use centralized authentication or MFA where supported."
+        }
+      ],
+      "refs": [
+        "https://www.rabbitmq.com/docs/management#http-api",
+        "https://attack.mitre.org/techniques/T1078/"
+      ]
+    },
+    "bbmc-hpe-ilo-dell-idrac-supermicro-ipmi-lenovo-xcc-imm-e5c59b40": {
+      "category": "infra",
+      "title": "Server baseboard management controller exposed",
+      "why": "A reachable iLO, iDRAC, IPMI, XCC, IMM, or CIMC interface provides out-of-band control that can remain available even when the operating system is offline. Administrative compromise may permit console access, power control, virtual-media mounting, firmware changes, or recovery bypass.",
+      "test": [
+        {
+          "label": "Fingerprint the management service",
+          "cmd": "nmap -Pn -sV -p <port> <host>"
+        },
+        {
+          "label": "Query IPMI version information",
+          "cmd": "nmap -Pn -sU -p <port> --script ipmi-version <host>"
+        },
+        {
+          "label": "Inspect the web interface",
+          "cmd": "curl -k -I '<service>://<host>:<port>/'"
+        }
+      ],
+      "fix": [
+        {
+          "label": "Isolate out-of-band management",
+          "text": "Move BMC interfaces to a dedicated management network with firewall or jump-host enforcement and no direct Internet or user-LAN access."
+        },
+        {
+          "label": "Harden controller access",
+          "text": "Change default credentials, disable unused legacy protocols, require MFA where supported, install current firmware, and forward audit events to monitoring."
+        }
+      ],
+      "refs": [
+        "https://csrc.nist.gov/publications/detail/sp/800-193/final",
+        "https://attack.mitre.org/techniques/T1133/"
+      ]
+    }
+  }
+}
