@@ -1,0 +1,2 @@
+linux: collector_present=False ids=0 kb_covered=0
+windows: collector_present=False ids=0 kb_covered=0
