@@ -8029,13 +8029,17 @@
       "category": "ad",
       "title": "DC LDAP signing / channel binding",
       "sev_fail": "high",
-      "sev_warn": "",
-      "semantics": "FAIL: DC LDAPServerIntegrity<2 where remotely readable; PASS: 2; NA: not remotely readable (never a false PASS).",
-      "why": "A domain controller that does not require LDAP signing can accept integrity-unprotected LDAP binds. An attacker can relay authentication to LDAP or alter traffic and then make directory changes with the relayed user's permissions.",
+      "sev_warn": "medium",
+      "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS).",
+      "why": "A domain controller that does not require LDAP signing can accept integrity-unprotected LDAP binds. An attacker can relay authentication to LDAP or alter traffic and then make directory changes with the relayed user's permissions. Signing alone does not stop relay to LDAPS: without channel binding (LdapEnforceChannelBinding=2) a relayed NTLM bind over TLS is still accepted.",
       "test": [
         {
           "label": "Read LDAP signing enforcement locally on each domain controller",
           "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LDAPServerIntegrity"
+        },
+        {
+          "label": "Read LDAP channel-binding enforcement on each domain controller",
+          "cmd": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LdapEnforceChannelBinding"
         }
       ],
       "fix": [
@@ -8046,11 +8050,16 @@
         {
           "label": "Configure the domain-controller GPO",
           "text": "Set Computer Configuration > Windows Settings > Security Settings > Local Policies > Security Options > Domain controller: LDAP server signing requirements to Require signing, and test legacy LDAP clients before enforcement."
+        },
+        {
+          "label": "Always enforce LDAP channel binding (after auditing clients with event 3039)",
+          "cmd": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters\" /v LdapEnforceChannelBinding /t REG_DWORD /d 2 /f"
         }
       ],
       "refs": [
         "https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/enable-ldap-signing-in-windows-server",
-        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/ldap-signing"
+        "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/ldap-signing",
+        "https://support.microsoft.com/help/4520412"
       ]
     },
     "AD-TRUSTS": {

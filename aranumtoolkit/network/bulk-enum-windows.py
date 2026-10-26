@@ -621,27 +621,26 @@ class HostResult:
     fail_reason: str = ""
 
 
-def _script_block_line(body: str, args: str = "") -> str:
-    """One PowerShell line that runs ``body`` as its own script block.
+def _script_block(body: str, args: str = "") -> str:
+    """``body`` as its own literal script block: ``& {`` body ``}`` [args].
 
     Two advanced scripts cannot be concatenated as text: under 5.1 a
     ``[CmdletBinding()] param()`` must open the script, so the second one
-    would not parse. As a script block each keeps its own ``param()``. The
-    body travels base64-encoded on a single line because the ssh transport
-    feeds ``powershell -Command -``, which reads stdin like a console and
-    only runs a multi-line block once a blank line follows it. One line
-    per block needs no such rule. A blank line still follows each.
+    would not parse. As a script block each keeps its own ``param()``. A
+    literal block is used, not ``[scriptblock]::Create(...)``, because
+    ConstrainedLanguage (AppLocker/WDAC) blocks that method call and would
+    stop the whole payload. The ssh transport feeds ``powershell -Command -``,
+    which reads stdin like a console and runs a multi-line block only once a
+    blank line follows it, so each block ends with one.
     """
-    enc = base64.b64encode(body.lstrip("\ufeff").encode("utf-8")).decode("ascii")
-    line = ("& ([scriptblock]::Create([System.Text.Encoding]::UTF8.GetString("
-            f"[System.Convert]::FromBase64String('{enc}'))))")
-    return f"{line} {args}".rstrip() + "\n\n"
+    text = body.lstrip("\ufeff").replace("\r\n", "\n").rstrip("\n")
+    return f"& {{\n{text}\n}} {args}".rstrip() + "\n\n"
 
 
 def build_posture_payload(script_text: str, posture_text: str, *, ad: bool) -> str:
     """--with-posture payload: the enum script, then the posture collector."""
-    return (_script_block_line(script_text)
-            + _script_block_line(posture_text, "-AdChecks" if ad else ""))
+    return (_script_block(script_text)
+            + _script_block(posture_text, "-AdChecks" if ad else ""))
 
 
 def run_one_host(target: Target, script_text: str, args: argparse.Namespace,

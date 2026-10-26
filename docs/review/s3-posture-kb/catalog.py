@@ -111,7 +111,7 @@ AD = [
  ("AD-PROTECTED-USERS", "Protected Users group", "domain-privilege", "ad", "", "low", "WARN: Protected Users has no members; PASS: >=1."),
  ("AD-MAQ", "Machine account quota", "domain-policy", "ad", "", "medium", "WARN: ms-DS-MachineAccountQuota>0 (any user can join computers; RBCD/Certifried aid); PASS: 0."),
  ("AD-FUNC-LEVEL", "Domain/forest functional level", "domain-policy", "ad", "", "low", "WARN: domain functional level below 2016 (msDS-Behavior-Version<7); PASS: >=7."),
- ("AD-LDAP-SIGNING", "DC LDAP signing / channel binding", "relay", "ad", "high", "", "FAIL: DC LDAPServerIntegrity<2 where remotely readable; PASS: 2; NA: not remotely readable (never a false PASS)."),
+ ("AD-LDAP-SIGNING", "DC LDAP signing / channel binding", "relay", "ad", "high", "medium", "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS)."),
  ("AD-TRUSTS", "Domain trusts", "domain-policy", "ad", "", "", "INFO: count and direction of trustedDomain objects."),
  ("AD-LAPS-SCHEMA", "LAPS schema present", "domain-policy", "ad", "", "medium", "PASS: ms-Mcs-AdmPwd or msLAPS-Password attribute in schema; WARN: neither."),
 ]

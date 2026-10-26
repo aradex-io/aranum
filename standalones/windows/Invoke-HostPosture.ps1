@@ -88,13 +88,20 @@ function Test-IsWindowsOS {
 }
 
 function Get-RegValue {
+    # $null ONLY when the key or the value is genuinely absent, so the caller may apply
+    # the documented default. Any other failure (access denied, provider unavailable)
+    # THROWS, and the enclosing Invoke-PostureCheck reports ERR: a read that failed must
+    # never grade as the absent-value default, which for many checks is PASS.
     param([string]$Path, [string]$Name)
     try {
-        $item = Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction Stop
-        return $item.$Name
-    } catch {
+        $item = Get-ItemProperty -LiteralPath $Path -ErrorAction Stop
+    } catch [System.Management.Automation.ItemNotFoundException] {
         return $null
     }
+    if ($null -eq $item) { return $null }
+    $p = $item.PSObject.Properties[$Name]
+    if ($null -eq $p) { return $null }
+    return $p.Value
 }
 
 function Format-RegText {
@@ -211,17 +218,26 @@ function Measure-DistinctMember {
 }
 
 function Resolve-LdapSigningStatus {
-    # $null = not readable from this observer -> NA (never a false PASS).
+    # Both policies are graded; PASS needs signing required (LDAPServerIntegrity=2) AND
+    # channel binding always enforced (LdapEnforceChannelBinding=2). $ServerIntegrity
+    # $null = not a DC observer -> NA (never a false PASS). $ChannelBinding $null = the
+    # value is absent on the DC (an unreadable value throws upstream -> ERR): absent means
+    # not enforced, so LDAPS relay stays open.
     param($ServerIntegrity, $ChannelBinding)
-    $cb = 'unknown'
-    if ($null -ne $ChannelBinding) { $cb = [string]$ChannelBinding }
     if ($null -eq $ServerIntegrity) {
         return (New-PostureResult 'NA' 'LDAPServerIntegrity not readable from this observer (run on a DC)')
     }
-    if ([int]$ServerIntegrity -ge 2) {
-        return (New-PostureResult 'PASS' ('LDAPServerIntegrity=' + $ServerIntegrity + ' channel_binding=' + $cb))
+    $cb = 'unset'
+    if ($null -ne $ChannelBinding) { $cb = [string]$ChannelBinding }
+    $detail = 'LDAPServerIntegrity=' + $ServerIntegrity + ' LdapEnforceChannelBinding=' + $cb
+    if ([int]$ServerIntegrity -lt 2) { return (New-PostureResult 'FAIL' $detail) }
+    if ($null -eq $ChannelBinding -or [int]$ChannelBinding -eq 0) {
+        return (New-PostureResult 'FAIL' ($detail + ' (LDAPS relay: channel binding not enforced)'))
     }
-    return (New-PostureResult 'FAIL' ('LDAPServerIntegrity=' + $ServerIntegrity + ' channel_binding=' + $cb))
+    if ([int]$ChannelBinding -eq 1) {
+        return (New-PostureResult 'WARN' ($detail + ' (channel binding only when supported)'))
+    }
+    return (New-PostureResult 'PASS' $detail)
 }
 
 function ConvertTo-DnsDomain {
@@ -266,17 +282,18 @@ function Invoke-LdapSearch {
 }
 
 function Get-RootDse {
-    $r = New-Object System.DirectoryServices.DirectoryEntry('LDAP://RootDSE')
-    try {
-        return @{
-            defaultNamingContext = [string]$r.Properties['defaultNamingContext'].Value
-            schemaNamingContext  = [string]$r.Properties['schemaNamingContext'].Value
-            dnsHostName          = [string]$r.Properties['dnsHostName'].Value
-            domainFunctionality  = [int]([string]$r.Properties['domainFunctionality'].Value)
-            forestFunctionality  = [int]([string]$r.Properties['forestFunctionality'].Value)
-        }
-    } finally {
-        $r.Dispose()
+    # Through the same bounded DirectorySearcher as every other query (ClientTimeout +
+    # ServerTimeLimit), not a bare DirectoryEntry property read, which has no timeout.
+    param([int]$TimeoutSeconds = 30)
+    $e = @(Invoke-LdapSearch -SearchRoot 'RootDSE' -Filter '(objectClass=*)' -Scope Base -TimeoutSeconds $TimeoutSeconds `
+        -Properties @('defaultNamingContext', 'schemaNamingContext', 'dnsHostName', 'domainFunctionality', 'forestFunctionality'))
+    if ($e.Count -eq 0) { throw 'RootDSE returned no entry' }
+    return @{
+        defaultNamingContext = [string](Get-EntryValue $e[0] 'defaultnamingcontext')
+        schemaNamingContext  = [string](Get-EntryValue $e[0] 'schemanamingcontext')
+        dnsHostName          = [string](Get-EntryValue $e[0] 'dnshostname')
+        domainFunctionality  = [int]([string](Get-EntryValue $e[0] 'domainfunctionality'))
+        forestFunctionality  = [int]([string](Get-EntryValue $e[0] 'forestfunctionality'))
     }
 }
 
@@ -467,14 +484,20 @@ function Invoke-HostPostureChecks {
         New-PostureResult 'INFO' ('LanguageMode=' + [string]$ExecutionContext.SessionState.LanguageMode)
     }
 
-    $rdpDeny = Get-RegValue $tsPol 'fDenyTSConnections'
-    if ($null -eq $rdpDeny) { $rdpDeny = Get-RegValue $ts 'fDenyTSConnections' }
+    $rdpDeny = $null
+    $rdpErr = ''
+    try {
+        $rdpDeny = Get-RegValue $tsPol 'fDenyTSConnections'
+        if ($null -eq $rdpDeny) { $rdpDeny = Get-RegValue $ts 'fDenyTSConnections' }
+    } catch { $rdpErr = $_.Exception.Message }
     $rdpOn = ($null -ne $rdpDeny -and [int]$rdpDeny -eq 0)
     Invoke-PostureCheck 'WIN-RDP-ENABLED' {
+        if ($rdpErr) { throw ('fDenyTSConnections unreadable: ' + $rdpErr) }
         if ($rdpOn) { return (New-PostureResult 'INFO' 'RDP enabled (fDenyTSConnections=0)') }
         New-PostureResult 'INFO' ('RDP disabled (fDenyTSConnections=' + (Format-RegText $rdpDeny) + ')')
     }
     Invoke-PostureCheck 'WIN-RDP-NLA' {
+        if ($rdpErr) { throw ('fDenyTSConnections unreadable: ' + $rdpErr) }
         if (-not $rdpOn) { return (New-PostureResult 'NA' 'RDP disabled') }
         $v = Get-RegValue $tsPol 'UserAuthentication'
         if ($null -eq $v) { $v = Get-RegValue ($ts + '\WinStations\RDP-Tcp') 'UserAuthentication' }
@@ -616,17 +639,22 @@ function Invoke-AdPostureChecks {
         foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' 'not domain-joined' }
         return
     }
+    # Membership is confirmed: from here on every line carries a domain/observer tag so
+    # the parser files it under the domain (an all-ERR/NA domain must still appear). The
+    # fallback tag uses the joined domain; RootDSE's naming context replaces it below.
+    $observer = ' observer=' + $Context.ComputerName.ToLower() + ' '
+    $tag = 'domain=' + $Context.Domain.ToLower() + $observer
     if ([string]$ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
-        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' 'ConstrainedLanguage: ADSI unavailable' }
+        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'NA' ($tag + 'ConstrainedLanguage: ADSI unavailable') }
         return
     }
     $rootDse = $null
-    try { $rootDse = Get-RootDse } catch {
-        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'ERR' ('RootDSE unavailable: ' + $_.Exception.Message) }
+    try { $rootDse = Get-RootDse -TimeoutSeconds $TimeoutSeconds } catch {
+        foreach ($id in $script:AranumAdCheckIds) { Write-PostureLine $id 'ERR' ($tag + 'RootDSE unavailable: ' + $_.Exception.Message) }
         return
     }
     $dn = $rootDse.defaultNamingContext
-    $tag = 'domain=' + (ConvertTo-DnsDomain $dn) + ' observer=' + $Context.ComputerName.ToLower() + ' '
+    $tag = 'domain=' + (ConvertTo-DnsDomain $dn) + $observer
     $t = $TimeoutSeconds
 
     $dom = $null

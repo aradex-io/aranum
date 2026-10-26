@@ -1063,8 +1063,8 @@
   "group": "relay",
   "category": "ad",
   "sev_fail": "high",
-  "sev_warn": "",
-  "semantics": "FAIL: DC LDAPServerIntegrity<2 where remotely readable; PASS: 2; NA: not remotely readable (never a false PASS)."
+  "sev_warn": "medium",
+  "semantics": "Run on a DC. FAIL: LDAPServerIntegrity<2, or signing required but LdapEnforceChannelBinding unset/0 (LDAPS relay open); WARN: channel binding 1 (when supported); PASS: LDAPServerIntegrity=2 AND LdapEnforceChannelBinding=2; NA: not a DC observer; ERR: registry unreadable (never a false PASS)."
  },
  {
   "id": "AD-TRUSTS",

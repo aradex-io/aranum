@@ -928,15 +928,17 @@ class Redactor:
         bare_ipv6 = r"(?<![0-9A-Fa-f:.])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,}(?![0-9A-Fa-f:.])"
         parts = [bracketed_ipv6, bare_ipv6, ipv4]
         if self._hosts:
-            parts.append(r"\b(?:" + "|".join(re.escape(h) for h in self._hosts) + r")\b")
+            # Hostnames/domains are case-insensitive (CORP.LOCAL == corp.local).
+            parts.append(r"(?i:\b(?:" + "|".join(re.escape(h) for h in self._hosts) + r")\b)")
         return re.compile("|".join(parts))
 
     def __call__(self, text: str) -> str:
         if not self.enable:
             return text
-        host_set = set(self._hosts)
+        host_set = {h.lower() for h in self._hosts}
         def _sub(m):
-            key = m.group(0)
+            # One token per identity regardless of case (and per IPv6 hex case).
+            key = m.group(0).lower()
             # A colon-bearing, non-bracketed match is a bare-IPv6 candidate:
             # redact only if it is a real IP address or a known host, else leave
             # it (avoids mangling MACs / hex tokens the loose regex catches).
@@ -2234,6 +2236,44 @@ def _posture_summary(posture: dict) -> "tuple[dict, dict]":
     return {"hosts": len(hosts), **counts}, {"count": len(domains), "worst_by_check": worst}
 
 
+_POSTURE_IDENTITY_RE = re.compile(r"(?:^|\s)(?:domain|realm|observer)=([^\s,;|]+)", re.I)
+_POSTURE_TRUSTS_RE = re.compile(r"(?:^|\s)trusts=(\S+)")
+
+
+def _posture_identities(posture: "dict | None", quarantined: "list[dict]") -> "list[str]":
+    """Every host/domain identity posture text can carry, for --redact seeding:
+    the canonical domain keys plus each `domain=` / `realm=` / `observer=` value
+    and each AD-TRUSTS partner name found in any check, observation, observer
+    record, or quarantined line. Metadata hosts alone miss observers (ws01),
+    Kerberos realms, and trust partners."""
+    found: set[str] = set()
+
+    def scan(text: str) -> None:
+        for m in _POSTURE_IDENTITY_RE.finditer(text or ""):
+            if m.group(1).lower() not in ("", "unknown"):
+                found.add(m.group(1))
+        for m in _POSTURE_TRUSTS_RE.finditer(text or ""):
+            for item in m.group(1).split(","):
+                name = item.split(":", 1)[0].strip()
+                if name:
+                    found.add(name)
+
+    posture = posture or {}
+    for rec in (posture.get("hosts") or {}).values():
+        for section in ("checks", "domain_observations"):
+            for c in (rec.get(section) or {}).values():
+                scan(str(c.get("detail", "")))
+    for dom, rec in (posture.get("domains") or {}).items():
+        found.add(dom)
+        for c in (rec.get("checks") or {}).values():
+            scan(str(c.get("detail", "")))
+            for o in c.get("observed_from") or []:
+                scan(str(o.get("detail", "")))
+    for q in quarantined:
+        scan(str(q.get("line", "")))
+    return sorted(found)
+
+
 def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
     hosts = {}
     for h, rec in (posture.get("hosts") or {}).items():
@@ -2761,7 +2801,7 @@ def main() -> int:
         # Seed hostname redaction from the discovered scan hosts (pre-redaction),
         # plus any domain identities the posture rollup established.
         redactor.set_known_hosts(list(summary.get("hosts", []))
-                                 + sorted((posture or {}).get("domains", {}) or {}))
+                                 + _posture_identities(posture, quarantined))
         for f in findings_json["findings"]:
             f["host"] = redactor(f["host"])
             f["line"] = redactor(f["line"])
@@ -2775,8 +2815,11 @@ def main() -> int:
                                        "detail": redactor(o["detail"])}
                                       for o in f["observed_from"]]
         for d in quarantined:
-            for k in ("host", "path", "line"):
+            for k in ("host", "path"):
                 d[k] = redactor(str(d.get(k, "")))
+            # A quarantined line failed the contract, so its identities cannot be
+            # located reliably: drop the untrusted text entirely, keep the reason.
+            d["line"] = f"<redacted untrusted line: {len(str(d.get('line', '')))} chars>"
         if "domains" in findings_json["summary"]:
             findings_json["summary"]["domains"]["worst_by_check"] = {
                 redactor(d): v for d, v in findings_json["summary"]["domains"]["worst_by_check"].items()}

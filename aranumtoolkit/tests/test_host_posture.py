@@ -314,6 +314,113 @@ Invoke-HostPostureChecks -Context $ctx
     assert got["WIN-CRED-CREDGUARD"][0] == "ERR"
 
 
+def test_windows_ldap_signing_grades_both_policies(tmp_path):
+    # R2: signing required alone is not compliant -- channel binding is graded too, and
+    # PASS needs both. An absent CBT value on a DC is "not enforced" (FAIL), not NA.
+    body = _lib(r"""
+foreach ($c in @(@($null,$null), @(2,$null), @(2,0), @(2,1), @(2,2), @(1,2), @(0,$null))) {
+  $r = Resolve-LdapSigningStatus $c[0] $c[1]
+  'ROW|' + [string]$c[0] + '|' + [string]$c[1] + '|' + $r.AranumPostureStatus
+}
+""")
+    proc = _pwsh_file(tmp_path, body)
+    assert proc.returncode == 0, proc.stderr
+    rows = [ln.split("|")[1:] for ln in proc.stdout.splitlines() if ln.startswith("ROW|")]
+    assert rows == [["", "", "NA"], ["2", "", "FAIL"], ["2", "0", "FAIL"], ["2", "1", "WARN"],
+                    ["2", "2", "PASS"], ["1", "2", "FAIL"], ["0", "", "FAIL"]]
+
+
+def test_windows_get_regvalue_separates_absent_from_error(tmp_path):
+    # R4: absent key/value -> $null (documented default applies); any other read failure
+    # throws so the check reports ERR instead of the absent-value default.
+    body = _lib(r"""
+function Get-ItemProperty { param($LiteralPath, $Name, $ErrorAction)
+  if ($LiteralPath -eq 'HKLM:\nokey') { throw (New-Object System.Management.Automation.ItemNotFoundException 'no key') }
+  if ($LiteralPath -eq 'HKLM:\denied') { throw (New-Object System.UnauthorizedAccessException 'Requested registry access is not allowed.') }
+  [pscustomobject]@{ Present = 0 } }
+'MISSINGKEY=' + ($null -eq (Get-RegValue 'HKLM:\nokey' 'X'))
+'MISSINGVAL=' + ($null -eq (Get-RegValue 'HKLM:\k' 'Absent'))
+'PRESENT=' + (Get-RegValue 'HKLM:\k' 'Present')
+try { Get-RegValue 'HKLM:\denied' 'X'; 'DENIED=returned' } catch { 'DENIED=threw' }
+""")
+    proc = _pwsh_file(tmp_path, body)
+    assert proc.returncode == 0, proc.stderr
+    for want in ("MISSINGKEY=True", "MISSINGVAL=True", "PRESENT=0", "DENIED=threw"):
+        assert want in proc.stdout, (want, proc.stdout)
+
+
+def test_windows_registry_access_denied_never_grades_pass(tmp_path):
+    # R4 end-to-end: every registry read is denied. No registry-backed check may PASS --
+    # each one that used to default absent->PASS must now be ERR.
+    body = _lib(r"""
+function Get-ItemProperty { param($LiteralPath, $Name, $ErrorAction)
+  throw (New-Object System.UnauthorizedAccessException 'Requested registry access is not allowed.') }
+function Get-Service { param([string]$Name) [pscustomobject]@{ Name=$Name; Status='Running' } }
+function Get-HotFix { @([pscustomobject]@{ InstalledOn = (Get-Date).AddDays(-3) }) }
+function Get-CimInstance { param($ClassName,$Namespace,$Filter) throw 'no cim' }
+$ctx = @{ ComputerName='WS01'; PartOfDomain=$false; Domain='WORKGROUP'; IsDC=$false; Build=19045; Caption='Windows 10'; ProductType=1 }
+Invoke-HostPostureChecks -Context $ctx
+""")
+    proc = _pwsh_file(tmp_path, body)
+    assert proc.returncode == 0, proc.stderr
+    got = {c: (st, d) for c, st, d in _posture_lines(proc.stdout)}
+    assert len(got) == 41
+    for cid in ("WIN-SMB-V1", "WIN-PS-V2", "WIN-CRED-NOLMHASH", "WIN-UAC-LUA",
+                "WIN-CRED-WDIGEST", "WIN-RDP-ENABLED", "WIN-AUTOLOGON"):
+        assert got[cid][0] == "ERR", (cid, got[cid])
+    passed = sorted(c for c, (st, _) in got.items() if st == "PASS")
+    assert passed == ["WIN-PATCH-AGE"], passed     # the only non-registry PASS in this fixture
+
+
+def test_windows_rootdse_uses_the_bounded_searcher(tmp_path):
+    # R5: RootDSE is read through Invoke-LdapSearch (ClientTimeout/ServerTimeLimit), with
+    # the collector's -TimeoutSeconds threaded through -- not an unbounded DirectoryEntry.
+    body = _lib(r"""
+function Invoke-LdapSearch {
+  param([string]$SearchRoot, [string]$Filter, [string[]]$Properties, [string]$Scope = 'Subtree', [int]$TimeoutSeconds = 30)
+  if ($SearchRoot -eq 'RootDSE') {
+    $script:rdse = 'RDSE|' + $Scope + '|' + $TimeoutSeconds + '|' + $Filter
+    return @{ defaultnamingcontext='DC=corp,DC=local'; schemanamingcontext='CN=Schema,CN=Configuration,DC=corp,DC=local'; dnshostname='dc01.corp.local'; domainfunctionality='7'; forestfunctionality='7' }
+  }
+  throw 'directory unavailable' }
+$ctx = @{ ComputerName='WS01'; PartOfDomain=$true; Domain='corp.local'; IsDC=$false; Build=19045 }
+Invoke-AdPostureChecks -Enabled -Context $ctx -TimeoutSeconds 7
+$script:rdse
+""")
+    proc = _pwsh_file(tmp_path, body)
+    assert proc.returncode == 0, proc.stderr
+    assert "RDSE|Base|7|(objectClass=*)" in proc.stdout
+    got = {c: (st, d) for c, st, d in _posture_lines(proc.stdout)}
+    assert got["AD-FUNC-LEVEL"] == ("PASS", "domain=corp.local observer=ws01 domainFunctionality=7 forestFunctionality=7")
+
+
+@pytest.mark.parametrize("mode", ["clm", "rootdse_err"])
+def test_windows_ad_lines_are_domain_tagged_before_discovery(tmp_path, mode):
+    # R6: once membership is known, the CLM-NA and RootDSE-ERR lines carry the fallback
+    # domain/observer tag, so the parser files an all-ERR/NA domain instead of losing it.
+    # CLM must be in force BEFORE the collector loads: functions defined in FullLanguage
+    # keep running in FullLanguage, so setting it afterwards would not constrain them.
+    run = r"""
+$ctx = @{ ComputerName='WS01'; PartOfDomain=$true; Domain='Corp.Local'; IsDC=$false; Build=19045 }
+Invoke-AdPostureChecks -Enabled -Context $ctx
+"""
+    if mode == "clm":
+        body = "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n" + _lib(run)
+    else:
+        body = _lib("function Get-RootDse { throw 'server down' }\n" + run)
+    proc = _pwsh_file(tmp_path, body)
+    assert proc.returncode == 0, proc.stderr
+    lines = _posture_lines(proc.stdout)
+    want = "NA" if mode == "clm" else "ERR"
+    assert len(lines) == 15 and all(st == want for _, st, _ in lines)
+    assert all(d.startswith("domain=corp.local observer=ws01 ") for _, _, d in lines)
+    # ... and the parser keeps the domain (canonical status = that ERR/NA).
+    root = _bulk_tree(tmp_path, {"ws01": ("10.0.0.21", "\n".join(
+        f"POSTURE|{c}|{st}|{d}" for c, st, d in lines) + "\n")})
+    col, _ = _collect(root)
+    dom = col.domains["corp.local"]
+    assert len(dom["checks"]) == 15 and all(v["status"] == want for v in dom["checks"].values())
+
 def test_windows_collector_has_no_ps7_only_syntax(tmp_path):
     body = r"""
 $path = $args[0]
@@ -333,6 +440,49 @@ $t = @($tok | Where-Object { $_.Kind -in @('QuestionQuestion','QuestionDot','Que
     assert "PS7_NODES=0 PS7_TOKENS=0" in proc.stdout
     assert all(b < 0x80 for b in WINPS.read_bytes()), "collector must be pure ASCII"
 
+
+_PSSA_51 = r"""
+if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { 'PSSA_MISSING'; return }
+$profiles = @('win-48_x64_10.0.17763.0_5.1.17763.316_x64_4.0.30319.42000_framework',
+              'win-8_x64_10.0.14393.0_5.1.14393.2791_x64_4.0.30319.42000_framework')
+$settings = @{
+  IncludeRules = @('PSUseCompatibleSyntax', 'PSUseCompatibleCommands', 'PSUseCompatibleTypes')
+  Rules = @{
+    PSUseCompatibleSyntax   = @{ Enable = $true; TargetVersions = @('5.1') }
+    PSUseCompatibleCommands = @{ Enable = $true; TargetProfiles = $profiles }
+    PSUseCompatibleTypes    = @{ Enable = $true; TargetProfiles = $profiles }
+  }
+}
+foreach ($p in $args) {
+  $r = @(Invoke-ScriptAnalyzer -Path $p -Settings $settings)
+  'PSSA|' + (Split-Path -Leaf $p) + '|' + $r.Count + '|' + (($r | ForEach-Object { $_.RuleName }) -join ',')
+}
+"""
+
+
+def test_windows_collector_and_payload_pass_pssa_51_profiles(tmp_path):
+    # R9: the real Windows PowerShell 5.1 compatibility profiles (Win10 1809 + Server
+    # 2016), not only a PS7-token deny-list. A canary of three PS7-only constructs
+    # must trip all three rules in the same run, so a silent analyzer cannot pass.
+    canary = tmp_path / "canary.ps1"
+    canary.write_text("$b = $null ?? 'x'\n$x = Get-Content -Path 'x' -AsByteStream\n"
+                      "$j = [System.Text.Json.JsonSerializer]::Serialize($b)\n")
+    bw = _load_bulk_win()
+    payload = tmp_path / "payload.ps1"
+    payload.write_text(bw.build_posture_payload(bw.DEFAULT_SCRIPT.read_text(), WINPS.read_text(), ad=True))
+    driver = tmp_path / "pssa.ps1"
+    driver.write_text(_PSSA_51)
+    proc = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-File", str(driver),
+                           str(canary), str(WINPS), str(payload)],
+                          capture_output=True, text=True, timeout=600)
+    if "PSSA_MISSING" in proc.stdout:
+        pytest.skip("PSScriptAnalyzer not installed -- 5.1 profile check inconclusive")
+    assert proc.returncode == 0, proc.stderr
+    rows = {r.split("|")[1]: r.split("|")[2:] for r in proc.stdout.splitlines() if r.startswith("PSSA|")}
+    assert set(rows["canary.ps1"][1].split(",")) == {
+        "PSUseCompatibleSyntax", "PSUseCompatibleCommands", "PSUseCompatibleTypes"}
+    assert rows[WINPS.name] == ["0", ""], rows[WINPS.name]
+    assert rows["payload.ps1"] == ["0", ""], rows["payload.ps1"]
 
 # ============================================================ report.py parser / model
 def _bulk_tree(tmp_path: Path, hosts: "dict[str, tuple[str, str]]") -> Path:
@@ -468,6 +618,40 @@ def test_redact_scrubs_posture_json(tmp_path):
     assert json.loads((out / "posture.json").read_text())["redacted"] is True
 
 
+def test_redact_covers_every_posture_identity(tmp_path):
+    # R3: identities that never appear in the scan metadata -- an observer (ws01), a
+    # Kerberos realm, an AD trust partner, a differently-cased domain, and a name that
+    # only a quarantined line carries -- are all scrubbed, in every output.
+    win = "\n".join([
+        "POSTURE|AD-PWPOL-MINLEN|FAIL|domain=corp.local observer=ws01 minPwdLength=7",
+        "POSTURE|AD-TRUSTS|INFO|domain=corp.local observer=ws01 count=1 trusts=partner.example:3",
+        "POSTURE|WIN-DOMAIN-JOINED|INFO|domain=CORP.LOCAL role=member",
+        "POSTURE|WIN-BOGUS|FAIL|secret-dc.hidden.lan answered",
+    ]) + "\n"
+    lin = ("POSTURE|LIN-AD-JOINED|INFO|joined realm=CORP.EXAMPLE via=sssd\n"
+           "POSTURE|LIN-SYSCTL-ASLR|FAIL|kernel.randomize_va_space=0 seen by WS01 in corp.example\n")
+    out = _bulk_tree(tmp_path, {"win1": ("10.0.0.31", win), "lin9": ("10.0.0.99", lin)})
+    proc = subprocess.run([sys.executable, str(NET / "report.py"), str(out), "--redact", "--sarif"],
+                          capture_output=True, text=True, timeout=120)
+    assert proc.returncode in (0, 1), proc.stderr
+    leaks = ("10.0.0.", "corp.local", "ws01", "partner.example", "corp.example",
+             "secret-dc", "hidden.lan")
+    for name in ("posture.json", "findings.json", "findings.sarif", "report.md"):
+        text = (out / name).read_text().lower()
+        assert not [t for t in leaks if t in text], (name, [t for t in leaks if t in text])
+        assert "<target-" in text, name                 # redacted, not merely absent
+    fj = json.loads((out / "findings.json").read_text())
+    q = fj["posture_quarantine"]
+    assert len(q) == 1 and q[0]["error"] == "unknown posture check id WIN-BOGUS"
+    assert q[0]["line"].startswith("<redacted untrusted line: ")
+    # Case variants of one identity collapse to one token.
+    pj = json.loads((out / "posture.json").read_text())
+    (dom,) = pj["domains"]
+    joined = pj["hosts"]
+    assert any(c["detail"] == f"domain={dom} role=member"
+               for h in joined.values() for cid, c in h["checks"].items() if cid == "WIN-DOMAIN-JOINED")
+
+
 # ============================================================ GATE 1 — posture-KB coverage
 def _collector_ids(text: str) -> "set[str]":
     return set(ID_QUOTED.findall(text)) | set(ID_EMIT.findall(text))
@@ -574,18 +758,15 @@ def _load_bulk_win():
 
 
 def test_bulk_windows_payload_shape_and_ad_flag():
-    import base64
     bw = _load_bulk_win()
-    priv, post = "﻿[CmdletBinding()]\nparam([switch]$Q)\n\n'p'\n", WINPS.read_text()
+    priv, post = "\ufeff[CmdletBinding()]\r\nparam([switch]$Q)\r\n\r\n'p'\r\n", WINPS.read_text()
     for ad, tail in ((False, ""), (True, " -AdChecks")):
         pay = bw.build_posture_payload(priv, post, ad=ad)
-        lines = pay.split("\n")
-        assert lines[1] == "" and lines[3] == "" and pay.endswith("\n\n")   # blank line after each
-        bodies = [re.search(r"FromBase64String\('([A-Za-z0-9+/=]+)'\)", ln).group(1) for ln in lines[0:3:2]]
-        assert base64.b64decode(bodies[0]).decode() == priv.lstrip("﻿")   # BOM stripped
-        assert base64.b64decode(bodies[1]).decode() == post
-        assert not lines[0].endswith("-AdChecks")
-        assert lines[2].endswith(")))" + tail)
+        # Literal blocks only: ConstrainedLanguage blocks [scriptblock]::Create().
+        assert "[scriptblock]::Create" not in pay and "FromBase64String" not in pay
+        first, second = pay.split("\n}\n\n& {\n", 1)
+        assert first == "& {\n[CmdletBinding()]\nparam([switch]$Q)\n\n'p'"   # BOM + CRLF normalised
+        assert second == post.rstrip("\n") + "\n}" + tail + "\n\n"          # blank line after each
 
 
 def test_bulk_windows_ad_requires_with_posture(tmp_path):
@@ -617,8 +798,15 @@ $t = @($tok | Where-Object { $_.Kind -in @('QuestionQuestion','QuestionDot','Que
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.count("PARSE_ERRORS=0") == 2 and "PS7_NODES=0 PS7_TOKENS=0" in proc.stdout
     # Ship it the way the ssh transport does: `powershell -Command -` on stdin.
-    run = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", "-"],
-                         stdin=pay.open(), capture_output=True, text=True, timeout=180)
-    assert "PRIV-RAN" in run.stdout
-    lines = _posture_lines(run.stdout)
-    assert len(lines) == 56 and sum(1 for c, _, _ in lines if c.startswith("AD-")) == 15
+    # Ship it the way the ssh transport does, in FullLanguage and in
+    # ConstrainedLanguage (AppLocker/WDAC hosts): both blocks must run.
+    clm = tmp_path / "clm.ps1"
+    clm.write_text("$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'\n\n" + pay.read_text())
+    for script in (pay, clm):
+        with script.open() as fh:
+            run = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", "-"],
+                                 stdin=fh, capture_output=True, text=True, timeout=180)
+        assert "PRIV-RAN" in run.stdout, (script.name, run.stdout[-500:])
+        lines = _posture_lines(run.stdout)
+        assert len(lines) == 56, (script.name, len(lines))
+        assert sum(1 for c, _, _ in lines if c.startswith("AD-")) == 15
