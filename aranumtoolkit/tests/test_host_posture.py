@@ -509,3 +509,116 @@ def test_gate_parser_keeps_injected_pipes_inside_detail(tmp_path):
     for bad in ("POSTURE|LIN-SSH-ROOTLOGIN|PASS", "POSTURE|LIN-SSH-ROOTLOGIN|FAIL x|y",
                 "POSTURE|LIN-SSH|ROOTLOGIN|FAIL|y", " POSTURE|LIN-SSH-ROOTLOGIN|FAIL|y"):
         assert RPT._parse_posture_line(bad) is None, bad
+
+
+# ============================================================ D3.4 delivery
+BULK_LIN = NET / "bulk-enum-linux.sh"
+BULK_WIN = NET / "bulk-enum-windows.py"
+# A privesc stand-in with both hazards the --with-posture wrapper must
+# neutralise: it reads stdin (would swallow the appended collector when the
+# payload is streamed to `bash -s`) and it exits (would stop the session).
+_STUB_LINENUM = "#!/usr/bin/env bash\necho LIN-START\ncat >/dev/null\necho LIN-END\nexit 0\n"
+
+
+def _lin_project(tmp_path: Path) -> Path:
+    root = tmp_path / "proj"
+    (root / "aranumtoolkit/network").mkdir(parents=True)
+    (root / "standalones/linux").mkdir(parents=True)
+    for f in ("bulk-enum-linux.sh", "_lib.sh"):
+        shutil.copy(NET / f, root / "aranumtoolkit/network" / f)
+    (root / "standalones/linux/linenum-fast.sh").write_text(_STUB_LINENUM)
+    shutil.copy(LIN, root / "standalones/linux/host-posture.sh")
+    (tmp_path / "t.txt").write_text("127.0.0.1\n")
+    return root
+
+
+def _lin_dry(root: Path, out: Path, *extra: str):
+    return subprocess.run(["bash", str(root / "aranumtoolkit/network/bulk-enum-linux.sh"),
+                           "--targets", str(root.parent / "t.txt"), "-o", str(out),
+                           "-u", "x", "--dry-run", *extra],
+                          capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+
+
+def test_bulk_linux_with_posture_payload_survives_stdin_reader_and_exit(tmp_path):
+    root = _lin_project(tmp_path)
+    out = tmp_path / "out"
+    proc = _lin_dry(root, out, "--with-posture")
+    assert proc.returncode == 0, proc.stderr
+    payload = (out / "_payload.sh").read_text()
+    # Execute the exact shipped bytes the way the ssh transport does.
+    run = subprocess.run(["bash", "-s", "--", "-v"], input=payload, capture_output=True,
+                         text=True, timeout=120)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.startswith("LIN-START\nLIN-END\n")
+    assert len(_posture_lines(run.stdout)) >= 30
+    # Negative control: naive concatenation loses the collector to the reader.
+    naive = subprocess.run(["bash", "-s", "--", "-v"], input=_STUB_LINENUM + LIN.read_text(),
+                           capture_output=True, text=True, timeout=120)
+    assert _posture_lines(naive.stdout) == []
+
+
+def test_bulk_linux_default_payload_is_unchanged(tmp_path):
+    root = _lin_project(tmp_path)
+    out = tmp_path / "out"
+    assert _lin_dry(root, out).returncode == 0
+    assert not (out / "_payload.sh").exists()
+    assert "with-posture" not in (out / "run.log").read_text()
+
+
+def _load_bulk_win():
+    spec = importlib.util.spec_from_file_location("bulk_enum_windows_posture", BULK_WIN)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["bulk_enum_windows_posture"] = mod   # dataclasses resolve via sys.modules
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_bulk_windows_payload_shape_and_ad_flag():
+    import base64
+    bw = _load_bulk_win()
+    priv, post = "﻿[CmdletBinding()]\nparam([switch]$Q)\n\n'p'\n", WINPS.read_text()
+    for ad, tail in ((False, ""), (True, " -AdChecks")):
+        pay = bw.build_posture_payload(priv, post, ad=ad)
+        lines = pay.split("\n")
+        assert lines[1] == "" and lines[3] == "" and pay.endswith("\n\n")   # blank line after each
+        bodies = [re.search(r"FromBase64String\('([A-Za-z0-9+/=]+)'\)", ln).group(1) for ln in lines[0:3:2]]
+        assert base64.b64decode(bodies[0]).decode() == priv.lstrip("﻿")   # BOM stripped
+        assert base64.b64decode(bodies[1]).decode() == post
+        assert not lines[0].endswith("-AdChecks")
+        assert lines[2].endswith(")))" + tail)
+
+
+def test_bulk_windows_ad_requires_with_posture(tmp_path):
+    (tmp_path / "t.txt").write_text("u@10.0.0.5\n")
+    proc = subprocess.run([sys.executable, str(BULK_WIN), "--targets", str(tmp_path / "t.txt"),
+                           "-o", str(tmp_path / "out"), "--dry-run", "--ad"],
+                          capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 2 and "--ad only applies with --with-posture" in proc.stderr
+
+
+def test_bulk_windows_payload_parses_under_51_rules_and_runs_over_stdin(tmp_path):
+    bw = _load_bulk_win()
+    priv = "[CmdletBinding()]\nparam([switch]$Q)\n\nfunction Get-X {\n\n  'PRIV-RAN'\n}\n\nGet-X\n"
+    pay = tmp_path / "payload.ps1"
+    pay.write_text(bw.build_posture_payload(priv, WINPS.read_text(), ad=True))
+    check = r"""
+$path = $args[0]
+$bytes = [System.IO.File]::ReadAllBytes($path)
+foreach ($enc in @([System.Text.Encoding]::UTF8, [System.Text.Encoding]::GetEncoding(1252))) {
+  $tok = $null; $err = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseInput($enc.GetString($bytes), [ref]$tok, [ref]$err)
+  "PARSE_ERRORS=$($err.Count)"
+}
+$n = @($ast.FindAll({ param($x) $x.GetType().Name -in @('TernaryExpressionAst','PipelineChainAst') }, $true)).Count
+$t = @($tok | Where-Object { $_.Kind -in @('QuestionQuestion','QuestionDot','QuestionLBracket','AndAnd','OrOr','QuestionQuestionEquals') }).Count
+"PS7_NODES=$n PS7_TOKENS=$t"
+"""
+    proc = _pwsh_file(tmp_path, check, str(pay))
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.count("PARSE_ERRORS=0") == 2 and "PS7_NODES=0 PS7_TOKENS=0" in proc.stdout
+    # Ship it the way the ssh transport does: `powershell -Command -` on stdin.
+    run = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", "-"],
+                         stdin=pay.open(), capture_output=True, text=True, timeout=180)
+    assert "PRIV-RAN" in run.stdout
+    lines = _posture_lines(run.stdout)
+    assert len(lines) == 56 and sum(1 for c, _, _ in lines if c.startswith("AD-")) == 15

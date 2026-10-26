@@ -16,6 +16,11 @@ knows the other:
     --ssh-port N            default 22 — ssh transport port
     --tls                  use HTTPS:5986 for winrm (defaults to insecure cert mode)
     --script PATH          script to ship (default: standalones/windows/Invoke-PrivEscEnum.ps1)
+    --with-posture         also run standalones/windows/Invoke-HostPosture.ps1 (read-only
+                           POSTURE lines) after --script in the same session; output
+                           stays in winenum.txt. The payload is $OUT/_payload.ps1.
+    --ad                   with --with-posture: pass -AdChecks (read-only, paged,
+                           time-limited LDAP against the host's own DC). Never implied.
     --use-smb-admin        REQUIRED explicit consent to use the smb transport at all
                            (admin-only; see ADR-003 D2 / ADR-006 SMB caveat below).
     -o, --output DIR       results dir
@@ -114,6 +119,7 @@ except ImportError:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCRIPT = PROJECT_ROOT / "standalones" / "windows" / "Invoke-PrivEscEnum.ps1"
+POSTURE_SCRIPT = PROJECT_ROOT / "standalones" / "windows" / "Invoke-HostPosture.ps1"
 PARALLEL_CAP = 16
 TRANSPORT_NAMES = ("winrm", "ssh", "smb")
 
@@ -615,6 +621,29 @@ class HostResult:
     fail_reason: str = ""
 
 
+def _script_block_line(body: str, args: str = "") -> str:
+    """One PowerShell line that runs ``body`` as its own script block.
+
+    Two advanced scripts cannot be concatenated as text: under 5.1 a
+    ``[CmdletBinding()] param()`` must open the script, so the second one
+    would not parse. As a script block each keeps its own ``param()``. The
+    body travels base64-encoded on a single line because the ssh transport
+    feeds ``powershell -Command -``, which reads stdin like a console and
+    only runs a multi-line block once a blank line follows it. One line
+    per block needs no such rule. A blank line still follows each.
+    """
+    enc = base64.b64encode(body.lstrip("\ufeff").encode("utf-8")).decode("ascii")
+    line = ("& ([scriptblock]::Create([System.Text.Encoding]::UTF8.GetString("
+            f"[System.Convert]::FromBase64String('{enc}'))))")
+    return f"{line} {args}".rstrip() + "\n\n"
+
+
+def build_posture_payload(script_text: str, posture_text: str, *, ad: bool) -> str:
+    """--with-posture payload: the enum script, then the posture collector."""
+    return (_script_block_line(script_text)
+            + _script_block_line(posture_text, "-AdChecks" if ad else ""))
+
+
 def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
                  out_dir: Path, usable_order: list[str]) -> HostResult:
     # Sanitise host into a single safe path component for the OUTPUT dir only —
@@ -765,6 +794,10 @@ def main() -> int:
                     help=f"parallel workers (default 4, capped at {PARALLEL_CAP})")
     ap.add_argument("--throttle", action="store_true",
                     help="gentle mode: -P 1 + ENUM_THROTTLE_DELAY between hosts")
+    ap.add_argument("--with-posture", action="store_true",
+                    help="also run Invoke-HostPosture.ps1 after --script (read-only)")
+    ap.add_argument("--ad", action="store_true",
+                    help="with --with-posture: opt in to the read-only AD domain checks")
     ap.add_argument("--dry-run", action="store_true",
                     help="print plan, no connections")
     ap.add_argument("--resume", action="store_true",
@@ -772,6 +805,12 @@ def main() -> int:
     args = ap.parse_args()
 
     # --- arg validation ---
+    if args.ad and not args.with_posture:
+        err("--ad only applies with --with-posture")
+        return 2
+    if args.with_posture and not POSTURE_SCRIPT.is_file():
+        err(f"posture collector not found: {POSTURE_SCRIPT}")
+        return 2
     targets_path = Path(args.targets)
     if not targets_path.is_file():
         err(f"targets file not found: {targets_path}"); return 2
@@ -923,6 +962,11 @@ def main() -> int:
     _run_log(out_dir, f"dispatch: {len(targets)} hosts, parallel={args.parallel}")
 
     script_text = script_path.read_text()
+    if args.with_posture:
+        script_text = build_posture_payload(
+            script_text, POSTURE_SCRIPT.read_text(encoding="utf-8"), ad=args.ad)
+        (out_dir / "_payload.ps1").write_text(script_text)
+        _run_log(out_dir, f"with-posture: ad={int(args.ad)} payload={len(script_text)} chars")
 
     # --- dispatch ---
     results: list[HostResult] = []
