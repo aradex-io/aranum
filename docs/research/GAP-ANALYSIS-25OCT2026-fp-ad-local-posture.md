@@ -49,6 +49,10 @@ Provenance labels: **measured** (run this session, raw output under `docs/test-s
 | PRE2 | Pre-existing env failure | smoke `git: latest released tag v0.34.0 MISSING` occurs only because local tags were not fetched. It passes after `git fetch --tags` (384 pass / 0 fail / 1 skip). | `smoke.log` vs `smoke-tagsfetched.log`. | measured |
 | PRE3 | Env | shellcheck was absent, so lint degraded to `bash -n`. After `pip install shellcheck-py` (0.11.0), `shellcheck -S warning` is clean at base. | `lint.log`, `shellcheck.log`. | measured |
 | B1 | Blocked (live) | No live Windows or Linux lab hosts. No nxc, impacket, pywinrm, vncdotool, xfreerdp locally. Live transport validation is impossible here, so transports are proven by argv/flow tests, a local `local` transport run, and a loopback relay test. | `deps-check` / `which` this session. | measured |
+| GAP-S2-PORT | Bug (mis-attribution) | Dashboard re-infers a finding's port from line text (`find_best_port`) instead of the collector's `f["port"]`; a terse line with a structured port gets attached to every candidate port (false attribution + double count). Dashboard presentation only — `findings.json` is correct. | S1 peer review REVIEW-008 #3; `report-dashboard.py:548-559`. | recorded |
+| GAP-S2-TOPO | Bug (mis-attribution) | Dashboard rebuilds host topology from storage directory names (`task-<hash>`/`pair-<hash>`), creating phantom host pages; the real host is in `_task-context.json`/`_meta.json` and `collect()` already reports it. Dashboard presentation only. | REVIEW-008 #4; `report-dashboard.py:421-443`. | recorded |
+| GAP-S2-DEDUP | Gap (robustness) | Echo dedup is fuzzy; a future multi-value summary joined by an unrecognized separator, or distinguishing data beyond the 300-char truncation, could still drop a distinct entity. No current emission exhibits it (sweep: only comma `ports=` lists exist, now protected). | REVIEW-008 #2 (narrowed); dispatcher emission sweep 25OCT. | measured |
+| GAP-S2-IPV6 | Bug (normalization) | Endpoint matcher compares the textual IPv6 spelling, so `2001:db8::53` does not match the expanded `2001:0db8:…:53`; such a finding stays run-scoped. No IPv6 in the current corpus/fixture (absence measured). | REVIEW-008 #8; `report.py` endpoint matcher. | measured |
 
 ## Out-of-scope classes (declared up front, repeated in every delegated prompt)
 
@@ -91,5 +95,11 @@ Relevance (R) and complexity (C) are scored 1–5. P-tier follows the triage-rub
 | PRE2 | 1 | 1 | P3 | document-and-move-on (environment, not code) | — |
 | PRE3 | 1 | 1 | P3 | document-and-move-on (environment) | — |
 | B1 | — | — | — | spike-equivalent: offline proof strategy in each sprint test plan | S4/S5 |
+| GAP-S2-PORT | 4 | 2 | P1 | now | S2 (dashboard) |
+| GAP-S2-TOPO | 4 | 3 | P1 | now | S2 (dashboard) |
+| GAP-S2-DEDUP | 2 | 3 | P2 | later (no current emission triggers it; revisit when a multi-value summary ships) | S2/later |
+| GAP-S2-IPV6 | 2 | 2 | P3 | later (no IPv6 in corpus; low relevance to the FP/AD/local objective) | later |
+
+Items GAP-S2-* were opened during S1 Phase-6 peer review (REVIEW-008) and triaged into S2/later; they are dashboard-presentation or robustness items with no S1 `findings.json` data-integrity impact.
 
 Plan: `docs/plans/PLAN-001-25OCT2026-fp-ad-local-posture.md`.

@@ -192,6 +192,21 @@ Fix the test fixture: `chmod 0o555` on the `apt.conf.d` directory, restored in t
 
 **Blast radius:** report.py, report-dashboard.py, findings.json content (additive `rule_id`), dashboard counts. **Rollback:** revert the S1 squash commit. No data migration; findings are regenerated from raw trees.
 
+### S1 Phase-8 benefit (measured 25OCT2026, frozen harness, base `69fec13`)
+
+| Metric | Baseline | After | Δ | Target | Provenance |
+|---|---|---|---|---|---|
+| M1 `neg_graded` (miss/log FPs) | 18 | **0** | −18 | 0 | measured (`emission_audit.py .`) |
+| M2 `crit_ungraded` | 1 | **0** | −1 | 0 | measured |
+| M3 `tp_recall` | 3/25 | **25/25** | +22 | ≥23 | measured |
+| M3b `tp_sev_exact` | 0/25 | **25/25** | +25 | ≥20 | measured |
+| M4 unattributed `(dispatcher)` (fixture) | 4 | **0** | −4 | 0 | measured (`dup_audit.py`) |
+| M5 duplicate findings (fixture) | 4 | **0** | −4 | 0 | measured |
+
+Same frozen harness as the Phase-5 baseline; the extractor moved to `tests/_emission_corpus.py` with the docs harness keeping a frozen copy, so the number is comparable. All six targets met or exceeded. Regression: 0 previously-passing tests fail (Phase-7 card); the one baseline failure (PRE1) is now green.
+
+> **Errata (D1.6 "cannot diverge" claim).** The original claim that the shared `collect()` makes `findings.json` and the dashboard unable to diverge is **too broad** and is narrowed here: `collect()` is authoritative for the finding *set* and each finding's `host/port/protocol/scope`, so the two agree on which findings exist and their collector-assigned coordinates. The dashboard's *presentation* layer still independently re-infers a finding's port from text and host topology from storage directory names (peer-review #3/#4), so it can still mis-present. That inference is removed in S2 (GAP-S2-PORT, GAP-S2-TOPO); only then is the unqualified "cannot diverge" true. See REVIEW-008.
+
 ---
 
 ## S2 — Finding knowledge base, categories, AD view, run health (G10, G12–G15)
