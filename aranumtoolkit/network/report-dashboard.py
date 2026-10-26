@@ -650,15 +650,26 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
     for (host, svc), ports in ports_per_host_svc.items():
         host_svc_findings = [f for f in by_host.get(host, []) if f["service"] == svc]
         evidence_files: list[str] = []
-        if marked and host in bulk_host_index:
-            # Marked bulk host: its evidence is the files under its endpoint dir.
+        svc_dir = out_dir / svc
+        svc_dir_present = svc_dir.is_dir() and (
+            (svc_dir / host).is_dir() or any(
+                c.is_dir() and c.name.startswith(f"{host}_")
+                and c.name.rsplit("_", 1)[-1].isdigit()
+                for c in svc_dir.iterdir()
+            )
+        )
+        if marked and host in bulk_host_index and not svc_dir_present:
+            # Marked bulk host with no genuine service dir for this service: its
+            # evidence is the files under its endpoint dir. When a real service
+            # dir DOES exist (a mixed-tree host that was also auto-enum'd for
+            # this service), fall through so the service card resolves its own
+            # files instead of being overridden by the bulk-posture files.
             evidence_files = sorted(
                 str(fp.relative_to(out_dir))
                 for fp in bulk_host_index[host].rglob("*")
                 if fp.is_file() and fp.name != rpt.BULK_ROOT_MARKER
             )
         elif not legacy_bulk:
-            svc_dir = out_dir / svc
             evidence_roots: list[Path] = []
             exact_host_dir = svc_dir / host
             if exact_host_dir.is_dir():
