@@ -253,7 +253,7 @@ New `aranumtoolkit/network/finding-kb.json`, registered in `data-sources.json` w
   - report.md contains "How to fix".
 - **(c) New gate:** the KB coverage test over **rule ids**. RED proof: delete one class from a temp copy of the KB (`ARANUM_FINDING_KB` env override) → it fails naming the uncovered rule id. It asserts ≥ N rule ids were enumerated so an enumerator regression cannot pass vacuously.
 
-**Rollback:** revert. The new keys are additive, and consumers ignore unknown keys. Merge SHA: _(filled at Phase 8)_.
+**Rollback:** revert. The new keys are additive, and consumers ignore unknown keys. Merge SHA: `4507a3c` (PR #7).
 
 ### S2 Phase-8 benefit (measured 25OCT2026, same harness as the S2 base, base `d4a19e1`)
 
