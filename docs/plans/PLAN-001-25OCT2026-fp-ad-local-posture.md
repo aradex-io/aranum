@@ -190,7 +190,7 @@ Fix the test fixture: `chmod 0o555` on the `apt.conf.d` directory, restored in t
 - **(c) New gates.** (i) the **shadow/expectation audit** and (ii) the **miss/log corpus-classification sweep**. RED proof for (i): run at the pre-fix commit, where Jenkins/Tomcat samples resolve to the generic rule id at the wrong severity; and a mutation moving the generic UNAUTH rule back above the Tomcat rule in a disposable worktree goes RED. RED proof for (ii): inject a corpus line with a `[-]` marker that matches a non-`miss_ok` rule → the sweep flags it unclassified. Both gates assert the corpus is non-empty (≥ 500 emissions) and that the Tomcat sample exists, so an extractor regression cannot pass vacuously.
 - **Benefit.** M1–M5 re-measured with the frozen harness.
 
-**Blast radius:** report.py, report-dashboard.py, findings.json content (additive `rule_id`), dashboard counts. **Rollback:** revert the S1 squash commit. No data migration; findings are regenerated from raw trees.
+**Blast radius:** report.py, report-dashboard.py, findings.json content (additive `rule_id`), dashboard counts. **Rollback:** revert the S1 squash commit `d4a19e1` (PR #6, merged into `main` 25OCT2026 on top of base `69fec13`). No data migration; findings are regenerated from raw trees.
 
 ### S1 Phase-8 benefit (measured 25OCT2026, frozen harness, base `69fec13`)
 
