@@ -253,7 +253,21 @@ New `aranumtoolkit/network/finding-kb.json`, registered in `data-sources.json` w
   - report.md contains "How to fix".
 - **(c) New gate:** the KB coverage test over **rule ids**. RED proof: delete one class from a temp copy of the KB (`ARANUM_FINDING_KB` env override) → it fails naming the uncovered rule id. It asserts ≥ N rule ids were enumerated so an enumerator regression cannot pass vacuously.
 
-**Rollback:** revert. The new keys are additive, and consumers ignore unknown keys.
+**Rollback:** revert. The new keys are additive, and consumers ignore unknown keys. Merge SHA: _(filled at Phase 8)_.
+
+### S2 Phase-8 benefit (measured 25OCT2026, same harness as the S2 base, base `d4a19e1`)
+
+Harness: copy `aranumtoolkit/docs/examples/dashboard/fixture`, `finalize_findings(walk_findings(out, _load_rules(None)))`, count non-low findings. The only variable changed between base and head is the presence of `finding-kb.json` (identical fixture, identical rules) — so the delta is attributable to S2 alone.
+
+| Metric | Baseline (`d4a19e1`) | After (S2 head) | Δ | Provenance |
+|---|---|---|---|---|
+| M6 — non-low findings carrying a class-specific test+fix block (`kb_id`+`category`) | 0.0 % (0/9) | 88.9 % (8/9) | +88.9 pp | measured |
+| M6b — non-low findings carrying *any* KB guidance (`category`, `kb_match`≠"") | 0 % (0/9) | 100 % (9/9) | +100 pp | measured |
+| KB coverage gate — non-low built-in `rule_id`s with a class (test+fix) | 0 / 199 | 199 / 199 | +199 | measured (`test_kb_covers_every_non_low_rule_id`) |
+
+The remaining M6 gap (1/9) is the fixture's "UNAUTH SMB shares" finding, which matches only a **generic fallback** rule (`UNAUTH`) — a rule id excluded from the 199-class denominator by design. It receives a service-default category (`network`) and categorized guidance (M6b counts it) but no class-specific test/fix block, which is correct: a generic catch-all has no single remediation. M6-as-defined therefore cannot reach 100 % whenever a run contains a generic-fallback match; the structural guarantee is the coverage gate (199/199), not the fixture percentage.
+
+Regression: full suite `470 passed / 5 skipped / 0 failed` vs the S2 base manifest `455 passed / 5 skipped` — every baseline-passing test still passes (per-test compared), +15 new S2 tests. Raw: `docs/test-strategy/raw/s2-head/`.
 
 ---
 

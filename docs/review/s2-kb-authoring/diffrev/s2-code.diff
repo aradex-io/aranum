@@ -1,0 +1,1011 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 807c8f8..ff9f5c2 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -10,6 +10,10 @@ See `CLAUDE.md` §6 for the entry style guide.
+ ## [Unreleased]
+ 
+ ### Added
++- `network/finding-kb.json`: a **finding knowledge base** keyed by classifier `rule_id` — a remediation entry (category, title, why, read-only *how-to-test* commands, *how-to-fix* steps, references) for every one of the 199 non-low built-in rule_ids. Loaded by `network/report.py` (`_load_finding_kb`, env override `ARANUM_FINDING_KB`); a custom or generic-fallback rule falls back to a service→category map. Guidance commands are templates (`<host>`/`<port>`/`<service>`/…) and never execute; *test* steps are read-only confirmation only.
++- `network/report.py`: findings now carry additive `category` / `kb_id` / `kb_match` (`"rule"` | `"service-default"` | `""`) attached at finalize time, and reports gain a **"Top risks by category"** section grouping non-low findings by KB category and class with their Why / How-to-test / How-to-fix / References. The smb relay-vs-fileservice split keys a host's category on whether it also exposes Kerberos (88) or LDAP (389).
++- `network/report-dashboard.py`: an **Active Directory** page (detected domain controllers + AD findings grouped by attack-path family, with an "Uncorrelated signals" caveat since domain identity is not yet established), a **Categories** page (findings by KB category with inline test/fix guidance), a **Run health** panel (dispatcher `[!]` warnings that no rule grades — tool-missing/refused/timeout/error coverage gaps, not findings), and per-finding KB guidance expanders with copy-to-clipboard command buttons.
++- `aranumtoolkit/data-sources.json`: `finding-knowledge-base` provenance entry for `network/finding-kb.json` (owner, refresh policy, required-keys derivation).
+ - `standalones/passwords/password-scrape.sh` + `standalones/passwords/Get-WeakPassword.ps1`: cross-platform read-only password/secret **compliance scanner** for shell history and logs. Two detection banks — weak-password shapes (`Password1!`, keyboard walks incl. shifted, season/month+year, sequences, repeats, leet, base words) and secret/credential "key terms" (command-line password flags, `mysql -p`, `sshpass`, `net user`, `ConvertTo-SecureString -AsPlainText`, 40+ secret env vars, provider API keys/tokens AWS/GitHub/Slack/Google/Stripe/Twilio/SendGrid/OpenAI/npm, JWTs, private-key headers, URL/DB connection strings with creds, Authorization headers, generic `key=secret` assignments). `--history`/`-History` sweeps standard bash/zsh/PSReadLine history + common text logs; `--weak-only`/`--secrets-only` bank selection; TAB/CSV output to an operator path; exit 1 on findings for CI compliance gates.
+ - `standalones/proxy/connect-reply-sim.py`: scapy-based HTTP **CONNECT reply simulator** — crafts the `HTTP/1.1 200 Connection Established` TCP segment a remote host/proxy returns, for exercising clients/`--proxy` routing/monitoring in a lab. Dry-run by default (prints packet / writes pcap); transmit gated behind an explicit `--send` flag per §9.1. `--sniff-respond` lab-responder mode derives seq/ack from an observed CONNECT.
+ - `standalones/passwords/Get-WeakPassword.cmd`: double-click / console launcher for the Windows password scanner — per-process `-ExecutionPolicy Bypass` (nothing system-wide changed), prefers PowerShell 7 (`pwsh`) then in-box Windows PowerShell 5.1, passes arguments through, keeps the window open on a double-click. Fixes the "double-clicking the .ps1 just opens a document viewer" problem.
+diff --git a/aranumtoolkit/data-sources.json b/aranumtoolkit/data-sources.json
+index a1a87b8..ab0a330 100644
+--- a/aranumtoolkit/data-sources.json
++++ b/aranumtoolkit/data-sources.json
+@@ -34,6 +34,19 @@
+         "required_keys": ["schema_version", "defaults", "phase_catalog", "services"]
+       }
+     },
++    {
++      "id": "finding-knowledge-base",
++      "path": "aranumtoolkit/network/finding-kb.json",
++      "source": "Vendor hardening guides, MITRE ATT&CK, and CVE/vendor advisories cited per finding class",
++      "owner": "network/report maintainers",
++      "refreshed": "2026-10-25",
++      "max_age_days": 180,
++      "freshness_policy": "Review test/fix guidance and refs whenever severity rules change or a referenced tool/vendor guidance changes; at least every six months",
++      "derivation": {
++        "type": "json-structure",
++        "required_keys": ["schema", "categories", "classes", "service_categories"]
++      }
++    },
+     {
+       "id": "engagement-profile-rules",
+       "path": "aranumtoolkit/network/engagement-profiles.json",
+diff --git a/aranumtoolkit/network/report-dashboard.py b/aranumtoolkit/network/report-dashboard.py
+index d94bad5..dbad9d9 100755
+--- a/aranumtoolkit/network/report-dashboard.py
++++ b/aranumtoolkit/network/report-dashboard.py
+@@ -61,6 +61,8 @@ NAV_ITEMS = [
+     ("Inbox",     "inbox.html"),
+     ("Guidance",  "guidance.html"),
+     ("Hosts",     "hosts.html"),
++    ("Active Directory", "ad.html"),
++    ("Categories", "categories.html"),
+     ("Inventory", "inventory.html"),
+     ("Services",  "services.html"),
+     ("Severity",  "severity.html"),
+@@ -377,6 +379,66 @@ def read_guidance(out_dir: Path) -> list[dict]:
+     return []
+ 
+ 
++# ----------------------------------------------------------- run health (G10)
++_RUN_HEALTH_RE = re.compile(r"^\s*\[!\]\s*(?P<msg>.+?)\s*$")
++_RUN_HEALTH_REASONS = (
++    ("timeout", re.compile(r"\b(time ?d? ?out|timeout|deadline exceeded)\b", re.I)),
++    ("missing-tool", re.compile(r"\b(not installed|not found|missing|no such file|command not found|unavailable)\b", re.I)),
++    ("refused", re.compile(r"\b(refused|unreachable|reset|no route|connection closed|denied)\b", re.I)),
++    ("error", re.compile(r"\b(error|failed|exception|traceback|crash)\b", re.I)),
++)
++
++
++def _run_health_reason(msg: str) -> str:
++    for name, rx in _RUN_HEALTH_REASONS:
++        if rx.search(msg):
++            return name
++    return "other"
++
++
++def build_run_health(out_dir: Path, rules) -> list[dict]:
++    """G10 — operational gaps: `[!]` warning lines in any `_dispatcher.log`
++    that NO severity rule grades (tool missing, refused, timed out, errored).
++    Grouped by service (the dispatcher-log's parent dir) and reason, with a
++    count and one sample line. These are coverage gaps, not findings."""
++    agg: "dict[tuple[str, str], dict]" = {}
++    for log in sorted(out_dir.rglob("_dispatcher.log")):
++        if rpt._is_generated_dashboard_dir(log.parent):
++            continue
++        service = log.parent.name if log.parent != out_dir else "(run)"
++        try:
++            text = log.read_text(errors="replace")
++        except Exception:
++            continue
++        for raw in text.splitlines():
++            m = _RUN_HEALTH_RE.match(raw)
++            if not m:
++                continue
++            msg = m.group("msg")
++            # Skip anything a severity rule actually grades — that is a finding,
++            # not a coverage gap.
++            if rpt._classify_line(raw, rules) is not None:
++                continue
++            reason = _run_health_reason(msg)
++            key = (service, reason)
++            slot = agg.setdefault(key, {"service": service, "reason": reason,
++                                        "count": 0, "sample": msg})
++            slot["count"] += 1
++    order = {"timeout": 0, "missing-tool": 1, "refused": 2, "error": 3, "other": 4}
++    return sorted(agg.values(), key=lambda s: (s["service"], order.get(s["reason"], 9)))
++
++
++def _dc_hosts(inventory: list[dict]) -> list[str]:
++    """Domain controllers: hosts exposing Kerberos (88) plus LDAP (389) or SMB
++    (445) — the inventory signature of a DC."""
++    ports: "dict[str, set[int]]" = defaultdict(set)
++    for r in inventory:
++        if r.get("host") and isinstance(r.get("port"), int):
++            ports[r["host"]].add(r["port"])
++    dcs = [h for h, ps in ports.items() if 88 in ps and (389 in ps or 445 in ps)]
++    return sorted(dcs)
++
++
+ # --------------------------------------------------------------- aggregation
+ def _is_run_scope(f: dict) -> bool:
+     """A finding the collector could not attribute to a known endpoint. Prefer
+@@ -601,6 +663,8 @@ def build_index(out_dir: Path, bulk: bool, rules_path: Path | None) -> dict:
+         "inventory_by_host": dict(inventory_by_host),
+         "inbox": build_inbox(findings),
+         "guidance": read_guidance(out_dir),
++        "run_health": build_run_health(out_dir, rules),
++        "dc_hosts": _dc_hosts(inventory),
+         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+     }
+ 
+@@ -836,6 +900,7 @@ def render_index(model: dict) -> str:
+   </table>
+ </section>
+ """
++    body += render_run_health_panel(model)
+     return render_page("Dashboard", body, "Dashboard")
+ 
+ 
+@@ -937,10 +1002,11 @@ def _render_host_port_rows(model: dict, host: str, details_open: bool = True) ->
+         if r["findings"]:
+             inner = []
+             for f in r["findings"]:
++                guide = kb_guidance_html(f)
+                 inner.append(f"""
+                 <tr>
+                   <td>{severity_chip(f['severity'])}</td>
+-                  <td><code class="mono">{e(truncate(clean_line(f['line']), 320))}</code></td>
++                  <td><code class="mono">{e(truncate(clean_line(f['line']), 320))}</code>{guide}</td>
+                   <td><code class="mono small">{e(f['evidence_path'])}</code></td>
+                 </tr>""")
+             finding_rows_html = f"""
+@@ -1745,6 +1811,25 @@ code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; border:
+ .chip-medium   { background: color-mix(in srgb, var(--sev-medium) 22%, transparent);   color: var(--sev-medium);   border: 1px solid color-mix(in srgb, var(--sev-medium) 40%, transparent); }
+ .chip-low      { background: color-mix(in srgb, var(--sev-low) 22%, transparent);      color: var(--sev-low);      border: 1px solid color-mix(in srgb, var(--sev-low) 40%, transparent); }
+ .chip-info     { background: color-mix(in srgb, var(--sev-info) 22%, transparent);     color: var(--sev-info);     border: 1px solid color-mix(in srgb, var(--sev-info) 40%, transparent); }
++.chip-warn     { background: color-mix(in srgb, var(--sev-high) 22%, transparent);     color: var(--sev-high);     border: 1px solid color-mix(in srgb, var(--sev-high) 40%, transparent); }
++/* S2 — KB test/remediation guidance + callouts */
++.callout { border-radius: 8px; padding: 10px 14px; margin: 10px 0 16px 0; border: 1px solid var(--border); background: var(--bg-elev-2); font-size: 0.9em; }
++.callout-warn { border-color: color-mix(in srgb, var(--sev-high) 45%, transparent); background: color-mix(in srgb, var(--sev-high) 10%, transparent); }
++details.kb-guide { margin: 6px 0 2px 0; }
++details.kb-guide > summary { cursor: pointer; color: var(--accent, #6af); font-size: 0.86em; user-select: none; }
++.kb-body { margin: 6px 0 4px 0; padding: 8px 10px; border-left: 2px solid var(--border); background: var(--bg-elev-2); border-radius: 0 6px 6px 0; }
++.kb-why { margin: 0 0 8px 0; font-size: 0.9em; }
++.kb-block { margin: 6px 0; }
++.kb-h { display: block; font-weight: 600; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; margin-bottom: 3px; }
++.kb-cmd { margin: 3px 0; }
++.kb-cmd-label { display: block; font-size: 0.82em; opacity: 0.85; }
++.kb-cmd-line { display: flex; align-items: center; gap: 6px; }
++.kb-cmd-line code { flex: 1; overflow-x: auto; }
++.kb-fix { margin: 3px 0; font-size: 0.9em; }
++.kb-fix-text { display: block; opacity: 0.95; }
++.kb-refs { font-size: 0.82em; opacity: 0.8; margin-top: 6px; }
++.copybtn { cursor: pointer; border: 1px solid var(--border); background: var(--bg-elev-2); color: var(--text); border-radius: 4px; padding: 1px 6px; font-size: 0.9em; line-height: 1.2; }
++.copybtn.copied { color: var(--sev-low); border-color: var(--sev-low); }
+ .chip-svc, .chip-host {
+   background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border);
+   margin-right: 4px; margin-bottom: 4px; text-decoration: none;
+@@ -2062,6 +2147,26 @@ JS_TEMPLATE = r"""
+       search.value = ""; search.dispatchEvent(new Event("input")); search.blur();
+     }
+   });
++
++  // ---- copy-to-clipboard for KB test/fix commands (delegated) ----
++  document.addEventListener("click", async e => {
++    const btn = e.target.closest("[data-copy]");
++    if (!btn) return;
++    const text = btn.getAttribute("data-copy") || "";
++    try {
++      if (navigator.clipboard && navigator.clipboard.writeText) {
++        await navigator.clipboard.writeText(text);
++      } else {
++        const ta = document.createElement("textarea");
++        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
++        document.body.appendChild(ta); ta.select();
++        document.execCommand("copy"); document.body.removeChild(ta);
++      }
++      const old = btn.textContent;
++      btn.textContent = "✓"; btn.classList.add("copied");
++      setTimeout(() => { btn.textContent = old; btn.classList.remove("copied"); }, 1200);
++    } catch (err) { /* clipboard blocked — no-op */ }
++  });
+ })();
+ """
+ 
+@@ -2105,6 +2210,210 @@ def render_wiki_index() -> str:
+     return render_page("Wiki", body, "Wiki")
+ 
+ 
++# ------------------------------------------------------ KB guidance (S2/D2.2)
++_FINDING_KB = rpt._load_finding_kb()
++
++
++def _kb_class(f: dict) -> "dict | None":
++    """The KB class for a finding, or None when it was not graded by a rule
++    that has its own KB class (service-default or custom rules)."""
++    if f.get("kb_match") == "rule" and f.get("kb_id"):
++        cls = _FINDING_KB.get("classes", {}).get(f["kb_id"])
++        if isinstance(cls, dict):
++            return cls
++    return None
++
++
++def _short_ref(url: str) -> str:
++    try:
++        host = re.sub(r"^https?://(www\.)?", "", url).split("/", 1)[0]
++        return host or url
++    except Exception:
++        return url
++
++
++def _kb_cmd_row(label: str, cmd: str) -> str:
++    """A labelled, copyable command line. The copy button reuses the delegated
++    [data-copy] handler in dashboard.js."""
++    return (f'<div class="kb-cmd"><span class="kb-cmd-label">{e(label)}</span>'
++            f'<div class="kb-cmd-line"><code class="mono">{e(cmd)}</code>'
++            f'<button class="copybtn" type="button" data-copy="{e(cmd)}" '
++            f'title="Copy">⧉</button></div></div>')
++
++
++def kb_guidance_html(f: dict) -> str:
++    """Collapsible 'How to test / How to fix' guidance for one finding, drawn
++    from its KB class. Empty string when there is no KB class for the finding."""
++    cls = _kb_class(f)
++    if not cls:
++        return ""
++    parts: list[str] = []
++    if cls.get("why"):
++        parts.append(f'<p class="kb-why">{e(str(cls["why"]))}</p>')
++    tests = [t for t in cls.get("test", []) if isinstance(t, dict) and t.get("cmd")]
++    if tests:
++        rows = "".join(_kb_cmd_row(str(t.get("label", "")), str(t["cmd"])) for t in tests)
++        parts.append(f'<div class="kb-block"><span class="kb-h">How to test</span>{rows}</div>')
++    fixes = [x for x in cls.get("fix", []) if isinstance(x, dict)]
++    if fixes:
++        frows = []
++        for x in fixes:
++            if x.get("cmd"):
++                frows.append(_kb_cmd_row(str(x.get("label", "")), str(x["cmd"])))
++            else:
++                frows.append(f'<div class="kb-fix"><span class="kb-cmd-label">'
++                             f'{e(str(x.get("label", "")))}</span>'
++                             f'<span class="kb-fix-text">{e(str(x.get("text", "")))}</span></div>')
++        parts.append(f'<div class="kb-block"><span class="kb-h">How to fix</span>{"".join(frows)}</div>')
++    refs = [r for r in cls.get("refs", []) if isinstance(r, str)]
++    if refs:
++        links = " · ".join(f'<a href="{e(r)}" target="_blank" rel="noopener">{e(_short_ref(r))}</a>'
++                           for r in refs)
++        parts.append(f'<div class="kb-refs">References: {links}</div>')
++    title = e(str(cls.get("title", "guidance")))
++    return (f'<details class="kb-guide"><summary>Test &amp; remediation — {title}</summary>'
++            f'<div class="kb-body">{"".join(parts)}</div></details>')
++
++
++# AD attack-path families: rule_id substring -> family. First match wins.
++_AD_FAMILIES = [
++    ("Relay &amp; coercion", ["signing", "petitpotam", "webclient", "localaccounttoken",
++                              "printnightmare", "esc8", "relay"]),
++    ("Kerberoasting / AS-REP", ["kerberoast", "as-rep", "asrep"]),
++    ("AD CS (certificate services)", ["esc-1-9", "esc8", "adcs", "cert"]),
++    ("Delegation", ["unconstrained-delegation", "allowedtoact", "machineaccountquota", "delegation"]),
++    ("Credential exposure", ["cpassword", "gpp", "laps", "wdigest", "ccm-logs", "sccm"]),
++    ("Policy &amp; hygiene", []),  # catch-all for remaining AD findings
++]
++
++
++def _ad_family(rule_id: str) -> str:
++    for name, subs in _AD_FAMILIES:
++        for s in subs:
++            if s in rule_id:
++                return name
++    return "Policy &amp; hygiene"
++
++
++def render_ad(model: dict) -> str:
++    """S2/D2.2 — Active Directory attack-surface page.
++
++    Lists detected domain controllers, then AD findings grouped by attack-path
++    family. Cross-family signals are labelled UNCORRELATED: S2 has no domain
++    identity yet, so we cannot claim two findings share a domain. S3's domain
++    rollup upgrades these to confirmed, domain-keyed chains."""
++    findings = [f for f in model["findings"] if f.get("category") == "ad"]
++    dcs = model.get("dc_hosts", [])
++    dc_html = (", ".join(f'<a href="host_{e(safe_name(h))}.html"><code class="mono">{e(h)}</code></a>'
++                         for h in dcs)
++               if dcs else '<span class="muted">none positively identified (88 + 389/445)</span>')
++    body = [f"""
++<section class="card">
++  <h2 class="card-title">Domain controllers</h2>
++  <p class="card-sub">Hosts exposing Kerberos (88) with LDAP (389) or SMB (445).</p>
++  <p>{dc_html}</p>
++</section>
++<div class="callout callout-warn">
++  <strong>Uncorrelated signals.</strong> The findings below are grouped by attack-path
++  family, not by domain. aranum has not yet established domain identity, so two findings in
++  different families are <em>not</em> confirmed to share a domain or be chainable. Treat each as an
++  independent signal until confirmed.
++</div>
++"""]
++    if not findings:
++        body.append('<section class="card"><p class="muted">No Active Directory findings.</p></section>')
++        return render_page("Active Directory", "".join(body), "Active Directory")
++    fam: "dict[str, list[dict]]" = defaultdict(list)
++    for f in findings:
++        fam[_ad_family(str(f.get("rule_id", "")))].append(f)
++    for name, _ in _AD_FAMILIES:
++        group = fam.get(name)
++        if not group:
++            continue
++        rows = []
++        for f in sorted(group, key=lambda x: (SEVERITY_ORDER.index(x["severity"])
++                                              if x["severity"] in SEVERITY_ORDER else 9, x.get("host", ""))):
++            guide = kb_guidance_html(f)
++            rows.append(f"""
++            <tr>
++              <td>{severity_chip(f['severity'])}</td>
++              <td><a href="host_{e(safe_name(f['host']))}.html"><code class="mono">{e(f['host'])}</code></a></td>
++              <td><code class="mono">{e(truncate(clean_line(f['line']), 200))}</code>{guide}</td>
++            </tr>""")
++        body.append(f"""
++<section class="card">
++  <h2 class="card-title">{name} <span class="chip chip-info">{len(group)}</span></h2>
++  <table class="data">
++    <thead><tr><th>Sev</th><th>Host</th><th>Signal &amp; guidance</th></tr></thead>
++    <tbody>{''.join(rows)}</tbody>
++  </table>
++</section>""")
++    return render_page("Active Directory", "".join(body), "Active Directory")
++
++
++def render_categories(model: dict) -> str:
++    """S2/D2.2 — findings organised by KB category, each with test/fix guidance."""
++    cats = _FINDING_KB.get("categories", {})
++    findings = [f for f in model["findings"] if f.get("severity") in ("critical", "high", "medium")]
++    by_cat: "dict[str, list[dict]]" = defaultdict(list)
++    for f in findings:
++        by_cat[str(f.get("category") or "network")].append(f)
++    ordered = sorted(by_cat, key=lambda c: (cats.get(c, {}).get("order", 99), c))
++    intro = """
++<p class="card-sub">Findings grouped by category. Each row carries test and remediation guidance from
++the finding knowledge base (<code class="mono">aranumtoolkit/network/finding-kb.json</code>).</p>
++"""
++    body = [intro]
++    if not ordered:
++        body.append('<section class="card"><p class="muted">No non-low findings.</p></section>')
++    for cat in ordered:
++        title = cats.get(cat, {}).get("title", cat)
++        group = by_cat[cat]
++        rows = []
++        for f in sorted(group, key=lambda x: (SEVERITY_ORDER.index(x["severity"])
++                                              if x["severity"] in SEVERITY_ORDER else 9, x.get("host", ""))):
++            guide = kb_guidance_html(f)
++            rows.append(f"""
++            <tr>
++              <td>{severity_chip(f['severity'])}</td>
++              <td><a href="host_{e(safe_name(f['host']))}.html"><code class="mono">{e(f['host'])}</code></a></td>
++              <td><code class="mono">{e(truncate(clean_line(f['line']), 200))}</code>{guide}</td>
++            </tr>""")
++        body.append(f"""
++<section class="card">
++  <h2 class="card-title" id="{e(cat)}">{e(title)} <span class="chip chip-info">{len(group)}</span></h2>
++  <table class="data">
++    <thead><tr><th>Sev</th><th>Host</th><th>Finding &amp; guidance</th></tr></thead>
++    <tbody>{''.join(rows)}</tbody>
++  </table>
++</section>""")
++    return render_page("Categories", "".join(body), "Categories")
++
++
++def render_run_health_panel(model: dict) -> str:
++    """A panel (used on the index) listing dispatcher coverage gaps (G10)."""
++    rh = model.get("run_health", [])
++    if not rh:
++        return ""
++    rows = "".join(f"""
++      <tr>
++        <td><code class="mono">{e(r['service'])}</code></td>
++        <td><span class="chip chip-info">{e(r['reason'])}</span></td>
++        <td class="num">{r['count']}</td>
++        <td><code class="mono small">{e(truncate(r['sample'], 160))}</code></td>
++      </tr>""" for r in rh)
++    return f"""
++<section class="card">
++  <h2 class="card-title">Run health <span class="chip chip-warn">{len(rh)}</span></h2>
++  <p class="card-sub">Dispatcher <code>[!]</code> warnings no rule graded — coverage gaps
++  (tool missing, refused, timed out, errored), not findings.</p>
++  <table class="data">
++    <thead><tr><th>Service</th><th>Reason</th><th>Count</th><th>Sample</th></tr></thead>
++    <tbody>{rows}</tbody>
++  </table>
++</section>"""
++
++
+ def main() -> int:
+     ap = argparse.ArgumentParser(
+         description="Generate a multi-page HTML dashboard from an aranum $OUTDIR.",
+@@ -2132,6 +2441,8 @@ def main() -> int:
+     pages.append(("inbox.html", render_inbox(model)))
+     pages.append(("guidance.html", render_guidance(model)))
+     pages.append(("hosts.html", render_hosts(model)))
++    pages.append(("ad.html", render_ad(model)))
++    pages.append(("categories.html", render_categories(model)))
+     pages.append(("inventory.html", render_inventory(model)))
+     pages.append(("services.html", render_services(model)))
+     pages.append(("severity.html", render_severity_landing(model)))
+diff --git a/aranumtoolkit/network/report.py b/aranumtoolkit/network/report.py
+index 6d11d24..52ece83 100755
+--- a/aranumtoolkit/network/report.py
++++ b/aranumtoolkit/network/report.py
+@@ -39,6 +39,7 @@ import datetime
+ import html
+ import ipaddress
+ import json
++import os
+ import re
+ import sys
+ from collections import defaultdict
+@@ -144,6 +145,96 @@ def _coerce_service_metadata_services(raw: object) -> dict[str, dict]:
+     return out
+ 
+ 
++# ---------------------------------------------------- finding knowledge base
++# S2/D2.1 — the remediation knowledge base. Keyed by the `rule_id` attached at
++# classification time (D1.0), so a finding's "why / how to test / how to fix"
++# comes from the very rule that graded it — there is no second regex pass that
++# could drift from the grading pass. A custom or absent rule id falls back to a
++# service -> category map in the same file. Commands are templates: <host>,
++# <port>, <service> are filled at render time; nothing ever executes here.
++_FINDING_KB_DEFAULT = Path(__file__).resolve().parent / "finding-kb.json"
++_FINDING_KB_CACHE: "dict | None" = None
++_FINDING_KB_CACHE_PATH: "str | None" = None
++
++
++def _finding_kb_path() -> Path:
++    """The KB file path. `ARANUM_FINDING_KB` overrides it (the coverage gate's
++    RED proof points it at a temp copy with a class removed)."""
++    override = os.environ.get("ARANUM_FINDING_KB", "").strip()
++    return Path(override) if override else _FINDING_KB_DEFAULT
++
++
++def _load_finding_kb() -> dict:
++    """Load and cache the finding KB. Returns a dict with `categories`,
++    `classes`, and `service_categories`. A missing or malformed file yields an
++    empty KB (every finding then falls back to `kb_match=''`), so report
++    generation never hard-fails on a KB problem."""
++    global _FINDING_KB_CACHE, _FINDING_KB_CACHE_PATH
++    path = str(_finding_kb_path())
++    if _FINDING_KB_CACHE is not None and _FINDING_KB_CACHE_PATH == path:
++        return _FINDING_KB_CACHE
++    empty = {"categories": {}, "classes": {}, "service_categories": {}}
++    try:
++        raw = json.loads(Path(path).read_text(errors="replace"))
++    except Exception:
++        raw = None
++    if not isinstance(raw, dict):
++        kb = empty
++    else:
++        kb = {
++            "categories": raw.get("categories") if isinstance(raw.get("categories"), dict) else {},
++            "classes": raw.get("classes") if isinstance(raw.get("classes"), dict) else {},
++            "service_categories": raw.get("service_categories")
++            if isinstance(raw.get("service_categories"), dict) else {},
++        }
++    _FINDING_KB_CACHE = kb
++    _FINDING_KB_CACHE_PATH = path
++    return kb
++
++
++def _service_category(service: str, kb: dict, host_ports: "set[str] | None" = None) -> str:
++    """Map a service to a KB category when no rule class matched. The `smb`
++    special case (relay vs plain file service) needs the host's other open
++    ports: smb -> ad only when the host also exposes 88 (Kerberos) or 389
++    (LDAP), else network. `host_ports` is that host's port set."""
++    table = kb.get("service_categories", {})
++    service = (service or "").lower()
++    if service == "smb":
++        ports = host_ports or set()
++        if "88" in ports or "389" in ports:
++            return str(table.get("smb_dc", table.get("smb", "network")))
++        return str(table.get("smb", "network"))
++    mapped = table.get(service)
++    return str(mapped) if isinstance(mapped, str) and mapped else "network"
++
++
++def _attach_kb(finding: dict, kb: dict, host_ports: "set[str] | None" = None) -> None:
++    """Attach additive `category` / `kb_id` / `kb_match` to a finding in place.
++
++    `kb_match` is `"rule"` when the finding's rule_id has its own KB class,
++    `"service-default"` when it falls back to the service->category map, and
++    `""` when neither resolves (no KB loaded, or an unknown service)."""
++    classes = kb.get("classes", {})
++    categories = kb.get("categories", {})
++    rule_id = str(finding.get("rule_id", ""))
++    cls = classes.get(rule_id) if rule_id else None
++    if isinstance(cls, dict) and isinstance(cls.get("category"), str) \
++            and cls["category"] in categories:
++        finding["category"] = cls["category"]
++        finding["kb_id"] = rule_id
++        finding["kb_match"] = "rule"
++        return
++    category = _service_category(str(finding.get("service", "")), kb, host_ports)
++    if category in categories:
++        finding["category"] = category
++        finding["kb_id"] = ""
++        finding["kb_match"] = "service-default"
++    else:
++        finding["category"] = category or ""
++        finding["kb_id"] = ""
++        finding["kb_match"] = ""
++
++
+ def _coerce_list_text(value: object) -> list[str]:
+     if not isinstance(value, list):
+         return []
+@@ -1448,6 +1539,12 @@ def _protocols_compatible(a: dict, b: dict) -> bool:
+ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
+     """Attribute dispatcher evidence, preserve protocol, and deduplicate it."""
+     endpoints = _inventory_endpoints(out_dir)
++    kb = _load_finding_kb()
++    # host -> set of open ports, for the smb relay-vs-fileservice KB split.
++    host_ports: dict[str, set[str]] = defaultdict(set)
++    for e in endpoints:
++        if e.get("host") and e.get("port"):
++            host_ports[str(e["host"])].add(str(e["port"]))
+     deduped: dict[tuple[str, ...], dict] = {}
+     for original in findings:
+         finding = dict(original)
+@@ -1486,6 +1583,9 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
+         else:
+             finding["scope"] = "host"
+         finding["attribution"] = finding["scope"]
++        # S2/D2.1 — additive KB keys (category / kb_id / kb_match). The smb
++        # special case keys on this host's other open ports.
++        _attach_kb(finding, kb, host_ports.get(str(finding.get("host", "")), set()))
+         identity = str(finding.get("evidence_identity", ""))
+         if not identity:
+             identity = hashlib.sha256(str(finding.get("line", "")).encode()).hexdigest()
+@@ -1946,6 +2046,82 @@ def _summary(findings: list[dict], out_dir: Path | None = None) -> dict:
+     }
+ 
+ 
++def _render_top_risks(findings: list[dict], kb: dict, redactor: Redactor) -> list[str]:
++    """S2/D2.2 — a 'Top risks by category' section. Non-low findings are grouped
++    by KB category (category `order`), then by finding class; each class shows
++    Why / How to test / How to fix drawn from the rule's KB class. Classes
++    without KB content (custom rules, service-default fallback) are listed by
++    title with their affected hosts but no test/fix block."""
++    categories = kb.get("categories", {})
++    classes = kb.get("classes", {})
++    risk = [f for f in findings if f.get("severity") in ("critical", "high", "medium")]
++    if not risk:
++        return []
++    # group: category -> class_key -> {rule_id, sev, title, hosts}
++    by_cat: "dict[str, dict]" = defaultdict(dict)
++    for f in risk:
++        cat = str(f.get("category") or "network")
++        rule_id = str(f.get("rule_id", ""))
++        has_cls = f.get("kb_match") == "rule" and rule_id in classes
++        class_key = rule_id if has_cls else ("title:" + str(f.get("title", "")))
++        slot = by_cat[cat].setdefault(class_key, {
++            "rule_id": rule_id if has_cls else "",
++            "sev": f.get("severity", ""),
++            "title": classes[rule_id]["title"] if has_cls else str(f.get("title", "finding")),
++            "hosts": set()})
++        if _SEV_ORDER.get(f.get("severity", "low"), 9) < _SEV_ORDER.get(slot["sev"], 9):
++            slot["sev"] = f.get("severity", "")
++        host = str(f.get("host", ""))
++        if host and host != "(dispatcher)":
++            slot["hosts"].add(redactor(host))
++    out = ["## Top risks by category", ""]
++    ordered_cats = sorted(by_cat, key=lambda c: (categories.get(c, {}).get("order", 99), c))
++    for cat in ordered_cats:
++        title = categories.get(cat, {}).get("title", cat)
++        out.append(f"### {title}")
++        out.append("")
++        slots = sorted(by_cat[cat].values(),
++                       key=lambda s: (_SEV_ORDER.get(s["sev"], 9), s["title"].lower()))
++        for s in slots:
++            n = len(s["hosts"])
++            affected = f" — {n} host{'s' if n != 1 else ''} affected" if n else ""
++            out.append(f"#### {s['title']} ({s['sev']}){affected}")
++            out.append("")
++            cls = classes.get(s["rule_id"]) if s["rule_id"] else None
++            if not isinstance(cls, dict):
++                out.append("_No remediation guidance in the knowledge base for this class yet._")
++                out.append("")
++                continue
++            if cls.get("why"):
++                out.append(f"**Why:** {cls['why']}")
++                out.append("")
++            tests = [t for t in cls.get("test", []) if isinstance(t, dict)]
++            if tests:
++                out.append("**How to test:**")
++                out.append("")
++                for t in tests:
++                    label = str(t.get("label", "")).strip()
++                    cmd = str(t.get("cmd", "")).strip()
++                    out.append(f"- {label}: `{cmd}`" if cmd else f"- {label}")
++                out.append("")
++            fixes = [x for x in cls.get("fix", []) if isinstance(x, dict)]
++            if fixes:
++                out.append("**How to fix:**")
++                out.append("")
++                for x in fixes:
++                    label = str(x.get("label", "")).strip()
++                    if x.get("cmd"):
++                        out.append(f"- {label}: `{str(x['cmd']).strip()}`")
++                    else:
++                        out.append(f"- {label}: {str(x.get('text', '')).strip()}")
++                out.append("")
++            refs = [r for r in cls.get("refs", []) if isinstance(r, str)]
++            if refs:
++                out.append("**References:** " + ", ".join(refs))
++                out.append("")
++    return out
++
++
+ def render_markdown(findings: list[dict], summary: dict, run_label: str,
+                     redactor: Redactor, per_host: dict | None = None) -> str:
+     out = [f"# Findings report — {run_label}", ""]
+@@ -1985,6 +2161,11 @@ def render_markdown(findings: list[dict], summary: dict, run_label: str,
+         c = summary["by_service"][svc]
+         out.append(f"| {svc} | {c.get('critical',0)} | {c.get('high',0)} | {c.get('medium',0)} | {c.get('low',0)} |")
+     out.append("")
++
++    # S2/D2.2 — Top risks by category, with Why / How to test / How to fix
++    # drawn from the finding knowledge base (keyed on each finding's rule_id).
++    out.extend(_render_top_risks(findings, _load_finding_kb(), redactor))
++
+     out.append("## Findings detail (CRITICAL + HIGH only)")
+     out.append("")
+     bucket = defaultdict(list)
+@@ -2005,9 +2186,10 @@ def render_markdown(findings: list[dict], summary: dict, run_label: str,
+ 
+ _HTML_STYLE = """
+ body { font-family: -apple-system, sans-serif; max-width: 1200px; margin: 2em auto; padding: 0 1em; color:#222; }
+-h1, h2, h3 { color: #111; }
++h1, h2, h3, h4 { color: #111; }
+ h1 { border-bottom: 2px solid #444; padding-bottom: 0.2em; }
+ h2 { border-bottom: 1px solid #aaa; padding-bottom: 0.1em; margin-top: 2em; }
++h4 { margin: 1em 0 0.3em 0; font-size: 1.02em; }
+ table { border-collapse: collapse; width: 100%; margin: 0.5em 0 1em 0; font-size: 0.92em; }
+ th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: left; vertical-align: top; }
+ th { background: #f4f4f4; }
+@@ -2051,7 +2233,7 @@ def render_html(md_text: str) -> str:
+     for raw in lines:
+         line = html.escape(raw)
+         # Headings
+-        m = re.match(r"^(#{1,3}) (.+)$", line)
++        m = re.match(r"^(#{1,6}) (.+)$", line)
+         if m:
+             close_para(); close_list(); close_table()
+             level = len(m.group(1))
+diff --git a/aranumtoolkit/tests/test_dashboard_kb.py b/aranumtoolkit/tests/test_dashboard_kb.py
+new file mode 100644
+index 0000000..bbecc7f
+--- /dev/null
++++ b/aranumtoolkit/tests/test_dashboard_kb.py
+@@ -0,0 +1,97 @@
++#!/usr/bin/env python3
++"""test_dashboard_kb.py — S2/D2.2 dashboard surfaces for the finding KB.
++
++Drives report-dashboard.py over a fixture and asserts the three new pages/panels
++render what they must:
++  * Active Directory page groups an SMB-signing finding under "Relay & coercion",
++    lists the detected DC, and carries the "Uncorrelated signals" caveat;
++  * the Run-health panel on the index lists an ungraded nuclei timeout as a
++    coverage gap (not a finding);
++  * the Categories page renders and KB guidance exposes copy-to-clipboard
++    buttons (data-copy).
++Pages must also stay well-formed HTML.
++"""
++from __future__ import annotations
++
++import subprocess
++import sys
++import tempfile
++import unittest
++from html.parser import HTMLParser
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[2]
++NET = REPO / "aranumtoolkit" / "network"
++PY = sys.executable
++
++
++def _build_fixture(root: Path) -> Path:
++    """A DC (10.0.0.10: 88 + 389 + 445) with an SMB-signing finding, plus an
++    ungraded nuclei timeout in a dispatcher log."""
++    scan = root / "scan"
++    smb = scan / "smb" / "10.0.0.10_445"
++    smb.mkdir(parents=True)
++    (smb / "enum.txt").write_text("SMB signing disabled on 10.0.0.10\n")
++    (scan / "kerberos" / "10.0.0.10_88").mkdir(parents=True)
++    (scan / "kerberos" / "10.0.0.10_88" / "k.txt").write_text("kerberos 88 open\n")
++    (scan / "ldap" / "10.0.0.10_389").mkdir(parents=True)
++    (scan / "ldap" / "10.0.0.10_389" / "l.txt").write_text("ldap 389 open\n")
++    http = scan / "http"
++    http.mkdir(parents=True)
++    (http / "_dispatcher.log").write_text(
++        "[+] http dispatch start\n"
++        "[!] nuclei timed out after 300s on 10.0.0.9\n")
++    return scan
++
++
++class TestDashboardKB(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls._tmp = tempfile.TemporaryDirectory()
++        root = Path(cls._tmp.name)
++        scan = _build_fixture(root)
++        cls.out = root / "dash"
++        r = subprocess.run(
++            [PY, str(NET / "report-dashboard.py"), str(scan), "--output", str(cls.out)],
++            capture_output=True, text=True, timeout=120)
++        assert r.returncode == 0, f"dashboard build failed: {r.stderr}"
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._tmp.cleanup()
++
++    def _read(self, name: str) -> str:
++        p = self.out / name
++        self.assertTrue(p.exists(), f"{name} not generated")
++        return p.read_text(encoding="utf-8")
++
++    def test_pages_are_wellformed(self):
++        pages = list(self.out.glob("*.html"))
++        self.assertTrue(pages)
++        for p in pages:
++            HTMLParser().feed(p.read_text(encoding="utf-8", errors="replace"))
++
++    def test_ad_page_groups_signing_under_relay_with_caveat(self):
++        ad = self._read("ad.html")
++        self.assertIn("Relay &amp; coercion", ad)
++        self.assertIn("signing disabled", ad)
++        # Cross-family correlation caveat must be present (S2 has no domain id).
++        self.assertIn("Uncorrelated signals", ad)
++        # The DC (88 + 389/445) is positively identified.
++        self.assertIn("10.0.0.10", ad)
++
++    def test_run_health_lists_ungraded_timeout(self):
++        idx = self._read("index.html")
++        self.assertIn("Run health", idx)
++        self.assertIn("timeout", idx)
++        self.assertIn("nuclei timed out", idx)
++
++    def test_categories_page_and_copy_buttons(self):
++        cats = self._read("categories.html")
++        self.assertIn("data-copy", cats)  # KB guidance exposes copy buttons
++        # The AD page's guidance expander also carries a copy button.
++        self.assertIn("data-copy", self._read("ad.html"))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/aranumtoolkit/tests/test_finding_kb.py b/aranumtoolkit/tests/test_finding_kb.py
+new file mode 100644
+index 0000000..c41604f
+--- /dev/null
++++ b/aranumtoolkit/tests/test_finding_kb.py
+@@ -0,0 +1,232 @@
++#!/usr/bin/env python3
++"""test_finding_kb.py — S2/D2.1 finding knowledge base.
++
++Covers three things:
++  * the KB **coverage gate** over every non-low built-in rule_id (and its RED
++    proof, driven through the ARANUM_FINDING_KB env override);
++  * KB schema validity (schema version, category references, test+fix blocks);
++  * the additive ``category`` / ``kb_id`` / ``kb_match`` fields attached to
++    findings at finalize time, plus the smb relay-vs-fileservice category split
++    and the Top-risks markdown section.
++
++The coverage denominator is enumerated *in this test*, straight from report.py's
++rule lists, so the gate cannot be made to pass by editing one shared helper.
++"""
++from __future__ import annotations
++
++import importlib.util
++import json
++import os
++import tempfile
++import unittest
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[2]
++REPORT_PATH = REPO / "aranumtoolkit" / "network" / "report.py"
++
++
++def _load_report():
++    spec = importlib.util.spec_from_file_location("report_mod_kb", REPORT_PATH)
++    mod = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(mod)
++    return mod
++
++
++R = _load_report()
++
++
++def _non_low_builtin_rule_ids(mod) -> "dict[str, str]":
++    """The KB coverage denominator: non-low, non-generic-fallback built-in
++    rule_ids across all four rule lists -> severity. Enumerated here (not from a
++    report.py helper) so the gate is independent of the code it checks."""
++    ids: "dict[str, str]" = {}
++    for lst in (mod._DEFAULT_RULES, mod._BULK_RULES,
++                mod._BULK_RULES_WIN, mod._AD_DEPTH_RULES):
++        for r in lst:
++            if r.severity == "low":
++                continue
++            if r.rule_id in mod._GENERIC_FALLBACK_RULE_IDS:
++                continue
++            ids.setdefault(r.rule_id, r.severity)
++    return ids
++
++
++def _fresh_kb(mod, path=None) -> dict:
++    """Reload the KB uncached. With a path, point ARANUM_FINDING_KB at it; with
++    None, clear the override and reload the shipped KB."""
++    mod._FINDING_KB_CACHE = None
++    mod._FINDING_KB_CACHE_PATH = None
++    if path is None:
++        os.environ.pop("ARANUM_FINDING_KB", None)
++    else:
++        os.environ["ARANUM_FINDING_KB"] = str(path)
++    return mod._load_finding_kb()
++
++
++def _uncovered(mod, kb) -> "list[str]":
++    """The gate's decision function: non-low rule_ids with no KB class."""
++    ids = _non_low_builtin_rule_ids(mod)
++    classes = kb.get("classes", {})
++    return sorted(k for k in ids if k not in classes)
++
++
++class TestKBCoverageGate(unittest.TestCase):
++    """The gate: every non-low built-in rule_id has a usable KB class."""
++
++    def tearDown(self):
++        _fresh_kb(R)  # always restore the shipped KB + cache
++
++    def test_kb_covers_every_non_low_rule_id(self):
++        kb = _fresh_kb(R)
++        ids = _non_low_builtin_rule_ids(R)
++        # Anti-vacuous: the denominator must be substantial. A rule-list rename
++        # that empties it would otherwise make coverage pass trivially.
++        self.assertGreaterEqual(
++            len(ids), 150,
++            f"only {len(ids)} non-low rule_ids enumerated — denominator collapsed")
++        uncovered = _uncovered(R, kb)
++        self.assertEqual(
++            uncovered, [],
++            f"{len(uncovered)} non-low rule_ids have no KB class: {uncovered[:20]}")
++        # Every covered class must carry usable test AND fix guidance.
++        classes = kb["classes"]
++        thin = []
++        for rid in ids:
++            cls = classes.get(rid, {})
++            tests, fixes = cls.get("test"), cls.get("fix")
++            if not (isinstance(tests, list) and tests
++                    and isinstance(fixes, list) and fixes):
++                thin.append(rid)
++        self.assertEqual(
++            thin, [],
++            f"{len(thin)} KB classes lack a test or fix block: {thin[:20]}")
++
++    def test_coverage_gate_goes_red_when_a_class_is_removed(self):
++        """RED proof. Drop one covered class into a temp KB via
++        ARANUM_FINDING_KB; the gate's decision function must then name exactly
++        that rule_id as uncovered. Proves the gate can fail (is not vacuous)."""
++        ids = _non_low_builtin_rule_ids(R)
++        victim = sorted(ids)[0]
++        full = json.loads(R._FINDING_KB_DEFAULT.read_text())
++        # Subject-exists guard: a missing victim would make this a silent no-op.
++        self.assertIn(victim, full["classes"])
++        del full["classes"][victim]
++        with tempfile.TemporaryDirectory() as d:
++            p = Path(d) / "kb-minus-one.json"
++            p.write_text(json.dumps(full))
++            kb = _fresh_kb(R, p)
++            uncovered = _uncovered(R, kb)
++        self.assertIn(
++            victim, uncovered,
++            "gate did not flag the removed class — it is vacuous")
++
++
++class TestKBSchema(unittest.TestCase):
++    def setUp(self):
++        self.raw = json.loads(R._FINDING_KB_DEFAULT.read_text())
++
++    def test_schema_version_and_category_references(self):
++        self.assertEqual(self.raw.get("schema"), 1)
++        cats = self.raw["categories"]
++        self.assertTrue(cats)
++        bad = [rid for rid, c in self.raw["classes"].items()
++               if c.get("category") not in cats]
++        self.assertEqual(bad, [], f"classes with unknown category: {bad[:20]}")
++        badsvc = [k for k, v in self.raw["service_categories"].items()
++                  if v not in cats]
++        self.assertEqual(badsvc, [],
++                         f"service_categories -> unknown category: {badsvc}")
++
++    def test_every_class_has_title_why_test_fix(self):
++        missing = []
++        for rid, c in self.raw["classes"].items():
++            if not c.get("title") or not c.get("why"):
++                missing.append(("meta", rid))
++            if not (c.get("test") and isinstance(c["test"], list)):
++                missing.append(("test", rid))
++            if not (c.get("fix") and isinstance(c["fix"], list)):
++                missing.append(("fix", rid))
++        self.assertEqual(missing, [], f"incomplete classes: {missing[:20]}")
++
++
++class TestServiceCategorySplit(unittest.TestCase):
++    """_service_category — the smb relay-vs-fileservice split keys on the host's
++    other open ports."""
++
++    def setUp(self):
++        self.kb = _fresh_kb(R)
++
++    def tearDown(self):
++        _fresh_kb(R)
++
++    def test_smb_is_ad_on_a_domain_controller(self):
++        self.assertEqual(R._service_category("smb", self.kb, {"445", "88"}), "ad")
++        self.assertEqual(R._service_category("smb", self.kb, {"445", "389"}), "ad")
++
++    def test_smb_is_network_without_kerberos_or_ldap(self):
++        self.assertEqual(R._service_category("smb", self.kb, {"445"}), "network")
++
++    def test_unknown_service_defaults_to_network(self):
++        self.assertEqual(R._service_category("nosuchsvc", self.kb, set()), "network")
++
++
++class TestAttachKBFields(unittest.TestCase):
++    def setUp(self):
++        self.kb = _fresh_kb(R)
++
++    def tearDown(self):
++        _fresh_kb(R)
++
++    def test_rule_matched_finding_sets_kb_id_equal_to_rule_id(self):
++        rid = sorted(_non_low_builtin_rule_ids(R))[0]
++        f = {"rule_id": rid, "service": "smb", "host": "10.0.0.5"}
++        R._attach_kb(f, self.kb, set())
++        self.assertEqual(f["kb_match"], "rule")
++        self.assertEqual(f["kb_id"], rid)
++        self.assertEqual(f["category"], self.kb["classes"][rid]["category"])
++
++    def test_service_default_when_rule_id_has_no_class(self):
++        f = {"rule_id": "", "service": "smb", "host": "10.0.0.5"}
++        R._attach_kb(f, self.kb, {"445"})
++        self.assertEqual(f["kb_match"], "service-default")
++        self.assertEqual(f["kb_id"], "")
++        self.assertEqual(f["category"], "network")
++
++    def test_collect_attaches_kb_to_every_finding(self):
++        with tempfile.TemporaryDirectory() as d:
++            scan = Path(d) / "scan"
++            (scan / "redis" / "10.0.0.1_6379").mkdir(parents=True)
++            (scan / "redis" / "10.0.0.1_6379" / "info.txt").write_text(
++                "[!!] UNAUTH Redis 10.0.0.1:6379 — redis_version:7.0.15 role:master\n")
++            rules = R._compose_rules(R._load_rules(None), R._AD_DEPTH_RULES)
++            col = R.collect(scan, rules)
++            self.assertTrue(col.findings, "fixture produced no findings")
++            for f in col.findings:
++                self.assertIn("category", f)
++                self.assertIn("kb_id", f)
++                self.assertIn("kb_match", f)
++            matched = [f for f in col.findings if f["kb_match"] == "rule"]
++            self.assertTrue(matched, "no finding resolved a KB class end-to-end")
++            for f in matched:
++                self.assertEqual(f["kb_id"], f["rule_id"])
++
++
++class TestTopRisksMarkdown(unittest.TestCase):
++    def test_report_md_has_top_risks_and_how_to_fix(self):
++        _fresh_kb(R)
++        with tempfile.TemporaryDirectory() as d:
++            scan = Path(d) / "scan"
++            (scan / "redis" / "10.0.0.1_6379").mkdir(parents=True)
++            (scan / "redis" / "10.0.0.1_6379" / "info.txt").write_text(
++                "[!!] UNAUTH Redis 10.0.0.1:6379 — redis_version:7.0.15 role:master\n")
++            rules = R._compose_rules(R._load_rules(None), R._AD_DEPTH_RULES)
++            col = R.collect(scan, rules)
++            summary = R._summary(col.findings, scan)
++            md = R.render_markdown(col.findings, summary, "test",
++                                   R.Redactor(False), col.per_host)
++        self.assertIn("## Top risks by category", md)
++        self.assertIn("**How to fix:**", md)
++
++
++if __name__ == "__main__":
++    unittest.main()
