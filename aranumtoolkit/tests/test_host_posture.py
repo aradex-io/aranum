@@ -508,6 +508,18 @@ def test_windows_collector_and_payload_pass_pssa_51_profiles(tmp_path):
     assert rows[WINPS.name] == ["0", ""], rows[WINPS.name]
     assert rows["payload.ps1"] == ["0", ""], rows["payload.ps1"]
 
+def test_redactor_folds_case_for_identities_but_leaves_non_ip_tokens_verbatim():
+    # Round 2 NEW-1: case-folding is for identity lookup only. A colon token that is
+    # not an IP address (uppercase MAC) must come back byte-for-byte, while the same
+    # host in two cases still maps to one token.
+    r = RPT.Redactor(True)
+    r.set_known_hosts(["dc01.corp.local"])
+    out = r("mac AA:BB:CC:DD:EE:FF host DC01.CORP.LOCAL and dc01.corp.local ip FE80::1")
+    assert "AA:BB:CC:DD:EE:FF" in out
+    assert "DC01" not in out and "dc01" not in out and "FE80::1" not in out.upper()
+    assert out.count("<TARGET-1>") == 2, out
+
+
 # ============================================================ report.py parser / model
 def _bulk_tree(tmp_path: Path, hosts: "dict[str, tuple[str, str]]") -> Path:
     """hosts: dirname -> (ip, winenum|linenum file content)."""

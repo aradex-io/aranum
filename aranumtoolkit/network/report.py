@@ -938,16 +938,17 @@ class Redactor:
         host_set = {h.lower() for h in self._hosts}
         def _sub(m):
             # One token per identity regardless of case (and per IPv6 hex case).
-            key = m.group(0).lower()
+            raw = m.group(0)
+            key = raw.lower()
             # A colon-bearing, non-bracketed match is a bare-IPv6 candidate:
             # redact only if it is a real IP address or a known host, else leave
-            # it (avoids mangling MACs / hex tokens the loose regex catches).
+            # it verbatim (avoids mangling MACs / hex tokens the loose regex catches).
             if ":" in key and not key.startswith("["):
                 try:
                     ipaddress.ip_address(key)
                 except ValueError:
                     if key not in host_set:
-                        return key
+                        return raw
             if key not in self._map:
                 self._counter += 1
                 self._map[key] = f"<TARGET-{self._counter}>"
