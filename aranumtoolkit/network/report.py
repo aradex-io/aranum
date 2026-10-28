@@ -2224,7 +2224,8 @@ def _bulk_identity(host_dir: Path) -> tuple[dict, dict[str, str]]:
         "protocol": protocol,
         "auth_context": _auth_context(
             obj.get("invocation", {}), account_label=user, host=host,
-            domain=str(obj.get("domain", "")), dispatcher=""),
+            domain=str(obj.get("domain", "")),
+            dispatcher=str(obj.get("transport", ""))),
     }
 
 
@@ -2236,6 +2237,62 @@ def _with_bulk_identity(finding: dict, identity: dict) -> dict:
         "auth_context": identity.get("auth_context"),
     })
     return finding
+
+
+_AUTH_OUTCOME_BY_STATUS = {
+    "OK": "success",
+    "AUTH_LOCKOUT": "lockout",
+    "AUTH_FAIL": "failure",
+    "UNREACHABLE": "error",
+    "TIMEOUT": "error",
+    "HOST_TIMEOUT": "error",
+    "REMOTE_ERR": "error",
+    "DEP_MISSING": "error",
+    "COLLECTOR_ERR": "error",
+}
+
+
+def _auth_outcomes(out_dir: Path) -> list[dict]:
+    """Derive one auth result per attempted bulk-host artifact.
+
+    Marked mixed trees contain one or more bulk roots; a legacy/pure bulk tree
+    contains the host directories directly. Malformed metadata is ignored here
+    because the findings walker already emits the canonical diagnostic.
+    """
+    roots = _bulk_roots(out_dir) or [out_dir]
+    outcomes = []
+    for root in roots:
+        for host_dir in sorted(
+                p for p in root.iterdir() if p.is_dir() and not p.is_symlink()):
+            if not (host_dir / "_meta.json").is_file():
+                continue
+            try:
+                obj, identity = _bulk_identity(host_dir)
+            except ValueError:
+                continue
+            auth_context = identity.get("auth_context")
+            if not isinstance(auth_context, dict):
+                continue
+            status = str(obj.get("status", "")).upper()
+            if status == "SKIPPED":
+                continue
+            method = auth_context.get("auth_method")
+            if method in {"anonymous", "null-session"}:
+                outcome = method
+            else:
+                outcome = _AUTH_OUTCOME_BY_STATUS.get(status)
+            if outcome is None:
+                continue
+            outcomes.append({
+                "host": identity["host"],
+                "transport": str(obj.get("transport", "")),
+                "outcome": outcome,
+                "auth_context": auth_context,
+            })
+    return sorted(outcomes, key=lambda item: (
+        item["host"], item["transport"],
+        str(item["auth_context"].get("account_label", "")),
+    ))
 
 
 def walk_findings_bulk(
@@ -2563,19 +2620,21 @@ def _posture_identities(posture: "dict | None", quarantined: "list[dict]") -> "l
     return sorted(found)
 
 
+def _redact_auth_context(value: object, redactor: "Redactor") -> object:
+    if not isinstance(value, dict):
+        return value
+    out = dict(value)
+    for key in ("account_label", "domain", "local_host"):
+        if out.get(key):
+            out[key] = redactor(str(out[key]))
+    inv = dict(out.get("invocation") or {})
+    if inv.get("domain_arg"):
+        inv["domain_arg"] = redactor(str(inv["domain_arg"]))
+    out["invocation"] = inv
+    return out
+
+
 def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
-    def redact_context(value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        out = dict(value)
-        for key in ("account_label", "domain", "local_host"):
-            if out.get(key):
-                out[key] = redactor(str(out[key]))
-        inv = dict(out.get("invocation") or {})
-        if inv.get("domain_arg"):
-            inv["domain_arg"] = redactor(str(inv["domain_arg"]))
-        out["invocation"] = inv
-        return out
 
     hosts = {}
     for h, rec in (posture.get("hosts") or {}).items():
@@ -2586,7 +2645,7 @@ def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
                        for cid, c in rec.get("checks", {}).items()},
             "domain_observations": {cid: {"status": c["status"], "detail": redactor(c["detail"])}
                                     for cid, c in rec.get("domain_observations", {}).items()},
-            "auth_context": redact_context(rec.get("auth_context")),
+            "auth_context": _redact_auth_context(rec.get("auth_context"), redactor),
         }
     domains = {}
     for d, v in (posture.get("domains") or {}).items():
@@ -2596,7 +2655,7 @@ def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
                                      "detail": redactor(o["detail"])}
                                     for o in c.get("observed_from", [])]}
             for cid, c in v.get("checks", {}).items()},
-            "auth_context": redact_context(v.get("auth_context"))}
+            "auth_context": _redact_auth_context(v.get("auth_context"), redactor)}
     return {"hosts": hosts, "domains": domains}
 
 
@@ -3133,6 +3192,7 @@ def main() -> int:
     report_diagnostics: list[dict] = []
     collection = collect(out_dir, rules, service_metadata, diagnostics=report_diagnostics)
     findings = collection.findings
+    auth_outcomes = _auth_outcomes(out_dir)
     per_host = collection.per_host
     bulk_mode = collection.mode == "bulk-enum"
     if bulk_mode:
@@ -3161,6 +3221,7 @@ def main() -> int:
         "summary":       summary,
         "findings":      findings,
         "kb":            _kb_subset(findings),
+        "auth_outcomes": auth_outcomes,
     }
     if quarantined:
         findings_json["posture_quarantine"] = quarantined
@@ -3187,8 +3248,16 @@ def main() -> int:
     if args.redact:
         # Seed hostname redaction from the discovered scan hosts (pre-redaction),
         # plus any domain identities the posture rollup established.
+        outcome_identities = []
+        for item in auth_outcomes:
+            context = item.get("auth_context") or {}
+            outcome_identities.extend(
+                str(context.get(key, "")) for key in ("account_label", "domain", "local_host")
+                if context.get(key))
         redactor.set_known_hosts(list(summary.get("hosts", []))
-                                 + _posture_identities(posture, quarantined))
+                                 + _posture_identities(posture, quarantined)
+                                 + [str(item.get("host", "")) for item in auth_outcomes]
+                                 + outcome_identities)
         for f in findings_json["findings"]:
             f["host"] = redactor(f["host"])
             f["line"] = redactor(f["line"])
@@ -3202,13 +3271,10 @@ def main() -> int:
                                        "detail": redactor(o["detail"])}
                                       for o in f["observed_from"]]
             if isinstance(f.get("auth_context"), dict):
-                context = f["auth_context"]
-                for key in ("account_label", "domain", "local_host"):
-                    if context.get(key):
-                        context[key] = redactor(str(context[key]))
-                inv = context.get("invocation") or {}
-                if inv.get("domain_arg"):
-                    inv["domain_arg"] = redactor(str(inv["domain_arg"]))
+                f["auth_context"] = _redact_auth_context(f["auth_context"], redactor)
+        for item in findings_json["auth_outcomes"]:
+            item["host"] = redactor(str(item["host"]))
+            item["auth_context"] = _redact_auth_context(item.get("auth_context"), redactor)
         for d in quarantined:
             for k in ("host", "path"):
                 d[k] = redactor(str(d.get(k, "")))

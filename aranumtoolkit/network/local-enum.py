@@ -88,6 +88,11 @@ VIA_BY_PORT.update({p: "vnc" for p in range(5900, 5911)})
 NOT_WINDOWS_PRODUCT = re.compile(r"samba|xrdp|linux|ubuntu|debian|red ?hat|centos|"
                                  r"fedora|freebsd|openbsd|alpine|suse", re.I)
 HOST_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
+AUTH_LOCKOUT_RE = re.compile(
+    r"status_account_locked_out|account (?:is )?locked(?:.?out)?|0xc0000234|"
+    r"data 775|the referenced account is currently locked out",
+    re.I,
+)
 NT_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
 
@@ -980,8 +985,11 @@ def classify_exec(out: str, errtxt: str, timed_out: bool) -> tuple:
     if PROBE_HEADER in out and PROBE_END in out:
         return "OK", ""
     low = (out + "\n" + errtxt).lower()
-    if re.search(r"logon_failure|access_denied|authentication|login failure|"
-                 r"invalid credentials|status_access_denied", low):
+    if AUTH_LOCKOUT_RE.search(low):
+        return "AUTH_LOCKOUT", "exec account locked out"
+    if re.search(r"permission denied|logon_failure|access_denied|authentication|"
+                 r"login failure|invalid credentials|too many authentication failures|"
+                 r"status_access_denied", low):
         return "AUTH_FAIL", "exec authentication rejected"
     if re.search(r"connection error|timed out|no route to host|connection refused|"
                  r"unreachable|connresettError|connection reset", low):

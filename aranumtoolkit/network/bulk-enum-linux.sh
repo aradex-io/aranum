@@ -142,7 +142,7 @@ Examples:
   $0 --targets prev.txt --resume -o ./prev    # continue an interrupted run
 
 Per-host status (in _summary.tsv / _meta.json):
-  OK  AUTH_FAIL  UNREACHABLE  TIMEOUT  REMOTE_ERR
+  OK  AUTH_LOCKOUT  AUTH_FAIL  UNREACHABLE  TIMEOUT  HOST_TIMEOUT  REMOTE_ERR
 
 Per ADR-002:
   - linenum-fast.sh is piped over stdin (never lands on target disk)
@@ -403,6 +403,7 @@ ssh_base_args() {
 # ---------- status classification (ADR-006 D1a-2) ----------
 # Map (ssh rc + stderr) -> "STATUS<TAB>fail_reason".
 #   OK           rc == 0
+#   AUTH_LOCKOUT any non-zero rc + an explicit account-lockout response
 #   AUTH_FAIL    rc 255 + "Permission denied" (or sshpass incorrect-password rc 5)
 #   UNREACHABLE  rc 255 + connection refused / no route / DNS failure / unknown
 #   TIMEOUT      rc 255 + timed out
@@ -411,14 +412,16 @@ classify_status() {
     local rc="$1" errfile="$2"
     local status="OK" fail=""
     if [ "$rc" -ne 0 ]; then
-        if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+        if grep -qiE 'status_account_locked_out|account (is )?locked(.?out)?|0xc0000234|data 775|the referenced account is currently locked out' "$errfile" 2>/dev/null; then
+            status="AUTH_LOCKOUT"; fail="account locked out"
+        elif [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
             # coreutils `timeout` fired (TERM=124, KILL-after-grace=137): auth may
             # have succeeded but the enum exceeded --host-timeout. Partial output
             # in linenum.txt is kept. Distinct from connect-level TIMEOUT so the
             # retry loop does NOT re-run it (a slow host stays slow).
             status="HOST_TIMEOUT"; fail="enum exceeded --host-timeout"
         elif [ "$rc" -eq 255 ]; then
-            if grep -qiE 'permission denied|authentication failed|too many authentication failures' "$errfile" 2>/dev/null; then
+            if grep -qiE 'permission denied|authentication failed|logon_failure|invalid credentials|too many authentication failures' "$errfile" 2>/dev/null; then
                 status="AUTH_FAIL"; fail="permission denied"
             elif grep -qiE 'connection refused|no route to host|network is unreachable|name or service not known|could not resolve|connection closed' "$errfile" 2>/dev/null; then
                 status="UNREACHABLE"; fail="host unreachable"

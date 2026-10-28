@@ -10,6 +10,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 ## [Unreleased]
 
 ### Added
+- `PLAN-002 A4`: added explicit `AUTH_LOCKOUT` bulk classification, derived the top-level `auth_outcomes` findings-envelope signal, added its schema field, and published the synthetic FX-5 reuse fixture. Refs: PLAN-002 A4.1-A4.4.
 - `PLAN-002 A3`: added `--auth-scope`/`--local-auth`, the shared `auth-scope-map.json`/`auth_scope.py` family mapper, argv-only invocation carriers, per-finding and local-posture `auth_context`, LDAP local-scope authenticated-check skips with coverage `skipped_checks`, credential account labels in the `logical_id` user slot, hermetic `test_auth_context.py` coverage, and FX-2 v2/FX-2L v1; removed domain inference from `nxc_creds_array()` and `_win_user()`. Refs: PLAN-002 A3.1-A3.6.
 - `network/report.py`: added SARIF 2.1.0 KB reporting descriptors, repository tool versions, endpoint logical locations, and finding attribution properties. Refs: PLAN-002 A2.1.
 - `network/report.py`, `aranumtoolkit/schemas/kb-subset-1.schema.json`: added a digest-pinned, reference-closed raw KB subset to every findings envelope and its strict Draft 2020-12 envelope schema. Refs: PLAN-002 A2.2.

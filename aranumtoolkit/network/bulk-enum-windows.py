@@ -34,7 +34,7 @@ Output layout matches ADR-002 D5 / bulk-enum-linux.sh's layout — only the
 filename changes (winenum.txt vs linenum.txt). report.py auto-detects both
 formats in the same $OUT dir. `_meta.json` now records which transport
 actually succeeded (`"transport"`) and a `"status"` classification shared
-with the Linux side: OK | AUTH_FAIL | UNREACHABLE | REMOTE_ERR.
+with the Linux side: OK | AUTH_LOCKOUT | AUTH_FAIL | UNREACHABLE | REMOTE_ERR.
 
 TRANSPORTS
 ----------
@@ -84,7 +84,7 @@ no live Windows/network calls):
     (KEY / PASS / KEY_THEN_PASS), including the BatchMode/sshpass
     regression assertion
   - base64 PS-payload wrapping (smb transport)
-  - status classification (OK/AUTH_FAIL/UNREACHABLE/REMOTE_ERR)
+  - status classification (OK/AUTH_LOCKOUT/AUTH_FAIL/UNREACHABLE/REMOTE_ERR)
 The operator's first real run against a known-good Windows VM (WinRM),
 an OpenSSH-enabled Windows host (ssh), and an admin-reachable host (smb)
 is the validation for each transport respectively. Treat that as
@@ -123,6 +123,11 @@ DEFAULT_SCRIPT = PROJECT_ROOT / "standalones" / "windows" / "Invoke-PrivEscEnum.
 POSTURE_SCRIPT = PROJECT_ROOT / "standalones" / "windows" / "Invoke-HostPosture.ps1"
 PARALLEL_CAP = 16
 TRANSPORT_NAMES = ("winrm", "ssh", "smb")
+AUTH_LOCKOUT_RE = re.compile(
+    r"status_account_locked_out|account (?:is )?locked(?:.?out)?|0xc0000234|"
+    r"data 775|the referenced account is currently locked out",
+    re.I,
+)
 
 
 def _load_auth_scope_module():
@@ -328,14 +333,16 @@ def build_ssh_argv(target: Target, *, user: str, key: Optional[str], password: O
 def _classify_ssh_result(rc: int, stderr: str, *, password_used: bool) -> tuple[str, str]:
     """Map (ssh rc, stderr) -> (status, fail_reason). Mirrors
     bulk-enum-linux.sh's classify_status() (ADR-006 D1a-2), folded onto
-    the 4-way status vocabulary this transport uses (TIMEOUT collapses
+    the 5-way status vocabulary this transport uses (TIMEOUT collapses
     into UNREACHABLE here)."""
     if rc == 0:
         return "OK", ""
     low = stderr.lower()
+    if AUTH_LOCKOUT_RE.search(low):
+        return "AUTH_LOCKOUT", "account locked out"
     if rc == 255:
-        if re.search(r"permission denied|authentication failed|"
-                     r"too many authentication failures", low):
+        if re.search(r"permission denied|authentication failed|logon_failure|"
+                     r"invalid credentials|too many authentication failures", low):
             return "AUTH_FAIL", "permission denied"
         if re.search(r"connection refused|no route to host|network is unreachable|"
                      r"name or service not known|could not resolve|connection closed", low):
@@ -358,7 +365,11 @@ def _classify_winrm(rc: int, stderr: str) -> tuple[str, str]:
         return "OK", ""
     low = stderr.lower()
     exc_name = stderr.split(":", 1)[0].strip()
-    if exc_name == "InvalidCredentialsError" or "unauthorized" in low or " 401" in low:
+    if AUTH_LOCKOUT_RE.search(low):
+        return "AUTH_LOCKOUT", "WinRM account locked out"
+    if (exc_name == "InvalidCredentialsError" or "unauthorized" in low or " 401" in low
+            or re.search(r"permission denied|logon_failure|invalid credentials|"
+                         r"too many authentication failures", low)):
         return "AUTH_FAIL", "WinRM authentication rejected"
     if ("connection" in exc_name.lower() or "timeout" in exc_name.lower() or
             "winrmtransporterror" in exc_name.lower() or
@@ -497,7 +508,7 @@ class TransportResult:
     rc: int
     stdout: str
     stderr: str
-    status: str          # OK | AUTH_FAIL | UNREACHABLE | REMOTE_ERR
+    status: str          # OK | AUTH_LOCKOUT | AUTH_FAIL | UNREACHABLE | REMOTE_ERR
     fail_reason: str = ""
     endpoint_port: Optional[int] = None
 
@@ -644,7 +655,7 @@ class HostResult:
     stdout_bytes: int
     stderr_bytes: int
     transport: str    # "winrm" | "ssh" | "smb" | "resume-skip" | "dry-run"
-    status: str = "OK"          # OK | AUTH_FAIL | UNREACHABLE | REMOTE_ERR
+    status: str = "OK"  # OK | AUTH_LOCKOUT | AUTH_FAIL | UNREACHABLE | REMOTE_ERR
     fail_reason: str = ""
 
 
@@ -704,9 +715,10 @@ def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
         attempts.append(f"{name}={outcome.status}")
         result = outcome
         used_transport = name
-        if outcome.status in ("OK", "REMOTE_ERR"):
+        if outcome.status in ("OK", "AUTH_LOCKOUT", "REMOTE_ERR"):
             # Authentication succeeded (script ran, whether or not it exited
-            # cleanly) — this transport "won"; stop the fallthrough here.
+            # cleanly), or the account is explicitly locked. This transport
+            # is terminal; never make another auth attempt after a lockout.
             break
         # else AUTH_FAIL / UNREACHABLE — try the next transport in order.
 

@@ -40,6 +40,18 @@ def _load_report_module():
 REPORT = _load_report_module()
 
 
+def _load_local_enum_module():
+    spec = importlib.util.spec_from_file_location(
+        "aranum_fixture_local_enum", NETWORK / "local-enum.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["aranum_fixture_local_enum"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+LOCAL_ENUM = _load_local_enum_module()
+
+
 def _write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
@@ -371,11 +383,71 @@ def _fx4l() -> Path:
     return out
 
 
+def _fx5() -> Path:
+    out = OUTPUT / "FX-5"
+    out.mkdir(parents=True)
+    run_id = "fx-5-run"
+
+    lockout_status = LOCAL_ENUM.classify_exec(
+        "", "STATUS_ACCOUNT_LOCKED_OUT: authentication failed", False)[0]
+    attempts = [
+        ("10.0.0.1", "svc-local", "exec", "OK", "local", ""),
+        ("10.0.0.2", "svc-local", "exec", "OK", "local", ""),
+        ("10.0.0.3", "svc-local", "exec", lockout_status, "local", ""),
+        ("10.0.0.4", "dom-user", "winrm", "OK", "domain", "CORP.LOCAL"),
+    ]
+    for host, account, transport, status, scope, domain in attempts:
+        hdir = out / host
+        hdir.mkdir()
+        invocation = {
+            "domain_arg": domain,
+            "local_auth_flag": scope == "local",
+            "username_form": "bare",
+            "credential_kind": "password",
+            "auth_scope_declared": scope,
+        }
+        _write_json(hdir / "_meta.json", {
+            "host": host,
+            "user": account,
+            "port": "",
+            "transport": transport,
+            "status": status,
+            "fail_reason": "account locked out" if status == "AUTH_LOCKOUT" else "",
+            "artifact_id": host,
+            "protocol": "tcp",
+            "domain": domain,
+            "invocation": invocation,
+        })
+        (hdir / "winenum.txt").write_text(
+            f"synthetic authorized reuse observation for {account}\n", encoding="utf-8")
+
+    outcomes = REPORT._auth_outcomes(out)
+    records = []
+    for index, outcome in enumerate(outcomes, 1):
+        record = _finding(
+            f"FX5-{index}", outcome["host"], "winenum",
+            "medium" if outcome["outcome"] == "lockout" else "low",
+            f"Synthetic bulk authentication {outcome['outcome']}",
+            auth_context=outcome["auth_context"],
+        )
+        record["evidence_path"] = f"{outcome['host']}/winenum.txt"
+        record["evidence_paths"] = [record["evidence_path"]]
+        records.append(record)
+    findings = _findings(run_id, "FX-5 reuse", "bulk-enum", records, inline_kb=True)
+    findings["auth_outcomes"] = outcomes
+    _write_json(out / "findings.json", findings)
+    _render_placeholders(out, "FX-5 reuse")
+    _stage(out, "local", run_id, "complete", 0)
+    _stage(out, "report", run_id, "complete", 0)
+    MANIFEST.build_manifest(out)
+    return out
+
+
 def main() -> int:
     if OUTPUT.exists():
         shutil.rmtree(OUTPUT)
     OUTPUT.mkdir(parents=True)
-    bundles = [_fx1(), _fx2(), _fx2l(), _fx3(), _fx4(), _fx4l()]
+    bundles = [_fx1(), _fx2(), _fx2l(), _fx3(), _fx4(), _fx4l(), _fx5()]
     digests = {
         bundle.name: hashlib.sha256((bundle / "bundle-manifest.json").read_bytes()).hexdigest()
         for bundle in bundles
