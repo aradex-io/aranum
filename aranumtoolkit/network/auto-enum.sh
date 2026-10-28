@@ -24,6 +24,8 @@ USER=""
 PASS=""
 NTLM_HASH=""
 DOMAIN=""
+AUTH_SCOPE=""
+LOCAL_AUTH=0
 DC_IP=""
 PARALLEL=4
 SERVICE_PARALLEL=1   # cross-service concurrency (1 = serial); --service-parallel N
@@ -58,6 +60,8 @@ Auth (optional — falls back to unauth):
   -p, --password      password
   -H, --hash          NTLM hash (use instead of password)
   -d, --domain        domain (e.g. CORP.LOCAL)
+  --auth-scope SCOPE  declared account scope: local, domain, or machine
+  --local-auth        nxc local authentication (implies local scope)
   --dc-ip             domain controller IP (for Kerberos enum)
 
 Tuning:
@@ -146,6 +150,8 @@ while [ $# -gt 0 ]; do
         -p|--password)  PASS="$2"; shift 2 ;;
         -H|--hash)      NTLM_HASH="$2"; shift 2 ;;
         -d|--domain)    DOMAIN="$2"; shift 2 ;;
+        --auth-scope)   AUTH_SCOPE="$2"; shift 2 ;;
+        --local-auth)   LOCAL_AUTH=1; shift ;;
         --dc-ip)        DC_IP="$2"; shift 2 ;;
         -P|--parallel)  PARALLEL="$2"; THROTTLE_EXPLICIT_PARALLEL=1; shift 2 ;;
         --service-parallel) SERVICE_PARALLEL="$2"; shift 2 ;;
@@ -173,6 +179,14 @@ while [ $# -gt 0 ]; do
 done
 
 [ -z "$INPUT" ] && { usage; exit 1; }
+[ "$AUTH_SCOPE" = "" ] || [ "$AUTH_SCOPE" = "local" ] || \
+    [ "$AUTH_SCOPE" = "domain" ] || [ "$AUTH_SCOPE" = "machine" ] || {
+        echo "invalid --auth-scope: $AUTH_SCOPE" >&2; exit 2;
+    }
+if { [ "$AUTH_SCOPE" = "domain" ] || [ "$AUTH_SCOPE" = "machine" ]; } && [ -z "$DOMAIN" ]; then
+    echo "--auth-scope $AUTH_SCOPE requires a non-empty -d/--domain" >&2
+    exit 2
+fi
 [ ! -f "$INPUT" ] && { echo "input not found: $INPUT"; exit 2; }
 [ ! -x "$PARSER" ] && chmod +x "$PARSER" 2>/dev/null
 
@@ -186,7 +200,36 @@ done
 mkdir -p "$OUTDIR" || { echo "cannot create output directory: $OUTDIR" >&2; exit 2; }
 [ -d "$OUTDIR" ] || { echo "output path is not a directory: $OUTDIR" >&2; exit 2; }
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-python3 "$SCRIPT_DIR/manifest.py" stage-begin "$OUTDIR" run --mint --run-id "$RUN_ID"
+EFFECTIVE_AUTH_SCOPE="$AUTH_SCOPE"
+[ -n "$EFFECTIVE_AUTH_SCOPE" ] || [ "$LOCAL_AUTH" != 1 ] || EFFECTIVE_AUTH_SCOPE="local"
+ACCOUNT_LABEL="$USER"
+if [ -n "$USER" ] && [ -n "$EFFECTIVE_AUTH_SCOPE" ]; then
+    ACCOUNT_LABEL=$(python3 "$SCRIPT_DIR/auth_scope.py" nxc \
+        --scope "$EFFECTIVE_AUTH_SCOPE" --domain "$DOMAIN" --user "$USER" \
+        --host "" --field username) || { echo "cannot map account label" >&2; exit 2; }
+fi
+INVOCATION_JSON=$(python3 - "$DOMAIN" "$LOCAL_AUTH" "$AUTH_SCOPE" "$USER" "$NTLM_HASH" "$PASS" "${KRB5CCNAME:-}" <<'PY'
+import json, sys
+domain, local_auth, scope, user, nthash, password, ccache = sys.argv[1:]
+if "\\" in user:
+    form = "backslash"
+elif "/" in user:
+    form = "slash"
+elif "@" in user:
+    form = "upn"
+elif user.endswith("$"):
+    form = "machine$"
+else:
+    form = "bare"
+kind = "hash" if nthash else "ticket" if ccache else "password" if password else "none"
+print(json.dumps({"domain_arg": domain,
+                  "local_auth_flag": local_auth == "1" or scope == "local",
+                  "username_form": form, "credential_kind": kind,
+                  "auth_scope_declared": scope or None}, separators=(",", ":")))
+PY
+) || { echo "cannot build invocation metadata" >&2; exit 2; }
+python3 "$SCRIPT_DIR/manifest.py" stage-begin "$OUTDIR" run --mint --run-id "$RUN_ID" \
+    --invocation-json "$INVOCATION_JSON" --account-label "$ACCOUNT_LABEL"
 trap 'rc=$?; python3 "$SCRIPT_DIR/manifest.py" stage-end "$OUTDIR" run "$rc"; exit $rc' EXIT
 RUN_STATE_DIR="$OUTDIR/.run-state-$RUN_ID"
 mkdir -p "$RUN_STATE_DIR" || { echo "cannot create run-state directory" >&2; exit 2; }
@@ -375,6 +418,7 @@ fi
 # Export auth so dispatchers see them
 export ENUM_USER="$USER" ENUM_PASS="$PASS" ENUM_HASH="$NTLM_HASH"
 export ENUM_DOMAIN="$DOMAIN" ENUM_DC_IP="$DC_IP" ENUM_PARALLEL="$PARALLEL"
+export ENUM_AUTH_SCOPE="$EFFECTIVE_AUTH_SCOPE"
 
 # --no-rpc: skip the msrpc dispatcher AND signal rpcclient-using dispatchers
 # (enum-smb.sh etc.) to omit their RPC calls. Mirrors disabling web (--exclude http).

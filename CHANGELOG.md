@@ -10,6 +10,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 ## [Unreleased]
 
 ### Added
+- `PLAN-002 A3`: added `--auth-scope`/`--local-auth`, the shared `auth-scope-map.json`/`auth_scope.py` family mapper, argv-only invocation carriers, per-finding and local-posture `auth_context`, LDAP local-scope authenticated-check skips with coverage `skipped_checks`, credential account labels in the `logical_id` user slot, hermetic `test_auth_context.py` coverage, and FX-2 v2/FX-2L v1; removed domain inference from `nxc_creds_array()` and `_win_user()`. Refs: PLAN-002 A3.1-A3.6.
 - `network/report.py`: added SARIF 2.1.0 KB reporting descriptors, repository tool versions, endpoint logical locations, and finding attribution properties. Refs: PLAN-002 A2.1.
 - `network/report.py`, `aranumtoolkit/schemas/kb-subset-1.schema.json`: added a digest-pinned, reference-closed raw KB subset to every findings envelope and its strict Draft 2020-12 envelope schema. Refs: PLAN-002 A2.2.
 - `network/report.py`: added normalized MITRE ATT&CK technique and sub-technique ids to every class and check included in an inline KB subset. Refs: PLAN-002 A2.3.
@@ -42,6 +43,7 @@ See `CLAUDE.md` §6 for the entry style guide.
 - `network/report.py`: `--redact` matches known hostnames case-insensitively and maps every case variant of a name to one `<TARGET-N>` token (before, `HOST01` survived when the known name was `host01`); colon tokens that are not IP addresses (e.g. an uppercase MAC) are returned verbatim, not case-folded.
 
 ### Changed
+- `network/_lib.sh`, `network/local-enum.py`: nxc dispatchers and the Windows bulk engine no longer infer domain context from a bare `-d`/`--domain` or a `DOMAIN\user` username shape — a `-d` value alone no longer reaches nxc and `_win_user()` no longer prepends `DOMAIN\`. Domain/machine binds now require an explicit `--auth-scope domain`/`machine`; without a declared scope the account is treated as scope-null. Authenticated `ldapsearch` keeps its `user@domain` bind on an undeclared scope for compatibility (it sets no report scope). Refs: PLAN-002 A3.1/A3.3.
 - `repo`: regenerated the synthetic mixed-posture FX-2 fixture as v1 with inline KB provenance, ATT&CK ids, logical ids, and a bumped recorded manifest digest. Refs: PLAN-002 A2.6.
 - `network/auto-enum.sh`, `network/local-enum.py`, `network/report.py`, `aranum.py`: run/local/report now open and close their own stage records with the specified run-id mint/inheritance rules; the run stage closes through an EXIT trap; rc 4 continues through local/report; report rc 1 still renders the dashboard; chained exit status follows the final manifest fold. Refs: PLAN-002 A1.3/A1.4.
 - `network/nmap-parse.py`: the `--json` inventory envelope now carries `schema_version` (`"1"`), `tool`, and `tool_version` as additive top-level keys (records unchanged) so a consumer can pin the inventory contract. Refs: PLAN-002 A1.1.

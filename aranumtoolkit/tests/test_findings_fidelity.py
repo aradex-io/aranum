@@ -202,7 +202,7 @@ class TestOperatorCustomRulesNeverSuppressed(unittest.TestCase):
 class TestInlineKbSubset(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.payload = json.loads((INTEROP / "FX-2-v1" / "findings.json").read_text())
+        cls.payload = json.loads((INTEROP / "FX-2-v2" / "findings.json").read_text())
         cls.subset = cls.payload["kb"]
         cls.raw = json.loads(RAW_KB_PATH.read_text())
 

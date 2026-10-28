@@ -118,10 +118,24 @@ except ImportError:
     HAS_PYWINRM = False
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+NETWORK_DIR = Path(__file__).resolve().parent
 DEFAULT_SCRIPT = PROJECT_ROOT / "standalones" / "windows" / "Invoke-PrivEscEnum.ps1"
 POSTURE_SCRIPT = PROJECT_ROOT / "standalones" / "windows" / "Invoke-HostPosture.ps1"
 PARALLEL_CAP = 16
 TRANSPORT_NAMES = ("winrm", "ssh", "smb")
+
+
+def _load_auth_scope_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("aranum_auth_scope_bulk_windows",
+                                                  NETWORK_DIR / "auth_scope.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["aranum_auth_scope_bulk_windows"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+AUTH_SCOPE = _load_auth_scope_module()
 
 
 # --------------------------------------------------------------------- colour helpers
@@ -412,7 +426,8 @@ def _winrm_run(target: Target, script_text: str, *, password: str, auth: str,
 
 
 def _smb_admin_run(target: Target, script_text: str, *, password: str,
-                   timeout: int) -> tuple[int, str, str]:
+                   timeout: int, auth_scope: Optional[str] = None,
+                   local_auth: bool = False, domain: str = "") -> tuple[int, str, str]:
     """SMB fallback via impacket-wmiexec. Per ADR-003 D2 requires admin creds; the
     operator MUST pass --use-smb-admin to enable this path.
 
@@ -447,14 +462,20 @@ def _smb_admin_run(target: Target, script_text: str, *, password: str,
                 "--script, or (c) run impacket-psexec/-smbexec manually with a staged "
                 "script + engagement scoping (disk write needs its own §9 consent).")
 
-    # impacket target string: [DOMAIN/]user:password@host  (user may arrive as CORP\jay)
+    # Impacket target string. Declared scope uses the shared mapping table;
+    # an undeclared invocation retains the legacy username-shape transport form.
     user = target.user
     dom = ""
     if "\\" in user:
         dom, user = user.split("\\", 1)
     elif "/" in user:
         dom, user = user.split("/", 1)
-    principal = f"{dom}/{user}" if dom else user
+    if auth_scope or local_auth:
+        scope = auth_scope or "local"
+        principal = AUTH_SCOPE.apply("impacket", scope, domain=domain,
+                                     user=target.user, host=target.host)["principal"]
+    else:
+        principal = f"{dom}/{user}" if dom else user
     conn = f"{principal}:{password}@{target.host}"
     try:
         p = subprocess.run([wmiexec, conn, ps_cmd],
@@ -595,6 +616,12 @@ class SMBTransport(Transport):
                                    "AUTH_FAIL", "no_password")
         rc, stdout, stderr = _smb_admin_run(
             target, script_text, password=args.password, timeout=args.connect_timeout,
+            auth_scope=(getattr(args, "auth_scope", None)
+                        if getattr(args, "auth_scope", None) in {"local", "domain", "machine"}
+                        else None),
+            local_auth=getattr(args, "local_auth", False) is True,
+            domain=(getattr(args, "domain", "")
+                    if isinstance(getattr(args, "domain", ""), str) else ""),
         )
         status, reason = _classify_smb(rc, stderr)
         return TransportResult(rc, stdout, stderr, status, reason)
@@ -707,6 +734,9 @@ def run_one_host(target: Target, script_text: str, args: argparse.Namespace,
         "auth": args.auth,
         "tls": args.tls,
         "script": str(args.script),
+        "domain": getattr(args, "domain", "") if isinstance(getattr(args, "domain", ""), str) else "",
+        "invocation": getattr(args, "invocation", {}) if isinstance(getattr(args, "invocation", {}), dict) else {},
+        "nxc_extra_args": getattr(args, "nxc_extra_arg", []) if isinstance(getattr(args, "nxc_extra_arg", []), list) else [],
     }
     meta_tmp = hdir / f"._meta.json.{os.getpid()}.{time.time_ns()}"
     meta_tmp.write_text(json.dumps(meta, indent=2) + "\n")
@@ -761,6 +791,12 @@ def main() -> int:
                     help="SSH private key path (ssh transport only; KEY / KEY_THEN_PASS "
                          "modes per the ADR-006 SSH-option-spec table). Ignored by other "
                          "transports.")
+    ap.add_argument("--auth-scope", choices=("local", "domain", "machine"), default=None,
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--local-auth", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--domain", default="", help=argparse.SUPPRESS)
+    ap.add_argument("--nxc-extra-arg", action="append", default=[], help=argparse.SUPPRESS)
+    ap.add_argument("--invocation-json", default="{}", help=argparse.SUPPRESS)
     ap.add_argument("--transport", action="append", default=None,
                     help="{auto,winrm,ssh,smb} — comma-list or repeatable. Default: auto "
                          "(winrm -> ssh, +smb only if --use-smb-admin). auto/explicit list "
@@ -802,6 +838,15 @@ def main() -> int:
     ap.add_argument("--resume", action="store_true",
                     help="skip hosts with .done from a prior run")
     args = ap.parse_args()
+
+    try:
+        args.invocation = json.loads(args.invocation_json)
+    except (ValueError, TypeError):
+        err("--invocation-json must be a JSON object")
+        return 2
+    if not isinstance(args.invocation, dict):
+        err("--invocation-json must be a JSON object")
+        return 2
 
     # --- arg validation ---
     if args.ad and not args.with_posture:

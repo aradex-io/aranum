@@ -13,7 +13,16 @@
     "generated_utc": {"type": "string"},
     "redacted": {"type": "boolean"},
     "mode": {"type": "string"},
-    "summary": {"type": "object", "additionalProperties": true},
+    "summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "coverage": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/coverage"}
+        }
+      }
+    },
     "kb": {"type": "object", "additionalProperties": true},
     "findings": {
       "type": "array",
@@ -36,5 +45,25 @@
     "partial": {"type": "boolean"},
     "errors": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
     "per_host": {"type": "object", "additionalProperties": true}
+  },
+  "$defs": {
+    "coverage": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "skipped_checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["check", "reason"],
+            "properties": {
+              "check": {"type": "string"},
+              "reason": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
   }
 }

@@ -1,7 +1,7 @@
 {
   "schema_version": "2",
-  "run_id": "fx-2-v1-run",
-  "label": "FX-2 v1",
+  "run_id": "fx-2-v2-run",
+  "label": "FX-2 v2",
   "generated_utc": "2026-10-27T12:00:00Z",
   "redacted": false,
   "mode": "mixed",
@@ -29,12 +29,27 @@
       "evidence_paths": [
         "linlocal/linux-lab.invalid/synthetic.txt"
       ],
-      "logical_id": "AR-L-7980d2f7613b1f",
+      "logical_id": "AR-L-50528aa8e24b2a",
       "category": "linlocal",
       "kb_id": "LIN-ACCT-NOPASSWD",
       "kb_match": "rule",
       "confidence": "medium",
-      "scope": "host"
+      "scope": "host",
+      "auth_context": {
+        "account_label": "labadmin",
+        "scope": "local",
+        "scope_basis": "declared",
+        "domain": null,
+        "local_host": "linux-lab.invalid",
+        "auth_method": "password",
+        "invocation": {
+          "domain_arg": "",
+          "local_auth_flag": true,
+          "username_form": "bare",
+          "credential_kind": "password",
+          "auth_scope_declared": "local"
+        }
+      }
     },
     {
       "schema_version": "2",
@@ -50,12 +65,27 @@
       "evidence_paths": [
         "winlocal/windows-lab.invalid/synthetic.txt"
       ],
-      "logical_id": "AR-L-8e9558d5ec1d6a",
+      "logical_id": "AR-L-edcc6c7f057afe",
       "category": "winlocal",
       "kb_id": "WIN-UAC-LATFP",
       "kb_match": "rule",
       "confidence": "high",
-      "scope": "host"
+      "scope": "host",
+      "auth_context": {
+        "account_label": "labadmin",
+        "scope": "local",
+        "scope_basis": "declared",
+        "domain": null,
+        "local_host": "windows-lab.invalid",
+        "auth_method": "password",
+        "invocation": {
+          "domain_arg": "",
+          "local_auth_flag": true,
+          "username_form": "bare",
+          "credential_kind": "password",
+          "auth_scope_declared": "local"
+        }
+      }
     },
     {
       "schema_version": "2",
@@ -71,12 +101,27 @@
       "evidence_paths": [
         "ldap/dc-lab.invalid/synthetic.txt"
       ],
-      "logical_id": "AR-L-3f1e23c063c317",
+      "logical_id": "AR-L-2914a976c7dc71",
       "category": "ad",
       "kb_id": "kerberoastable-hash-es-captured-aada6591",
       "kb_match": "rule",
       "confidence": "high",
-      "scope": "endpoint"
+      "scope": "endpoint",
+      "auth_context": {
+        "account_label": "lab-reader",
+        "scope": "domain",
+        "scope_basis": "declared",
+        "domain": "LAB.INVALID",
+        "local_host": null,
+        "auth_method": "password",
+        "invocation": {
+          "domain_arg": "LAB.INVALID",
+          "local_auth_flag": false,
+          "username_form": "bare",
+          "credential_kind": "password",
+          "auth_scope_declared": "domain"
+        }
+      }
     },
     {
       "schema_version": "2",
@@ -92,12 +137,27 @@
       "evidence_paths": [
         "smb/windows-lab.invalid/synthetic.txt"
       ],
-      "logical_id": "AR-L-63c43805d19baf",
+      "logical_id": "AR-L-80d8f4878db493",
       "category": "ad",
       "kb_id": "AD-MAQ",
       "kb_match": "rule",
       "confidence": "medium",
-      "scope": "endpoint"
+      "scope": "endpoint",
+      "auth_context": {
+        "account_label": "WINLAB$",
+        "scope": "machine",
+        "scope_basis": "declared",
+        "domain": "LAB.INVALID",
+        "local_host": null,
+        "auth_method": "hash",
+        "invocation": {
+          "domain_arg": "LAB.INVALID",
+          "local_auth_flag": false,
+          "username_form": "machine$",
+          "credential_kind": "hash",
+          "auth_scope_declared": "machine"
+        }
+      }
     },
     {
       "schema_version": "2",
@@ -118,7 +178,22 @@
       "kb_id": "bsigning-disabled-b-bsigning-enabled-but-not-required-b-65edaf46",
       "kb_match": "rule",
       "confidence": "high",
-      "scope": "endpoint"
+      "scope": "endpoint",
+      "auth_context": {
+        "account_label": "",
+        "scope": null,
+        "scope_basis": "invoked",
+        "domain": null,
+        "local_host": "windows-lab.invalid",
+        "auth_method": "null-session",
+        "invocation": {
+          "domain_arg": "",
+          "local_auth_flag": false,
+          "username_form": "bare",
+          "credential_kind": "none",
+          "auth_scope_declared": null
+        }
+      }
     }
   ],
   "kb": {

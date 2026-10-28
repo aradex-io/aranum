@@ -1,3 +1,3 @@
-# FX-2 v1
+# FX-2L v1
 
 Synthetic interop fixture.

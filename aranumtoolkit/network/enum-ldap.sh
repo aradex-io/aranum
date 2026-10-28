@@ -8,6 +8,39 @@ log "ldap: $(wc -l < "$TARGETS") targets -> $OUT"
 
 mapfile -t LDAP_ENDPOINTS < <(ip_port_pairs "$TARGETS")
 
+LDAP_SCOPE_SKIP=false
+LDAP_BIND=""
+if [ -n "${ENUM_AUTH_SCOPE:-}" ]; then
+    LDAP_SCOPE_SKIP=$(python3 "$SCRIPT_DIR/auth_scope.py" ldap \
+        --scope "$ENUM_AUTH_SCOPE" --domain "${ENUM_DOMAIN:-}" \
+        --user "${ENUM_USER:-}" --host "" --field skip) || exit 1
+    LDAP_BIND=$(python3 "$SCRIPT_DIR/auth_scope.py" ldap \
+        --scope "$ENUM_AUTH_SCOPE" --domain "${ENUM_DOMAIN:-}" \
+        --user "${ENUM_USER:-}" --host "" --field bind) || exit 1
+fi
+if [ -z "$LDAP_BIND" ] && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
+    LDAP_BIND="$ENUM_USER@$ENUM_DOMAIN"
+fi
+
+if [ "$LDAP_SCOPE_SKIP" = true ]; then
+    for endpoint in "${LDAP_ENDPOINTS[@]}"; do
+        read -r ip _port <<< "$endpoint"
+        mkdir -p "$OUT/$ip"
+        python3 - "$OUT/$ip/_skipped-checks.json" <<'PY'
+import json, sys
+checks = [
+    "nxc-ldap-auth", "nxc-bloodhound", "ldapsearch-directory-auth",
+    "impacket-getuserspns", "bloodhound-full", "certipy-find",
+    "ldapsearch-delegation", "ldapsearch-pre2000-computers",
+]
+with open(sys.argv[1], "w", encoding="utf-8") as stream:
+    json.dump([{"check": check, "reason": "scope-local-no-domain-bind"}
+               for check in checks], stream, indent=2)
+    stream.write("\n")
+PY
+    done
+fi
+
 ldap_endpoint_url() {
     local ip="$1" port="$2" scheme="ldap"
     case "$port" in 636|3269) scheme="ldaps" ;; esac
@@ -15,30 +48,32 @@ ldap_endpoint_url() {
 }
 
 # ---------- 1. nxc ldap ----------
-if have nxc || have netexec; then
-    NXC=$(command -v nxc || command -v netexec)
-    NXC_ARGS=()
-    nxc_creds_array NXC_ARGS
+if [ "$LDAP_SCOPE_SKIP" != true ]; then
+    if have nxc || have netexec; then
+        NXC=$(command -v nxc || command -v netexec)
+        NXC_ARGS=()
+        nxc_creds_array NXC_ARGS
 
-    log "nxc ldap (users, groups, asreproast, kerberoastable, machine-account quota)"
-    for endpoint in "${LDAP_ENDPOINTS[@]}"; do
-        read -r ip port <<< "$endpoint"
-        mkdir -p "$OUT/$ip"
-        printf '%s\n' "$ip" | "$NXC" ldap - --port "$port" "${NXC_ARGS[@]}" \
-            --users --groups --kerberoasting "$OUT/$ip/kerberoast_${port}.txt" \
-            --asreproast "$OUT/$ip/asreproast_${port}.txt" \
-            > "$OUT/$ip/nxc_ldap_${port}.txt" 2>&1 || true
+        log "nxc ldap (users, groups, asreproast, kerberoastable, machine-account quota)"
+        for endpoint in "${LDAP_ENDPOINTS[@]}"; do
+            read -r ip port <<< "$endpoint"
+            mkdir -p "$OUT/$ip"
+            printf '%s\n' "$ip" | "$NXC" ldap - --port "$port" "${NXC_ARGS[@]}" \
+                --users --groups --kerberoasting "$OUT/$ip/kerberoast_${port}.txt" \
+                --asreproast "$OUT/$ip/asreproast_${port}.txt" \
+                > "$OUT/$ip/nxc_ldap_${port}.txt" 2>&1 || true
 
-        # bloodhound-ce collection stays bound to the same discovered endpoint.
-        if [ -n "${ENUM_USER:-}" ]; then
-            log "nxc ldap $ip:$port --bloodhound (LDAP-only collection)"
-            printf '%s\n' "$ip" | "$NXC" ldap - --port "$port" "${NXC_ARGS[@]}" --bloodhound \
-                --collection All --dns-server "${ENUM_DC_IP:-}" \
-                > "$OUT/$ip/bloodhound_${port}.txt" 2>&1 || true
-        fi
-    done
-else
-    miss "nxc/netexec not installed"
+            # bloodhound-ce collection stays bound to the same discovered endpoint.
+            if [ -n "${ENUM_USER:-}" ]; then
+                log "nxc ldap $ip:$port --bloodhound (LDAP-only collection)"
+                printf '%s\n' "$ip" | "$NXC" ldap - --port "$port" "${NXC_ARGS[@]}" --bloodhound \
+                    --collection All --dns-server "${ENUM_DC_IP:-}" \
+                    > "$OUT/$ip/bloodhound_${port}.txt" 2>&1 || true
+            fi
+        done
+    else
+        miss "nxc/netexec not installed"
+    fi
 fi
 
 # ---------- 2. ldapsearch (anonymous + auth) ----------
@@ -52,20 +87,20 @@ if have ldapsearch; then
         ldapsearch -x -H "$url" -s base -b '' '(objectclass=*)' \
             > "$OUT/$ip/ldap_rootDSE_anon_${port}.txt" 2>&1 || true
 
-        if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
+        if [ "$LDAP_SCOPE_SKIP" != true ] && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
             BASE_DN=$(echo "$ENUM_DOMAIN" | awk -F. '{for(i=1;i<=NF;i++) printf "DC=%s%s", $i, (i<NF?",":"")}')
             log "  $ip:$port: enumerating users / computers / GPOs"
-            ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
+            ldapsearch -x -H "$url" -D "$LDAP_BIND" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(objectClass=user)' sAMAccountName description memberOf \
                 > "$OUT/$ip/users_${port}.txt" 2>&1 || true
-            ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
+            ldapsearch -x -H "$url" -D "$LDAP_BIND" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(objectClass=computer)' dNSHostName operatingSystem \
                 > "$OUT/$ip/computers_${port}.txt" 2>&1 || true
-            ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
+            ldapsearch -x -H "$url" -D "$LDAP_BIND" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(servicePrincipalName=*)' sAMAccountName servicePrincipalName \
                 > "$OUT/$ip/spns_${port}.txt" 2>&1 || true
             # AS-REP roastables
-            ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
+            ldapsearch -x -H "$url" -D "$LDAP_BIND" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(&(samAccountType=805306368)(userAccountControl:1.2.840.113556.1.4.803:=4194304))' \
                 sAMAccountName \
                 > "$OUT/$ip/asrep_candidates_${port}.txt" 2>&1 || true
@@ -74,7 +109,7 @@ if have ldapsearch; then
 fi
 
 # ---------- 3. Impacket GetUserSPNs / GetNPUsers ----------
-if have GetUserSPNs.py && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
+if [ "$LDAP_SCOPE_SKIP" != true ] && have GetUserSPNs.py && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
     log "impacket GetUserSPNs.py"
     cred="$ENUM_DOMAIN/$ENUM_USER:$ENUM_PASS"
     DC_FLAG=()
@@ -97,7 +132,7 @@ fi
 # We do NOT include the Session collection method by default — that requires
 # admin reach on remote machines and produces too much noise on first run.
 # Operator can opt into deeper collection by re-running manually with -c All.
-if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ] && [ -n "${ENUM_DC_IP:-}" ]; then
+if [ "$LDAP_SCOPE_SKIP" != true ] && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ] && [ -n "${ENUM_DC_IP:-}" ]; then
     BHP=""
     have bloodhound-python && BHP="bloodhound-python"
     [ -z "$BHP" ] && have bloodhound.py && BHP="bloodhound.py"
@@ -123,7 +158,7 @@ fi
 # ---------- 5. AD CS enumeration via Certipy (D1.2 — ADR-004 D2) ----------
 # Certipy 'find' walks the CA + template config and identifies ESC1-11
 # misconfigurations. JSON output enables clean classification in report.py.
-if [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ] && [ -n "${ENUM_DC_IP:-}" ]; then
+if [ "$LDAP_SCOPE_SKIP" != true ] && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ] && [ -n "${ENUM_DC_IP:-}" ]; then
     CERTIPY=""
     have certipy   && CERTIPY="certipy"
     [ -z "$CERTIPY" ] && have certipy-ad && CERTIPY="certipy-ad"
@@ -152,7 +187,7 @@ fi
 # Unconstrained: TRUSTED_TO_AUTH_FOR_DELEGATION (16777216)
 # RBCD: msDS-AllowedToActOnBehalfOfOtherIdentity attribute populated
 # Pre-D1, the operator had to run these queries by hand.
-if have ldapsearch && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
+if [ "$LDAP_SCOPE_SKIP" != true ] && have ldapsearch && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
     BASE_DN=$(echo "$ENUM_DOMAIN" | awk -F. '{for(i=1;i<=NF;i++) printf "DC=%s%s", $i, (i<NF?",":"")}')
     for endpoint in "${LDAP_ENDPOINTS[@]}"; do
         read -r ip port <<< "$endpoint"
@@ -161,17 +196,17 @@ if have ldapsearch && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
         log "  $ip:$port: Kerberos delegation enum (unconstrained / constrained / RBCD)"
         {
             echo "=== UNCONSTRAINED DELEGATION (UAC bit 524288) — owners can impersonate any user authing TO them ==="
-            ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
+            ldapsearch -x -H "$url" -D "$LDAP_BIND" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(userAccountControl:1.2.840.113556.1.4.803:=524288)' \
                 sAMAccountName dNSHostName servicePrincipalName 2>/dev/null
             echo
             echo "=== CONSTRAINED DELEGATION (msDS-AllowedToDelegateTo present) ==="
-            ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
+            ldapsearch -x -H "$url" -D "$LDAP_BIND" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(msDS-AllowedToDelegateTo=*)' \
                 sAMAccountName msDS-AllowedToDelegateTo 2>/dev/null
             echo
             echo "=== RESOURCE-BASED CONSTRAINED DELEGATION (msDS-AllowedToActOnBehalfOfOtherIdentity present) ==="
-            ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
+            ldapsearch -x -H "$url" -D "$LDAP_BIND" -w "$ENUM_PASS" \
                 -b "$BASE_DN" '(msDS-AllowedToActOnBehalfOfOtherIdentity=*)' \
                 sAMAccountName msDS-AllowedToActOnBehalfOfOtherIdentity 2>/dev/null
         } > "$OUT/$ip/delegation_${port}.txt" 2>&1 || true
@@ -190,13 +225,13 @@ fi
 # We can't try-auth-and-confirm from here (that's a write), but we CAN list
 # computer accounts whose userAccountControl has WORKSTATION_TRUST_ACCOUNT
 # (4096) set — those are the candidates.
-if have ldapsearch && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
+if [ "$LDAP_SCOPE_SKIP" != true ] && have ldapsearch && [ -n "${ENUM_USER:-}" ] && [ -n "${ENUM_DOMAIN:-}" ]; then
     BASE_DN=$(echo "$ENUM_DOMAIN" | awk -F. '{for(i=1;i<=NF;i++) printf "DC=%s%s", $i, (i<NF?",":"")}')
     for endpoint in "${LDAP_ENDPOINTS[@]}"; do
         read -r ip port <<< "$endpoint"
         url=$(ldap_endpoint_url "$ip" "$port")
         log "  $ip:$port: pre-2000 computer-account candidate listing"
-        ldapsearch -x -H "$url" -D "$ENUM_USER@$ENUM_DOMAIN" -w "$ENUM_PASS" \
+        ldapsearch -x -H "$url" -D "$LDAP_BIND" -w "$ENUM_PASS" \
             -b "$BASE_DN" '(&(objectClass=computer)(userAccountControl:1.2.840.113556.1.4.803:=4096))' \
             sAMAccountName whenCreated pwdLastSet \
             > "$OUT/$ip/pre2000_candidates_${port}.txt" 2>&1 || true

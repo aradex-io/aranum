@@ -61,6 +61,7 @@ LIN_POSTURE = PROJECT_ROOT / "standalones" / "linux" / "host-posture.sh"
 WIN_PRIVESC = PROJECT_ROOT / "standalones" / "windows" / "Invoke-PrivEscEnum.ps1"
 WIN_POSTURE = PROJECT_ROOT / "standalones" / "windows" / "Invoke-HostPosture.ps1"
 MANIFEST_MODULE = HERE / "manifest.py"
+AUTH_SCOPE_MODULE = HERE / "auth_scope.py"
 
 BULK_ROOT_MARKER = "_aranum_bulk_root"
 PATHWAYS = ("local", "ssh", "winrm", "exec", "rdp", "vnc")
@@ -129,6 +130,65 @@ def _load_manifest_module():
 
 
 MANIFEST = _load_manifest_module()
+
+
+def _load_auth_scope_module():
+    spec = importlib.util.spec_from_file_location("aranum_auth_scope_local_enum", AUTH_SCOPE_MODULE)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["aranum_auth_scope_local_enum"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+AUTH_SCOPE = _load_auth_scope_module()
+
+
+def username_form(user: str) -> str:
+    if "\\" in user:
+        return "backslash"
+    if "/" in user:
+        return "slash"
+    if "@" in user:
+        return "upn"
+    if user.endswith("$"):
+        return "machine$"
+    return "bare"
+
+
+def credential_kind(cred: "Cred") -> str:
+    if cred.nthash:
+        return "hash"
+    if cred.key:
+        return "key"
+    if os.environ.get("KRB5CCNAME", ""):
+        return "ticket"
+    if cred.password:
+        return "password"
+    return "none"
+
+
+def _arg_scope(args) -> Optional[str]:
+    value = getattr(args, "auth_scope", None)
+    return value if value in {"local", "domain", "machine"} else None
+
+
+def _arg_local_auth(args) -> bool:
+    return getattr(args, "local_auth", False) is True
+
+
+def invocation_for(cred: "Cred", args) -> dict:
+    scope = _arg_scope(args)
+    return {
+        "domain_arg": cred.domain,
+        "local_auth_flag": bool(_arg_local_auth(args) or scope == "local"),
+        "username_form": username_form(cred.user),
+        "credential_kind": credential_kind(cred),
+        "auth_scope_declared": scope,
+    }
+
+
+def effective_auth_scope(args) -> Optional[str]:
+    return _arg_scope(args) or ("local" if _arg_local_auth(args) else None)
 
 
 def _stage_run_id(out: Path) -> tuple[Optional[str], bool]:
@@ -739,7 +799,8 @@ def _spec_line(user: str, host: str, port: Optional[int]) -> str:
     return f"{user}@{h}" + (f":{port}" if port else "")
 
 
-def _collect_engine_dirs(engine_out: Path, root: Path) -> dict:
+def _collect_engine_dirs(engine_out: Path, root: Path, cred: Optional[Cred] = None,
+                         args=None) -> dict:
     """Move every engine host dir that has _meta.json up into the OS root;
     return {(host, user): dest_dir}."""
     found = {}
@@ -756,14 +817,18 @@ def _collect_engine_dirs(engine_out: Path, root: Path) -> dict:
             meta = json.loads((dest / "_meta.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
+        if cred is not None and args is not None:
+            meta["domain"] = cred.domain
+            meta["invocation"] = invocation_for(cred, args)
+            write_json_atomic(dest / "_meta.json", meta)
         found[(str(meta.get("host", "")), str(meta.get("user", "")))] = dest
     return found
 
 
-def _win_user(c: Cred) -> str:
-    if c.domain and "\\" not in c.user and "/" not in c.user and "@" not in c.user:
-        return f"{c.domain}\\{c.user}"
-    return c.user
+def _win_user(c: Cred, args=None) -> str:
+    """Return only an explicitly mapped username; never infer from ``domain``."""
+    scope = effective_auth_scope(args) if args is not None else None
+    return AUTH_SCOPE.apply("nxc", scope, domain=c.domain, user=c.user, host="")["username"]
 
 
 def run_linux_engine(group: list, cred: Cred, out: Path, gid: int, args) -> dict:
@@ -788,7 +853,7 @@ def run_linux_engine(group: list, cred: Cred, out: Path, gid: int, args) -> dict
                                 stderr_path=work / "engine.err")
     if rc != 0:
         warn(f"bulk-enum-linux.sh exited rc={rc} (group g{gid}); see {work / 'engine.err'}")
-    return _collect_engine_dirs(eng_out, root)
+    return _collect_engine_dirs(eng_out, root, cred, args)
 
 
 def run_windows_engine(group: list, cred: Cred, transports: list, tls: bool,
@@ -798,7 +863,9 @@ def run_windows_engine(group: list, cred: Cred, transports: list, tls: bool,
     work = root / "_engine" / f"g{gid}"
     work.mkdir(parents=True, exist_ok=True)
     tf = work / "targets.txt"
-    user = _win_user(cred)
+    mapped = AUTH_SCOPE.apply("nxc", effective_auth_scope(args), domain=cred.domain,
+                              user=cred.user, host=group[0].spec.host if group else "")
+    user = mapped["username"]
     default_winrm = 5986 if tls else 5985
     lines = []
     for hp in group:
@@ -812,6 +879,15 @@ def run_windows_engine(group: list, cred: Cred, transports: list, tls: bool,
     argv = [sys.executable, str(WIN_ENGINE), "--targets", str(tf), "-o", str(eng_out),
             "--transport", ",".join(transports), "--with-posture",
             "-P", str(args.parallel), "--connect-timeout", str(args.connect_timeout)]
+    for extra in mapped["extra_args"]:
+        argv.append(f"--nxc-extra-arg={extra}")
+    if _arg_scope(args):
+        argv += ["--auth-scope", _arg_scope(args)]
+    if _arg_local_auth(args):
+        argv.append("--local-auth")
+    if cred.domain:
+        argv += ["--domain", cred.domain]
+    argv += ["--invocation-json", json.dumps(invocation_for(cred, args), separators=(",", ":"))]
     if args.ad:
         argv.append("--ad")
     if tls:
@@ -831,7 +907,7 @@ def run_windows_engine(group: list, cred: Cred, transports: list, tls: bool,
                                 stderr_path=work / "engine.err")
     if rc != 0:
         warn(f"bulk-enum-windows.py exited rc={rc} (group g{gid}); see {work / 'engine.err'}")
-    return _collect_engine_dirs(eng_out, root)
+    return _collect_engine_dirs(eng_out, root, cred, args)
 
 
 # --------------------------------------------------------------------- exec compact probe runner
@@ -843,7 +919,8 @@ def find_exec_tool(method: str) -> Optional[str]:
     return shutil.which(f"impacket-{method}") or shutil.which(f"{method}.py")
 
 
-def exec_argv(tool: str, method: str, host: str, cred: Cred, command: str) -> tuple:
+def exec_argv(tool: str, method: str, host: str, cred: Cred, command: str,
+              scope: Optional[str] = None) -> tuple:
     """(argv, stdin_data). smbexec reads commands from stdin (impacket 0.13.1
     has no command positional); wmiexec/psexec take the command as an argument.
     Credentials appear on argv, matching the existing SMB transport (ADR-006)."""
@@ -852,7 +929,11 @@ def exec_argv(tool: str, method: str, host: str, cred: Cred, command: str) -> tu
         dom, user = user.split("\\", 1)
     elif "/" in user:
         dom, user = user.split("/", 1)
-    principal = f"{dom}/{user}" if dom else user
+    if scope is None:
+        principal = f"{dom}/{user}" if dom else user
+    else:
+        principal = AUTH_SCOPE.apply("impacket", scope, domain=cred.domain,
+                                     user=cred.user, host=host)["principal"]
     h = f"[{host}]" if ":" in host else host
     argv = [tool]
     if cred.password:
@@ -918,11 +999,15 @@ def run_exec_probe(host: str, cred: Cred, method: str, probe, hdir: Path,
     started = now_iso()
     t0 = time.time()
     base = {
-        "host": host, "user": cred.user, "port": "",
+        "host": host,
+        "user": AUTH_SCOPE.apply("nxc", effective_auth_scope(args), domain=cred.domain,
+                                  user=cred.user, host=host)["username"],
+        "port": "",
         "transport": method, "capability": "compact-probe",
         "probe_checks": probe.checks, "probe_omitted": probe.omitted,
         "probe_chars": probe.chars, "probe_ceiling": probe.ceiling,
         "started": started, "auth": "nthash" if not cred.password else "password",
+        "domain": cred.domain, "invocation": invocation_for(cred, args),
     }
     if not tool:
         base.update(status="DEP_MISSING", rc=127,
@@ -934,7 +1019,8 @@ def run_exec_probe(host: str, cred: Cred, method: str, probe, hdir: Path,
         base["size_bytes"] = 0
         base["err_bytes"] = len(base["fail_reason"]) + 1
         return base
-    argv, stdin_data = exec_argv(tool, method, host, cred, probe.command)
+    argv, stdin_data = exec_argv(tool, method, host, cred, probe.command,
+                                 effective_auth_scope(args))
     rc, out, errtxt, timed_out = run_bounded(
         argv, timeout=args.host_timeout, stdin_data=stdin_data)
     body, noise = clean_exec_output(out)
@@ -1008,7 +1094,7 @@ def run_self_scan(out: Path, args, default: Cred) -> int:
             (hdir / "winenum.txt").write_text("")
             erf.write_text("no PowerShell (pwsh/powershell) on PATH\n")
             _write_self_meta(hdir, osn, started, int(time.time() - t0), "DEP_MISSING",
-                             "no PowerShell interpreter", ev, erf)
+                             "no PowerShell interpreter", ev, erf, cred=default, args=args)
             return 0
         privesc = Path(args.windows_script) if args.windows_script else WIN_PRIVESC
         payload = WE.build_posture_payload(privesc.read_text(encoding="utf-8"),
@@ -1030,13 +1116,15 @@ def run_self_scan(out: Path, args, default: Cred) -> int:
         status = "OK"
         reason = ""
     _write_self_meta(hdir, osn, started, int(time.time() - t0), status, reason, ev, erf,
-                     rc=collector_rc)
+                     rc=collector_rc, cred=default, args=args)
     log(f"self-scan ({osn}): localhost status={status}")
     return 0
 
 
 def _write_self_meta(hdir: Path, osn: str, started: str, elapsed: int, status: str,
-                     reason: str, ev: Path, erf: Path, rc: int = 0) -> None:
+                     reason: str, ev: Path, erf: Path, rc: int = 0,
+                     cred: Optional[Cred] = None, args=None) -> None:
+    cred = cred or Cred()
     write_json_atomic(hdir / "_meta.json", {
         "host": "localhost", "user": "", "port": "",
         "rc": rc if rc else (0 if status == "OK" else 1), "status": status, "fail_reason": reason,
@@ -1044,6 +1132,8 @@ def _write_self_meta(hdir: Path, osn: str, started: str, elapsed: int, status: s
         "started": started, "elapsed_s": elapsed,
         "size_bytes": ev.stat().st_size if ev.exists() else 0,
         "err_bytes": erf.stat().st_size if erf.exists() else 0,
+        "domain": cred.domain,
+        "invocation": invocation_for(cred, args) if args is not None else {},
     })
 
 
@@ -1097,7 +1187,7 @@ def execute_plans(plans: list, out: Path, allowed: set, win_exec: Optional[str],
                 warn(f"{hp.spec.host}: port {hp.spec.port} ignored for "
                      f"{hp.pathways[0]} (impacket exec uses the method's fixed "
                      "SMB/DCOM port)")
-            key = WE.endpoint_key(WE.Target(user=_win_user(hp.cred), host=hp.spec.host,
+            key = WE.endpoint_key(WE.Target(user=_win_user(hp.cred, args), host=hp.spec.host,
                                             port=hp.spec.port or 445, raw_spec=hp.spec.host))
             hdir = root / key
             hdir.mkdir(parents=True, exist_ok=True)
@@ -1120,6 +1210,7 @@ def execute_plans(plans: list, out: Path, allowed: set, win_exec: Optional[str],
             "fail_reason": f"skip:{hp.skip or 'no-pathway'}",
             "transport": "none", "artifact_id": key,
             "started": now_iso(), "elapsed_s": 0, "size_bytes": 0, "err_bytes": 0,
+            "domain": hp.cred.domain, "invocation": invocation_for(hp.cred, args),
         })
         log(f"skipped: {hp.spec.host} ({hp.skip or 'no-pathway'})")
 
@@ -1143,6 +1234,10 @@ def build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--key", help="default SSH private key path")
     cr.add_argument("-H", "--hash", dest="nthash", help="default NT hash (exec methods only)")
     cr.add_argument("-d", "--domain", default="", help="default domain (windows)")
+    cr.add_argument("--auth-scope", choices=("local", "domain", "machine"),
+                    help="operator-declared account scope (never inferred)")
+    cr.add_argument("--local-auth", action="store_true",
+                    help="nxc local authentication; implies local scope")
     cr.add_argument("--creds", help="per-host creds file: '<host|*> <user> <secret>' per line")
     sel = ap.add_argument_group("pathway selection")
     sel.add_argument("--transport", default="auto",
@@ -1215,6 +1310,8 @@ def main(argv: Optional[list] = None) -> int:
                              "target via their own mechanism; ADR-007 section 9)")
         if args.nthash and not NT_RE.match(args.nthash):
             raise UsageError("-H/--hash must be a 32-hex NT hash")
+        if args.auth_scope in {"domain", "machine"} and not args.domain:
+            raise UsageError(f"--auth-scope {args.auth_scope} requires a non-empty -d/--domain")
         if not 1 <= args.parallel <= PARALLEL_CAP:
             raise UsageError(f"-P must be in 1..{PARALLEL_CAP}")
         if args.host_timeout < 0:
@@ -1246,7 +1343,8 @@ def main(argv: Optional[list] = None) -> int:
     out = Path(args.output).resolve()
     out.mkdir(parents=True, exist_ok=True)
     run_id, minted = _stage_run_id(out)
-    MANIFEST.stage_begin(out, "local", run_id, mint=minted)
+    MANIFEST.stage_begin(out, "local", run_id, mint=minted,
+                         invocation=invocation_for(default, args))
 
     plans = [plan_host(s, resolve_cred(s, creds_rows, default), allowed,
                        args.win_exec, probe, probe_error) for s in specs]

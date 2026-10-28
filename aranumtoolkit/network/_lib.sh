@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # _lib.sh — shared helpers for enum dispatchers. Source me, don't exec.
-# Expects: ENUM_USER ENUM_PASS ENUM_HASH ENUM_DOMAIN ENUM_DC_IP ENUM_PARALLEL
+# Expects: ENUM_USER ENUM_PASS ENUM_HASH ENUM_DOMAIN ENUM_AUTH_SCOPE ENUM_DC_IP ENUM_PARALLEL
 
 # --------------- arg parsing ---------------
 parse_common_args() {
@@ -250,11 +250,21 @@ nxc_creds_array() {
     local -n _arr="$1"
     _arr=()
     if [ -n "${ENUM_USER:-}" ]; then
-        _arr+=(-u "$ENUM_USER")
+        local mapped_user="$ENUM_USER"
+        local -a scope_args=()
+        if [ -n "${ENUM_AUTH_SCOPE:-}" ]; then
+            mapped_user=$(python3 "$SCRIPT_DIR/auth_scope.py" nxc \
+                --scope "$ENUM_AUTH_SCOPE" --domain "${ENUM_DOMAIN:-}" \
+                --user "$ENUM_USER" --host "" --field username) || return 1
+            mapfile -t scope_args < <(python3 "$SCRIPT_DIR/auth_scope.py" nxc \
+                --scope "$ENUM_AUTH_SCOPE" --domain "${ENUM_DOMAIN:-}" \
+                --user "$ENUM_USER" --host "") || return 1
+        fi
+        _arr+=(-u "$mapped_user")
         if   [ -n "${ENUM_HASH:-}" ]; then _arr+=(-H "$ENUM_HASH")
         elif [ -n "${ENUM_PASS:-}" ]; then _arr+=(-p "$ENUM_PASS")
         fi
-        [ -n "${ENUM_DOMAIN:-}" ] && _arr+=(-d "$ENUM_DOMAIN")
+        _arr+=("${scope_args[@]}")
     fi
 }
 

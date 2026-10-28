@@ -152,6 +152,7 @@ def stage_begin(
     *,
     mint: bool = False,
     invocation: Optional[dict] = None,
+    account_label: Optional[str] = None,
     consumed: Optional[Iterable[str]] = None,
 ) -> None:
     """Open a stage: write its record as ``running`` and rebuild the manifest.
@@ -177,6 +178,8 @@ def stage_begin(
     }
     if invocation is not None:
         record["invocation"] = invocation
+    if account_label is not None:
+        record["account_label"] = account_label
     _atomic_write(sdir / f"{stage}.json", json.dumps(record, indent=2) + "\n")
     build_manifest(outdir)
 
@@ -293,6 +296,10 @@ def _main(argv: Optional[list[str]] = None) -> int:
     sb.add_argument("stage", choices=STAGE_NAMES)
     sb.add_argument("--run-id", default=None)
     sb.add_argument("--mint", action="store_true")
+    sb.add_argument("--invocation-json", default=None,
+                    help="JSON invocation facts authored by the stage argument builder")
+    sb.add_argument("--account-label", default=None,
+                    help="non-secret operator account label for auth-context stamping")
 
     se = sub.add_parser("stage-end", help="close a stage (terminal status)")
     se.add_argument("outdir")
@@ -306,7 +313,16 @@ def _main(argv: Optional[list[str]] = None) -> int:
 
     args = parser.parse_args(argv)
     if args.cmd == "stage-begin":
-        stage_begin(args.outdir, args.stage, args.run_id, mint=args.mint)
+        invocation = None
+        if args.invocation_json is not None:
+            try:
+                invocation = json.loads(args.invocation_json)
+            except (ValueError, TypeError) as exc:
+                parser.error(f"--invocation-json must be a JSON object: {exc}")
+            if not isinstance(invocation, dict):
+                parser.error("--invocation-json must be a JSON object")
+        stage_begin(args.outdir, args.stage, args.run_id, mint=args.mint,
+                    invocation=invocation, account_label=args.account_label)
     elif args.cmd == "stage-end":
         stage_end(args.outdir, args.stage, args.exit_code, status=args.status)
     elif args.cmd == "build":

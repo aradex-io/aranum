@@ -160,6 +160,82 @@ def _load_service_metadata(out_dir: Path | None = None) -> dict[str, dict]:
     return {"defaults": merged_defaults, "services": merged_services}
 
 
+def _credentialed_dispatchers() -> set[str]:
+    """Dispatcher names/categories whose registry contract uses credentials."""
+    path = Path(__file__).resolve().parent / "dispatchers.json"
+    try:
+        records = json.loads(path.read_text(encoding="utf-8")).get("dispatchers", [])
+    except (OSError, ValueError, TypeError):
+        return set()
+    names: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict) or record.get("uses_credentials") is not True:
+            continue
+        names.update(str(record.get(field, "")).lower() for field in ("name", "category")
+                     if record.get(field))
+    return names
+
+
+def _stage_invocation(out_dir: Path, stage: str) -> dict:
+    try:
+        value = json.loads((out_dir / "stages" / f"{stage}.json").read_text(
+            encoding="utf-8")).get("invocation", {})
+    except (OSError, ValueError, TypeError):
+        value = {}
+    return value if isinstance(value, dict) else {}
+
+
+def _stage_account_label(out_dir: Path, stage: str) -> str:
+    try:
+        value = json.loads((out_dir / "stages" / f"{stage}.json").read_text(
+            encoding="utf-8")).get("account_label", "")
+    except (OSError, ValueError, TypeError):
+        value = ""
+    return value if isinstance(value, str) else ""
+
+
+def _normalized_invocation(value: object) -> dict:
+    raw = value if isinstance(value, dict) else {}
+    scope = raw.get("auth_scope_declared")
+    return {
+        "domain_arg": str(raw.get("domain_arg", "")),
+        "local_auth_flag": bool(raw.get("local_auth_flag", False)),
+        "username_form": str(raw.get("username_form", "bare")),
+        "credential_kind": str(raw.get("credential_kind", "none")),
+        "auth_scope_declared": scope if scope in {"local", "domain", "machine"} else None,
+    }
+
+
+def _auth_context(invocation: object, *, account_label: str, host: str,
+                  domain: str = "", dispatcher: str = "") -> dict:
+    """Resolve scope only from invocation facts; never from domain/user shape."""
+    inv = _normalized_invocation(invocation)
+    declared = inv["auth_scope_declared"]
+    if declared is not None:
+        scope = declared
+        basis = "declared"
+    elif inv["local_auth_flag"]:
+        scope = "local"
+        basis = "invoked"
+    else:
+        scope = None
+        basis = "invoked"
+    kind = inv["credential_kind"]
+    if kind == "none":
+        method = "null-session" if dispatcher.lower() == "smb" else "anonymous"
+    else:
+        method = kind if kind in {"password", "hash", "key", "ticket"} else "anonymous"
+    return {
+        "account_label": account_label,
+        "scope": scope,
+        "scope_basis": basis,
+        "domain": domain if scope in {"domain", "machine"} else None,
+        "local_host": host if scope in {"local", None} and host != "(dispatcher)" else None,
+        "auth_method": method,
+        "invocation": inv,
+    }
+
+
 def _coerce_service_metadata_fields(raw: object) -> dict[str, object]:
     if not isinstance(raw, dict):
         return {}
@@ -527,10 +603,11 @@ def _structured_finding(
 
 
 def _logical_finding_id(rule_id: object, evidence_identity: object, host: object,
-                        port: object, service: object) -> str:
-    """Cross-run finding identity; user and artifact slots are reserved for A3."""
+                        port: object, service: object, user: object = "",
+                        artifact_id: object = "") -> str:
+    """Cross-run finding identity including the A3 account-label slot."""
     rid = str(rule_id or evidence_identity or "")
-    seed = f"{rid}|{host or ''}|{port or ''}|{service or ''}||"
+    seed = f"{rid}|{host or ''}|{port or ''}|{service or ''}|{user or ''}|{artifact_id or ''}"
     return "AR-L-" + hashlib.sha256(seed.encode()).hexdigest()[:14]
 
 
@@ -1761,6 +1838,9 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
     """Attribute dispatcher evidence, preserve protocol, and deduplicate it."""
     endpoints = _inventory_endpoints(out_dir)
     kb = _load_finding_kb()
+    credentialed = _credentialed_dispatchers()
+    run_invocation = _stage_invocation(out_dir, "run")
+    run_account_label = _stage_account_label(out_dir, "run")
     # host -> set of open ports, for the smb relay-vs-fileservice KB split.
     host_ports: dict[str, set[str]] = defaultdict(set)
     for e in endpoints:
@@ -1815,13 +1895,24 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
         # S2/D2.1 — additive KB keys (category / kb_id / kb_match). The smb
         # special case keys on this host's other open ports.
         _attach_kb(finding, kb, host_ports.get(str(finding.get("host", "")), set()))
+        if "auth_context" not in finding:
+            if service in credentialed:
+                finding["auth_context"] = _auth_context(
+                    run_invocation,
+                    account_label=str(finding.get("user", "") or run_account_label),
+                    host=str(finding.get("host", "")),
+                    domain=str(run_invocation.get("domain_arg", "")),
+                    dispatcher=service)
+            else:
+                finding["auth_context"] = None
         identity = str(finding.get("evidence_identity", ""))
         if not identity:
             identity = hashlib.sha256(str(finding.get("line", "")).encode()).hexdigest()
             finding["evidence_identity"] = identity
         finding["logical_id"] = _logical_finding_id(
             finding.get("rule_id"), identity, finding.get("host"),
-            finding.get("port"), finding.get("service"))
+            finding.get("port"), finding.get("service"),
+            (finding.get("auth_context") or {}).get("account_label", ""), "")
         _refresh_finding_identity(finding)
         key = tuple(str(finding.get(k, "")) for k in
                     ("host", "port", "protocol", "service", "severity",
@@ -1944,6 +2035,24 @@ def _coverage(out_dir: Path, findings: list[dict]) -> list[dict]:
                                       if p.name not in {".rc"}):
             status, reason = "assessed_clean", "evidence recorded without matched finding"
         record = {**endpoint, "status": status, "reason": reason}
+        skipped: list[dict] = []
+        candidates = [svc_dir / endpoint["host"] / "_skipped-checks.json"]
+        for skipped_path in candidates:
+            if not skipped_path.is_file():
+                continue
+            try:
+                values = json.loads(skipped_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                if (isinstance(value, dict) and value.get("check") and value.get("reason")
+                        and value not in skipped):
+                    skipped.append({"check": str(value["check"]),
+                                    "reason": str(value["reason"])})
+        if skipped:
+            record["skipped_checks"] = skipped
         if queue_authoritative:
             record["execution_authority"] = "queue"
         coverage.append(record)
@@ -2113,14 +2222,18 @@ def _bulk_identity(host_dir: Path) -> tuple[dict, dict[str, str]]:
         "key": key,
         "artifact_id": artifact_id,
         "protocol": protocol,
+        "auth_context": _auth_context(
+            obj.get("invocation", {}), account_label=user, host=host,
+            domain=str(obj.get("domain", "")), dispatcher=""),
     }
 
 
-def _with_bulk_identity(finding: dict, identity: dict[str, str]) -> dict:
+def _with_bulk_identity(finding: dict, identity: dict) -> dict:
     finding.update({
         "user": identity["user"],
         "key": identity["key"],
         "artifact_id": identity["artifact_id"],
+        "auth_context": identity.get("auth_context"),
     })
     return finding
 
@@ -2175,6 +2288,8 @@ def walk_findings_bulk(
                 "key": "",
                 "artifact_id": host_dir.name,
                 "protocol": "tcp",
+                "auth_context": _auth_context({}, account_label="",
+                                              host="(metadata-error)"),
             }
             diagnostic = {
                 "type": "invalid_bulk_metadata",
@@ -2220,8 +2335,9 @@ def walk_findings_bulk(
             rel = str(evidence.relative_to(rel_base))
             for line in text.splitlines():
                 if "POSTURE|" in line[:16]:
-                    pf = _ingest_posture_line(line, identity["host"], svc, rel, posture,
-                                              diagnostics, service_metadata, kb)
+                    pf = _ingest_posture_line(
+                        line, identity["host"], svc, rel, posture, diagnostics,
+                        service_metadata, kb, identity.get("auth_context"))
                     if pf is not None:
                         yield _with_bulk_identity(pf, identity)
                     continue
@@ -2300,7 +2416,7 @@ def _posture_finding(host: str, check_id: str, status: str, detail: str, check: 
 
 def _ingest_posture_line(line: str, host: str, svc: str, evidence_path: str, sink: dict,
                          diagnostics: "list[dict] | None", service_metadata: dict,
-                         kb: dict) -> "dict | None":
+                         kb: dict, auth_context: "dict | None" = None) -> "dict | None":
     """Parse one POSTURE line into the sink. Returns a host-scope finding for
     FAIL/WARN, else None. A malformed line, an unknown id, a repeated id on
     the same host, or a determined domain check without a `domain=` tag is
@@ -2326,7 +2442,8 @@ def _ingest_posture_line(line: str, host: str, svc: str, evidence_path: str, sin
         return _quarantine(f"unknown posture check id {check_id}")
     rec = sink["hosts"].setdefault(host, {
         "os": "linux" if svc == "linenum" else "windows",
-        "source": evidence_path, "checks": {}, "domain_observations": {}})
+        "source": evidence_path, "checks": {}, "domain_observations": {},
+        "auth_context": auth_context})
     if check_id in rec["checks"] or check_id in rec["domain_observations"]:
         return _quarantine(f"duplicate posture check id {check_id} for host")
     if check.get("scope") == "domain":
@@ -2337,7 +2454,7 @@ def _ingest_posture_line(line: str, host: str, svc: str, evidence_path: str, sin
         if m:
             sink["domain_obs"].setdefault(m.group(1), {}).setdefault(check_id, []).append(
                 {"host": host, "status": status, "detail": detail,
-                 "evidence_path": evidence_path})
+                 "evidence_path": evidence_path, "auth_context": auth_context})
         return None
     rec["checks"][check_id] = {"status": status, "detail": detail}
     if status not in ("FAIL", "WARN"):
@@ -2385,8 +2502,12 @@ def _posture_domain_findings(sink: dict, kb: dict, service_metadata: dict) -> It
                 f["evidence_paths"] = sorted({o["evidence_path"] for o in obs if o["evidence_path"]})
                 f["observed_from"] = observed
                 f.update({"user": "", "key": "", "artifact_id": ""})
+                f["auth_context"] = worst.get("auth_context")
                 yield f
-        domains[domain] = {"checks": dchecks}
+        contexts = [o.get("auth_context") for values in sink["domain_obs"][domain].values()
+                    for o in values if o.get("auth_context") is not None]
+        domains[domain] = {"checks": dchecks,
+                           "auth_context": contexts[0] if contexts else None}
     sink["domains"] = domains
 
 
@@ -2443,6 +2564,19 @@ def _posture_identities(posture: "dict | None", quarantined: "list[dict]") -> "l
 
 
 def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
+    def redact_context(value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        out = dict(value)
+        for key in ("account_label", "domain", "local_host"):
+            if out.get(key):
+                out[key] = redactor(str(out[key]))
+        inv = dict(out.get("invocation") or {})
+        if inv.get("domain_arg"):
+            inv["domain_arg"] = redactor(str(inv["domain_arg"]))
+        out["invocation"] = inv
+        return out
+
     hosts = {}
     for h, rec in (posture.get("hosts") or {}).items():
         hosts[redactor(h)] = {
@@ -2452,6 +2586,7 @@ def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
                        for cid, c in rec.get("checks", {}).items()},
             "domain_observations": {cid: {"status": c["status"], "detail": redactor(c["detail"])}
                                     for cid, c in rec.get("domain_observations", {}).items()},
+            "auth_context": redact_context(rec.get("auth_context")),
         }
     domains = {}
     for d, v in (posture.get("domains") or {}).items():
@@ -2460,7 +2595,8 @@ def _redact_posture(posture: dict, redactor: "Redactor") -> dict:
                   "observed_from": [{"host": redactor(o["host"]), "status": o["status"],
                                      "detail": redactor(o["detail"])}
                                     for o in c.get("observed_from", [])]}
-            for cid, c in v.get("checks", {}).items()}}
+            for cid, c in v.get("checks", {}).items()},
+            "auth_context": redact_context(v.get("auth_context"))}
     return {"hosts": hosts, "domains": domains}
 
 
@@ -3065,6 +3201,14 @@ def main() -> int:
                 f["observed_from"] = [{"host": redactor(o["host"]), "status": o["status"],
                                        "detail": redactor(o["detail"])}
                                       for o in f["observed_from"]]
+            if isinstance(f.get("auth_context"), dict):
+                context = f["auth_context"]
+                for key in ("account_label", "domain", "local_host"):
+                    if context.get(key):
+                        context[key] = redactor(str(context[key]))
+                inv = context.get("invocation") or {}
+                if inv.get("domain_arg"):
+                    inv["domain_arg"] = redactor(str(inv["domain_arg"]))
         for d in quarantined:
             for k in ("host", "path"):
                 d[k] = redactor(str(d.get(k, "")))

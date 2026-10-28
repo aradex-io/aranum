@@ -73,7 +73,8 @@ def _run_state(run_id: str, services: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _finding(finding_id: str, host: str, service: str, severity: str, title: str,
              *, port: str = "0", line: str = "synthetic lab observation",
-             triage: Optional[str] = None, kb_id: Optional[str] = None) -> dict[str, Any]:
+             triage: Optional[str] = None, kb_id: Optional[str] = None,
+             auth_context: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     rule_id = kb_id or f"LAB-{finding_id}"
     item = {
         "schema_version": "2",
@@ -101,7 +102,32 @@ def _finding(finding_id: str, host: str, service: str, severity: str, title: str
         })
     if triage is not None:
         item["triage"] = triage
+    if auth_context is not None:
+        item["auth_context"] = auth_context
+        item["logical_id"] = REPORT._logical_finding_id(
+            rule_id, "", host, port, service, auth_context.get("account_label", ""), "")
     return item
+
+
+def _auth_context(account: str, scope: Optional[str], host: str, *,
+                  domain: str = "", method: str = "password",
+                  basis: str = "declared") -> dict[str, Any]:
+    invocation = {
+        "domain_arg": domain,
+        "local_auth_flag": scope == "local",
+        "username_form": "machine$" if account.endswith("$") else "bare",
+        "credential_kind": "none" if method in {"null-session", "anonymous"} else method,
+        "auth_scope_declared": scope if basis == "declared" else None,
+    }
+    return {
+        "account_label": account,
+        "scope": scope,
+        "scope_basis": basis,
+        "domain": domain if scope in {"domain", "machine"} else None,
+        "local_host": host if scope in {"local", None} else None,
+        "auth_method": method,
+        "invocation": invocation,
+    }
 
 
 def _findings(run_id: str, label: str, mode: str, records: list[dict[str, Any]], *,
@@ -198,9 +224,9 @@ def _fx1() -> Path:
 
 
 def _fx2() -> Path:
-    out = OUTPUT / "FX-2-v1"
+    out = OUTPUT / "FX-2-v2"
     out.mkdir(parents=True)
-    run_id = "fx-2-v1-run"
+    run_id = "fx-2-v2-run"
     _write_json(out / "inventory.json", _synthetic_inventory())
     _write_json(out / "run-state.json", _run_state(run_id, [
         {"service": "ssh", "status": "done", "rc": 0},
@@ -211,30 +237,41 @@ def _fx2() -> Path:
         _finding("FX2-LOCAL-LINUX", "linux-lab.invalid", "linlocal", "medium",
                  "Local account labadmin on Linux host",
                  line="local labadmin context on linux-lab.invalid",
-                 kb_id="LIN-ACCT-NOPASSWD"),
+                 kb_id="LIN-ACCT-NOPASSWD",
+                 auth_context=_auth_context("labadmin", "local", "linux-lab.invalid")),
         _finding("FX2-LOCAL-WINDOWS", "windows-lab.invalid", "winlocal", "high",
                  "Local account labadmin on Windows host",
                  line="local labadmin context on windows-lab.invalid",
-                 kb_id="WIN-UAC-LATFP"),
+                 kb_id="WIN-UAC-LATFP",
+                 auth_context=_auth_context("labadmin", "local", "windows-lab.invalid")),
         _finding("FX2-DOMAIN", "dc-lab.invalid", "ldap", "high",
                  "Domain account lab-reader exposure", port="389",
                  line="domain lab-reader context in LAB.INVALID",
-                 kb_id="kerberoastable-hash-es-captured-aada6591"),
+                 kb_id="kerberoastable-hash-es-captured-aada6591",
+                 auth_context=_auth_context("lab-reader", "domain", "dc-lab.invalid",
+                                            domain="LAB.INVALID")),
         _finding("FX2-MACHINE", "windows-lab.invalid", "smb", "medium",
                  "Machine principal WINLAB$ observation", port="445",
-                 line="machine WINLAB$ context", kb_id="AD-MAQ"),
+                 line="machine WINLAB$ context", kb_id="AD-MAQ",
+                 auth_context=_auth_context("WINLAB$", "machine", "windows-lab.invalid",
+                                            domain="LAB.INVALID", method="hash")),
         _finding("FX2-NULL", "windows-lab.invalid", "smb", "high",
                  "Null-session share listing", port="445",
                  line="null-session synthetic share exposure",
-                 kb_id="bsigning-disabled-b-bsigning-enabled-but-not-required-b-65edaf46"),
+                 kb_id="bsigning-disabled-b-bsigning-enabled-but-not-required-b-65edaf46",
+                 auth_context=_auth_context("", None, "windows-lab.invalid",
+                                            method="null-session", basis="invoked")),
     ]
     _write_json(out / "findings.json", _findings(
-        run_id, "FX-2 v1", "mixed", records, inline_kb=True))
-    _write_json(out / "posture.json", _posture(run_id, "FX-2 v1", {
-        "linux-lab.invalid": {"os": "linux", "checks": [{"id": "LIN-SUDO", "status": "WARN"}]},
-        "windows-lab.invalid": {"os": "windows", "checks": [{"id": "WIN-SMB", "status": "FAIL"}]},
-    }, {"LAB.INVALID": {"checks": [{"id": "AD-LDAP-SIGN", "status": "WARN"}]}}))
-    _render_placeholders(out, "FX-2 v1")
+        run_id, "FX-2 v2", "mixed", records, inline_kb=True))
+    _write_json(out / "posture.json", _posture(run_id, "FX-2 v2", {
+        "linux-lab.invalid": {"os": "linux", "checks": [{"id": "LIN-SUDO", "status": "WARN"}],
+                              "auth_context": records[0]["auth_context"]},
+        "windows-lab.invalid": {"os": "windows", "checks": [{"id": "WIN-SMB", "status": "FAIL"}],
+                                "auth_context": records[1]["auth_context"]},
+    }, {"LAB.INVALID": {"checks": [{"id": "AD-LDAP-SIGN", "status": "WARN"}],
+                         "auth_context": records[2]["auth_context"]}}))
+    _render_placeholders(out, "FX-2 v2")
     _stage(out, "run", run_id, "complete", 0)
     _stage(out, "local", run_id, "complete", 0)
     _stage(out, "report", run_id, "complete", 0)
@@ -243,21 +280,25 @@ def _fx2() -> Path:
 
 
 def _fx2l() -> Path:
-    out = OUTPUT / "FX-2L-v0"
+    out = OUTPUT / "FX-2L-v1"
     out.mkdir(parents=True)
-    run_id = "fx-2l-v0-run"
+    run_id = "fx-2l-v1-run"
     records = [
         _finding("FX2L-LINUX", "local-linux.invalid", "linlocal", "medium",
-                 "Local Linux posture finding"),
+                 "Local Linux posture finding",
+                 auth_context=_auth_context("localadmin", "local", "local-linux.invalid")),
         _finding("FX2L-WINDOWS", "local-windows.invalid", "winlocal", "high",
-                 "Local Windows posture finding"),
+                 "Local Windows posture finding",
+                 auth_context=_auth_context("localadmin", "local", "local-windows.invalid")),
     ]
-    _write_json(out / "findings.json", _findings(run_id, "FX-2L v0", "bulk-enum", records))
-    _write_json(out / "posture.json", _posture(run_id, "FX-2L v0", {
-        "local-linux.invalid": {"os": "linux", "checks": [{"id": "LIN-PATH", "status": "WARN"}]},
-        "local-windows.invalid": {"os": "windows", "checks": [{"id": "WIN-UAC", "status": "FAIL"}]},
+    _write_json(out / "findings.json", _findings(run_id, "FX-2L v1", "bulk-enum", records))
+    _write_json(out / "posture.json", _posture(run_id, "FX-2L v1", {
+        "local-linux.invalid": {"os": "linux", "checks": [{"id": "LIN-PATH", "status": "WARN"}],
+                                "auth_context": records[0]["auth_context"]},
+        "local-windows.invalid": {"os": "windows", "checks": [{"id": "WIN-UAC", "status": "FAIL"}],
+                                  "auth_context": records[1]["auth_context"]},
     }, {}))
-    _render_placeholders(out, "FX-2L v0")
+    _render_placeholders(out, "FX-2L v1")
     _stage(out, "local", run_id, "complete", 0)
     _stage(out, "report", run_id, "complete", 0)
     MANIFEST.build_manifest(out)

@@ -70,6 +70,7 @@ _AUTO_ENUM_VALUE_FLAGS = {
     "-p", "--password",
     "-H", "--hash",
     "-d", "--domain",
+    "--auth-scope",
     "--dc-ip",
     "-P", "--parallel",
     "--service-parallel",
@@ -97,8 +98,9 @@ _LOCAL_ENUM_BOOL_FLAGS = {
 }
 # Passed to BOTH auto-enum and local-enum when `run --local` is used.
 _LOCAL_SHARED_VALUE_FLAGS = {"-u", "--user", "-p", "--password", "--pass",
-                             "-H", "--hash", "-d", "--domain", "-P", "--parallel"}
-_LOCAL_SHARED_BOOL_FLAGS = {"--dry-run"}
+                             "-H", "--hash", "-d", "--domain", "--auth-scope",
+                             "-P", "--parallel"}
+_LOCAL_SHARED_BOOL_FLAGS = {"--dry-run", "--local-auth"}
 
 
 def _build_help() -> str:
@@ -594,6 +596,17 @@ def _has_option(args: Sequence[str], names: set[str]) -> bool:
     return _extract_option(args, names) is not None
 
 
+def _validate_auth_scope(args: Sequence[str]) -> str | None:
+    """Validate shared auth scope before dispatching either implementation."""
+    scope = _extract_option(args, {"--auth-scope"})
+    if scope is not None and scope not in {"local", "domain", "machine"}:
+        return f"--auth-scope: invalid choice: {scope!r} (choose from local, domain, machine)"
+    domain = _extract_option(args, {"-d", "--domain"}) or ""
+    if scope in {"domain", "machine"} and not domain:
+        return f"--auth-scope {scope} requires a non-empty -d/--domain"
+    return None
+
+
 def _resolve_scan_token(token: str) -> Path:
     p = Path(token)
     if p.is_file():
@@ -949,6 +962,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as e:
         print(f"[!] {e}", file=sys.stderr)
         return 2
+    if cmd in {"run", "local"}:
+        auth_error = _validate_auth_scope(cmd_args)
+        if auth_error:
+            print(f"[!] {auth_error}", file=sys.stderr)
+            return 2
     return run(cmd, cmd_args, session, session_explicit)
 
 

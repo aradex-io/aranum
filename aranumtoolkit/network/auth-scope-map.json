@@ -1,0 +1,30 @@
+{
+  "schema": "1",
+  "families": {
+    "nxc": {
+      "domain": {"extra_args": ["-d", "{domain}"]},
+      "machine": {"extra_args": ["-d", "{domain}"], "username_suffix": "$"},
+      "local": {"extra_args": ["--local-auth"]}
+    },
+    "impacket": {
+      "domain": {"principal": "{domain}/{user}"},
+      "machine": {"principal": "{domain}/{user}$"},
+      "local": {"principal": "{host}/{user}"}
+    },
+    "ldap": {
+      "domain": {"bind": "{user}@{domain}"},
+      "machine": {"bind": "{user}@{domain}"},
+      "local": {"skip": true}
+    },
+    "ssh": {
+      "domain": {},
+      "machine": {},
+      "local": {}
+    },
+    "other": {
+      "domain": {},
+      "machine": {},
+      "local": {}
+    }
+  }
+}
