@@ -100,7 +100,8 @@ class TestSubcommandDelegation(unittest.TestCase):
             scan.write_text("<nmaprun/>")
             (root / "scan01").mkdir()
             with mock.patch.object(ARANUM_MOD.subprocess, "run") as run_call, \
-                 mock.patch.object(ARANUM_MOD, "_first_free_port", return_value=8765):
+                 mock.patch.object(ARANUM_MOD, "_first_free_port", return_value=8765), \
+                 mock.patch.object(ARANUM_MOD, "_chain_exit_code", return_value=0):
                 run_call.return_value = mock.Mock(returncode=0)
                 old_cwd = Path.cwd()
                 os.chdir(root)
@@ -133,7 +134,8 @@ class TestSubcommandDelegation(unittest.TestCase):
             scan.write_text("<nmaprun/>")
             (root / "scan01").mkdir()
             with mock.patch.object(ARANUM_MOD.subprocess, "run") as run_call, \
-                 mock.patch.object(ARANUM_MOD, "_first_free_port", return_value=8765):
+                 mock.patch.object(ARANUM_MOD, "_first_free_port", return_value=8765), \
+                 mock.patch.object(ARANUM_MOD, "_chain_exit_code", return_value=0):
                 run_call.return_value = mock.Mock(returncode=0)
                 old_cwd = Path.cwd()
                 os.chdir(root)

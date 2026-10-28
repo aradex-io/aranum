@@ -654,15 +654,36 @@ def _prepare_run_args(args: Sequence[str]) -> tuple[list[str], bool, bool]:
     return run_args, generate_report, serve_dashboard
 
 
-def _run_report_chain(outdir: Path, session: str, dirs: dict, serve_dashboard: bool) -> int:
+def _chain_exit_code(outdir: Path, stage_rcs: Sequence[tuple[str, int]]) -> int:
+    """Apply PLAN-002's manifest-fold exit precedence to a chained run."""
+    status = "unknown"
+    try:
+        manifest = json.loads((outdir / "bundle-manifest.json").read_text(encoding="utf-8"))
+        status = str(manifest.get("status", "unknown"))
+    except (OSError, ValueError, TypeError):
+        pass
+
+    if status in {"interrupted", "failed", "unknown"}:
+        return next((rc for _stage, rc in stage_rcs if rc != 0), 1)
+    for stage, rc in stage_rcs:
+        if rc not in {0, 4} and not (stage == "report" and rc == 1):
+            return rc
+    if status in {"partial", "stale"}:
+        return 4
+    return 0
+
+
+def _run_report_chain(outdir: Path, session: str, dirs: dict, serve_dashboard: bool,
+                      prior_stage_rcs: Sequence[tuple[str, int]] = ()) -> int:
     """report.py over `outdir`, copy the artifacts, then build (or serve) the
     dashboard. Shared by `aranum run … -report` and `aranum local … -report`
     so the auto-enum and access-layer paths produce the identical report chain
     (and, for `run --local`, one chain over the mixed tree)."""
     report_cmd = build_command("report", [str(outdir), "--label", session])
-    rc = subprocess.run(report_cmd).returncode
-    if rc != 0:
-        return rc
+    report_rc = subprocess.run(report_cmd).returncode
+    stage_rcs = [*prior_stage_rcs, ("report", report_rc)]
+    if report_rc not in {0, 1}:
+        return _chain_exit_code(outdir, stage_rcs)
     _copy_report_artifacts(outdir, dirs["reports"])
     # Generate-only by default so `aranum run … -report` stays non-interactive
     # (a scheduled/CI wrapper must not block on http.server). Opt into the blocking
@@ -671,11 +692,11 @@ def _run_report_chain(outdir: Path, session: str, dirs: dict, serve_dashboard: b
     dash_args = [str(outdir), "--output", str(dash_dir)]
     if not serve_dashboard:
         dash_args.append("--no-serve")
-    rc = _run_dashboard(dash_args)
+    dashboard_rc = _run_dashboard(dash_args)
     if not serve_dashboard:
         index = dash_dir / "index.html"
         print(f"[*] dashboard generated: file://{index}", file=sys.stderr)
-    return rc
+    return _chain_exit_code(outdir, [*stage_rcs, ("dashboard", dashboard_rc)])
 
 
 def _partition_local(args: Sequence[str]) -> tuple[list[str], list[str]]:
@@ -730,11 +751,11 @@ def _run_auto_enum(args: Sequence[str], session: str) -> int:
     run_args = _add_default_output(run_args, dirs["raw"])
     _copy_input_artifact(_extract_option(run_args, {"-i", "--input"}), dirs["inputs"])
     rc = subprocess.run(build_command("run", run_args)).returncode
-    if rc != 0 or not generate_report:
+    if rc not in {0, 4} or not generate_report:
         return rc
 
     outdir = Path(_extract_option(run_args, {"-o", "--output"}) or dirs["raw"])
-    return _run_report_chain(outdir, session, dirs, serve_dashboard)
+    return _run_report_chain(outdir, session, dirs, serve_dashboard, (("run", rc),))
 
 
 def _run_auto_enum_local(args: Sequence[str], session: str) -> int:
@@ -747,8 +768,9 @@ def _run_auto_enum_local(args: Sequence[str], session: str) -> int:
     run_args = _add_default_output(run_args, dirs["raw"])
     _copy_input_artifact(_extract_option(run_args, {"-i", "--input"}), dirs["inputs"])
     rc = subprocess.run(build_command("run", run_args)).returncode
-    if rc != 0:
+    if rc not in {0, 4}:
         return rc
+    run_rc = rc
     raw = Path(_extract_option(run_args, {"-o", "--output"}) or dirs["raw"])
 
     local_args = list(local_args) + ["-o", str(raw)]
@@ -758,10 +780,11 @@ def _run_auto_enum_local(args: Sequence[str], session: str) -> int:
         local_args += ["--from-inventory", str(inv)]
     rc = subprocess.run(build_command("local", local_args)).returncode
     if rc != 0:
-        return rc
+        return _chain_exit_code(raw, (("run", run_rc), ("local", rc)))
     if not generate_report:
-        return rc
-    return _run_report_chain(raw, session, dirs, serve_dashboard)
+        return _chain_exit_code(raw, (("run", run_rc), ("local", rc)))
+    return _run_report_chain(raw, session, dirs, serve_dashboard,
+                             (("run", run_rc), ("local", rc)))
 
 
 def _run_local(args: Sequence[str], session: str) -> int:
@@ -784,7 +807,7 @@ def _run_local(args: Sequence[str], session: str) -> int:
     if rc != 0 or not generate_report:
         return rc
     outdir = Path(_extract_option(local_args, {"-o", "--output"}) or dirs["raw"])
-    return _run_report_chain(outdir, session, dirs, serve_dashboard)
+    return _run_report_chain(outdir, session, dirs, serve_dashboard, (("local", rc),))
 
 
 def _run_iterative(args: Sequence[str], session: str) -> int:

@@ -60,6 +60,7 @@ LIN_PRIVESC = PROJECT_ROOT / "standalones" / "linux" / "linenum-fast.sh"
 LIN_POSTURE = PROJECT_ROOT / "standalones" / "linux" / "host-posture.sh"
 WIN_PRIVESC = PROJECT_ROOT / "standalones" / "windows" / "Invoke-PrivEscEnum.ps1"
 WIN_POSTURE = PROJECT_ROOT / "standalones" / "windows" / "Invoke-HostPosture.ps1"
+MANIFEST_MODULE = HERE / "manifest.py"
 
 BULK_ROOT_MARKER = "_aranum_bulk_root"
 PATHWAYS = ("local", "ssh", "winrm", "exec", "rdp", "vnc")
@@ -116,6 +117,31 @@ def _load_win_engine():
 
 
 WE = _load_win_engine()
+
+
+def _load_manifest_module():
+    """Load the sibling manifest module when this hyphenated script is run directly."""
+    spec = importlib.util.spec_from_file_location("aranum_manifest_local_enum", MANIFEST_MODULE)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["aranum_manifest_local_enum"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+MANIFEST = _load_manifest_module()
+
+
+def _stage_run_id(out: Path) -> tuple[Optional[str], bool]:
+    """Return the inherited run-stage id, or mint a local-only run id."""
+    run_record = out / "stages" / "run.json"
+    if run_record.is_file():
+        try:
+            value = json.loads(run_record.read_text(encoding="utf-8")).get("run_id")
+            return (str(value) if value is not None else None), False
+        except (OSError, ValueError, TypeError):
+            return None, False
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{stamp}-{os.getpid()}", True
 
 
 # --------------------------------------------------------------------- inputs
@@ -1219,6 +1245,8 @@ def main(argv: Optional[list] = None) -> int:
 
     out = Path(args.output).resolve()
     out.mkdir(parents=True, exist_ok=True)
+    run_id, minted = _stage_run_id(out)
+    MANIFEST.stage_begin(out, "local", run_id, mint=minted)
 
     plans = [plan_host(s, resolve_cred(s, creds_rows, default), allowed,
                        args.win_exec, probe, probe_error) for s in specs]
@@ -1230,12 +1258,14 @@ def main(argv: Optional[list] = None) -> int:
         for hp in plans:
             for row in hp.rows:
                 print(row.line())
+        MANIFEST.stage_end(out, "local", 0)
         return 0
 
     if args.self_scan and "local" in allowed:
         run_self_scan(out, args, default)
     execute_plans(plans, out, allowed, args.win_exec, probe, args.tls, args)
     log(f"local-enum complete -> {out}")
+    MANIFEST.stage_end(out, "local", 0)
     return 0
 
 

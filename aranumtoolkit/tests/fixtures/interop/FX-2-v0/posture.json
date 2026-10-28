@@ -1,0 +1,37 @@
+{
+  "schema_version": "1",
+  "run_id": "fx-2-v0-run",
+  "label": "FX-2 v0",
+  "generated_utc": "2026-10-27T12:00:00Z",
+  "redacted": false,
+  "hosts": {
+    "linux-lab.invalid": {
+      "os": "linux",
+      "checks": [
+        {
+          "id": "LIN-SUDO",
+          "status": "WARN"
+        }
+      ]
+    },
+    "windows-lab.invalid": {
+      "os": "windows",
+      "checks": [
+        {
+          "id": "WIN-SMB",
+          "status": "FAIL"
+        }
+      ]
+    }
+  },
+  "domains": {
+    "LAB.INVALID": {
+      "checks": [
+        {
+          "id": "AD-LDAP-SIGN",
+          "status": "WARN"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "schema_version": "1",
+  "run_id": "fx-2-v0-run",
+  "tool_version": "0.34.0",
+  "kb": {
+    "digest": "0594988c4eeb1d26846836007823a57782a4f4796b74082813caa890c1b5060b"
+  },
+  "stages": {
+    "local": {
+      "status": "complete",
+      "run_id": "fx-2-v0-run",
+      "started_utc": "2026-10-27T12:00:00Z",
+      "consumed": [],
+      "exit_code": 0,
+      "finished_utc": "2026-10-27T12:00:00Z",
+      "produced": []
+    },
+    "report": {
+      "status": "complete",
+      "run_id": "fx-2-v0-run",
+      "started_utc": "2026-10-27T12:00:00Z",
+      "consumed": [],
+      "exit_code": 0,
+      "finished_utc": "2026-10-27T12:00:00Z",
+      "produced": [
+        {
+          "path": "findings.json",
+          "schema": "findings-2"
+        },
+        {
+          "path": "posture.json",
+          "schema": "posture-1"
+        },
+        {
+          "path": "report.md",
+          "schema": null
+        },
+        {
+          "path": "report.html",
+          "schema": null
+        }
+      ]
+    },
+    "run": {
+      "status": "complete",
+      "run_id": "fx-2-v0-run",
+      "started_utc": "2026-10-27T12:00:00Z",
+      "consumed": [],
+      "exit_code": 0,
+      "finished_utc": "2026-10-27T12:00:00Z",
+      "produced": [
+        {
+          "path": "inventory.json",
+          "schema": "inventory-1"
+        },
+        {
+          "path": "run-state.json",
+          "schema": "run-state-1"
+        }
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "findings.json",
+      "schema": "findings-2",
+      "sha256": "4c913cac859ac7847ba815075f688f4b1f2c8557e5d97dcaf8ef9429967f742a",
+      "produced_by": "report"
+    },
+    {
+      "path": "inventory.json",
+      "schema": "inventory-1",
+      "sha256": "041a6af546ac8efa0dd766d9ea48d3e3b2dd4df72a95fb41befaf1063701ffff",
+      "produced_by": "run"
+    },
+    {
+      "path": "posture.json",
+      "schema": "posture-1",
+      "sha256": "834fabbc0f835660c20f588042496663b4158f1242e3a44a79cfe30e53be371c",
+      "produced_by": "report"
+    },
+    {
+      "path": "report.html",
+      "schema": null,
+      "sha256": "932b0b3ef2c224af3bc6a5be50bd925ff6a3761566ab602de0fe8b5e87f8d9de",
+      "produced_by": "report"
+    },
+    {
+      "path": "report.md",
+      "schema": null,
+      "sha256": "8714e475f2dcfafee5701de161f0bb7ccfa7fdc56bedf3ac951024f86d28af09",
+      "produced_by": "report"
+    },
+    {
+      "path": "run-state.json",
+      "schema": "run-state-1",
+      "sha256": "120b8ab9e27c5c3669e80fbed672972021541aa5f21d26b985303de38411a2f8",
+      "produced_by": "run"
+    }
+  ],
+  "status": "complete"
+}

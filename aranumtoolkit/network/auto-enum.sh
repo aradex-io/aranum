@@ -186,6 +186,8 @@ done
 mkdir -p "$OUTDIR" || { echo "cannot create output directory: $OUTDIR" >&2; exit 2; }
 [ -d "$OUTDIR" ] || { echo "output path is not a directory: $OUTDIR" >&2; exit 2; }
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+python3 "$SCRIPT_DIR/manifest.py" stage-begin "$OUTDIR" run --mint --run-id "$RUN_ID"
+trap 'rc=$?; python3 "$SCRIPT_DIR/manifest.py" stage-end "$OUTDIR" run "$rc"; exit $rc' EXIT
 RUN_STATE_DIR="$OUTDIR/.run-state-$RUN_ID"
 mkdir -p "$RUN_STATE_DIR" || { echo "cannot create run-state directory" >&2; exit 2; }
 

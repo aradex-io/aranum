@@ -37,6 +37,7 @@ import argparse
 import hashlib
 import datetime
 import html
+import importlib.util
 import ipaddress
 import itertools
 import json
@@ -46,6 +47,38 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Iterable, NamedTuple
+
+HERE = Path(__file__).resolve().parent
+
+
+def _load_manifest_module():
+    """Load the sibling manifest helper when report.py is imported by path."""
+    path = HERE / "manifest.py"
+    spec = importlib.util.spec_from_file_location("aranum_manifest_report", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["aranum_manifest_report"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+MANIFEST = _load_manifest_module()
+
+
+def _report_run_id(out_dir: Path):
+    """Resolve the report run id using run, local, then run-state precedence."""
+    candidates = (
+        out_dir / "stages" / "run.json",
+        out_dir / "stages" / "local.json",
+        out_dir / "run-state.json",
+    )
+    for path in candidates:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8")).get("run_id")
+        except (OSError, ValueError, TypeError):
+            continue
+        if value is not None:
+            return str(value)
+    return None
 
 # ---------------------------------------------------- color (stdout only)
 def _c(s: str, code: str) -> str:
@@ -2797,6 +2830,8 @@ def main() -> int:
     if not out_dir.is_dir():
         print(_c(f"[!] not a directory: {out_dir}", "R"), file=sys.stderr)
         return 2
+    run_id = _report_run_id(out_dir)
+    MANIFEST.stage_begin(out_dir, "report", run_id)
 
     rules = _load_rules(Path(args.severity_rules) if args.severity_rules else None)
     # D1.5: layer the AD-depth rules on top of the default + operator rules.
@@ -2832,6 +2867,7 @@ def main() -> int:
     # Always emit findings.json (machine-readable)
     findings_json = {
         "schema_version": _FINDINGS_SCHEMA_VERSION,
+        "run_id":        run_id,
         "label":         label,
         "generated_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "redacted":      args.redact,
@@ -2900,6 +2936,7 @@ def main() -> int:
             "hosts": posture["hosts"], "domains": posture["domains"]}
         posture_json = {
             "schema_version": "1",
+            "run_id": run_id,
             "label": label,
             "generated_utc": findings_json["generated_utc"],
             "redacted": args.redact,
@@ -2916,6 +2953,8 @@ def main() -> int:
 
     result_rc = 1 if partial_diagnostics else 0
     if args.findings_only:
+        MANIFEST.stage_end(out_dir, "report", result_rc,
+                           status="complete" if result_rc == 0 else "partial")
         return result_rc
 
     md = render_markdown(findings, summary, label, redactor, per_host)
@@ -2926,6 +2965,8 @@ def main() -> int:
         (out_dir / "report.html").write_text(render_html(md))
         print(_c(f"[+] report.html written", "G"))
 
+    MANIFEST.stage_end(out_dir, "report", result_rc,
+                       status="complete" if result_rc == 0 else "partial")
     return result_rc
 
 

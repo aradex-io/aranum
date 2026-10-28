@@ -1,0 +1,94 @@
+{
+  "schema_version": "2",
+  "run_id": "fx-2-v0-run",
+  "label": "FX-2 v0",
+  "generated_utc": "2026-10-27T12:00:00Z",
+  "redacted": false,
+  "mode": "mixed",
+  "summary": {
+    "total": 5,
+    "hosts": [
+      "dc-lab.invalid",
+      "linux-lab.invalid",
+      "windows-lab.invalid"
+    ],
+    "coverage": []
+  },
+  "findings": [
+    {
+      "schema_version": "2",
+      "finding_id": "FX2-LOCAL-LINUX",
+      "rule_id": "LAB-FX2-LOCAL-LINUX",
+      "host": "linux-lab.invalid",
+      "port": "0",
+      "service": "linlocal",
+      "severity": "medium",
+      "title": "Local account labadmin on Linux host",
+      "line": "local labadmin context on linux-lab.invalid",
+      "evidence_path": "linlocal/linux-lab.invalid/synthetic.txt",
+      "evidence_paths": [
+        "linlocal/linux-lab.invalid/synthetic.txt"
+      ]
+    },
+    {
+      "schema_version": "2",
+      "finding_id": "FX2-LOCAL-WINDOWS",
+      "rule_id": "LAB-FX2-LOCAL-WINDOWS",
+      "host": "windows-lab.invalid",
+      "port": "0",
+      "service": "winlocal",
+      "severity": "high",
+      "title": "Local account labadmin on Windows host",
+      "line": "local labadmin context on windows-lab.invalid",
+      "evidence_path": "winlocal/windows-lab.invalid/synthetic.txt",
+      "evidence_paths": [
+        "winlocal/windows-lab.invalid/synthetic.txt"
+      ]
+    },
+    {
+      "schema_version": "2",
+      "finding_id": "FX2-DOMAIN",
+      "rule_id": "LAB-FX2-DOMAIN",
+      "host": "dc-lab.invalid",
+      "port": "389",
+      "service": "ldap",
+      "severity": "high",
+      "title": "Domain account lab-reader exposure",
+      "line": "domain lab-reader context in LAB.INVALID",
+      "evidence_path": "ldap/dc-lab.invalid/synthetic.txt",
+      "evidence_paths": [
+        "ldap/dc-lab.invalid/synthetic.txt"
+      ]
+    },
+    {
+      "schema_version": "2",
+      "finding_id": "FX2-MACHINE",
+      "rule_id": "LAB-FX2-MACHINE",
+      "host": "windows-lab.invalid",
+      "port": "445",
+      "service": "smb",
+      "severity": "medium",
+      "title": "Machine principal WINLAB$ observation",
+      "line": "machine WINLAB$ context",
+      "evidence_path": "smb/windows-lab.invalid/synthetic.txt",
+      "evidence_paths": [
+        "smb/windows-lab.invalid/synthetic.txt"
+      ]
+    },
+    {
+      "schema_version": "2",
+      "finding_id": "FX2-NULL",
+      "rule_id": "LAB-FX2-NULL",
+      "host": "windows-lab.invalid",
+      "port": "445",
+      "service": "smb",
+      "severity": "high",
+      "title": "Null-session share listing",
+      "line": "null-session synthetic share exposure",
+      "evidence_path": "smb/windows-lab.invalid/synthetic.txt",
+      "evidence_paths": [
+        "smb/windows-lab.invalid/synthetic.txt"
+      ]
+    }
+  ]
+}
