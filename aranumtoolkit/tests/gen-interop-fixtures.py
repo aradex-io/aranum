@@ -291,6 +291,65 @@ def _fx2() -> Path:
     return out
 
 
+def _fx2_rerun() -> Path:
+    """Two-run FX-2 for cross-run linking (AC-08).
+
+    run-2 re-observes run-1's findings under a new run_id. One finding's line
+    changes, so it earns a new finding_id (source_id) while keeping the same
+    rule_id/host/port/service/account_label -> the same logical_id. The other
+    findings are byte-identical across runs. Grouping by logical_id therefore
+    yields identical groups and per-group counts between the two runs, while the
+    occurrence key (manifest run_id) keeps every imported id disjoint.
+    """
+    top = OUTPUT / "FX-2-RERUN"
+    top.mkdir(parents=True)
+
+    def _run(sub: str, run_id: str, linux_finding_id: str, linux_line: str) -> None:
+        out = top / sub
+        out.mkdir(parents=True)
+        _write_json(out / "inventory.json", _synthetic_inventory())
+        _write_json(out / "run-state.json", _run_state(run_id, [
+            {"service": "ssh", "status": "done", "rc": 0},
+            {"service": "smb", "status": "done", "rc": 0},
+            {"service": "ldap", "status": "done", "rc": 0},
+        ]))
+        records = [
+            _finding(linux_finding_id, "linux-lab.invalid", "linlocal", "medium",
+                     "Local account labadmin on Linux host",
+                     line=linux_line, kb_id="LIN-ACCT-NOPASSWD",
+                     auth_context=_auth_context("labadmin", "local", "linux-lab.invalid")),
+            _finding("FX2R-LOCAL-WINDOWS", "windows-lab.invalid", "winlocal", "high",
+                     "Local account labadmin on Windows host",
+                     line="local labadmin context on windows-lab.invalid",
+                     kb_id="WIN-UAC-LATFP",
+                     auth_context=_auth_context("labadmin", "local", "windows-lab.invalid")),
+            _finding("FX2R-DOMAIN", "dc-lab.invalid", "ldap", "high",
+                     "Domain account lab-reader exposure", port="389",
+                     line="domain lab-reader context in LAB.INVALID",
+                     kb_id="kerberoastable-hash-es-captured-aada6591",
+                     auth_context=_auth_context("lab-reader", "domain", "dc-lab.invalid",
+                                                domain="LAB.INVALID")),
+        ]
+        _write_json(out / "findings.json", _findings(
+            run_id, f"FX-2 rerun {sub}", "mixed", records, inline_kb=True))
+        _write_json(out / "posture.json", _posture(run_id, f"FX-2 rerun {sub}", {
+            "linux-lab.invalid": {"os": "linux",
+                                  "checks": [{"id": "LIN-SUDO", "status": "WARN"}],
+                                  "auth_context": records[0]["auth_context"]},
+        }, {}))
+        _render_placeholders(out, f"FX-2 rerun {sub}")
+        _stage(out, "run", run_id, "complete", 0)
+        _stage(out, "local", run_id, "complete", 0)
+        _stage(out, "report", run_id, "complete", 0)
+        MANIFEST.build_manifest(out)
+
+    _run("run-1", "fx-2-rerun-run-1", "FX2R-LOCAL-LINUX",
+         "local labadmin context on linux-lab.invalid")
+    _run("run-2", "fx-2-rerun-run-2", "FX2R-LOCAL-LINUX-v2",
+         "local labadmin context on linux-lab.invalid (rescanned)")
+    return top
+
+
 def _fx2l() -> Path:
     out = OUTPUT / "FX-2L-v1"
     out.mkdir(parents=True)
@@ -443,15 +502,30 @@ def _fx5() -> Path:
     return out
 
 
+def _bundle_digest(bundle: Path) -> str:
+    """Digest a bundle by its manifest(s).
+
+    Single-run bundles carry one top-level ``bundle-manifest.json``. A multi-run
+    fixture (e.g. FX-2-RERUN) carries one manifest per run subdirectory; its
+    digest folds every manifest in sorted path order so it stays deterministic.
+    """
+    top = bundle / "bundle-manifest.json"
+    if top.is_file():
+        return hashlib.sha256(top.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    for manifest in sorted(bundle.rglob("bundle-manifest.json")):
+        digest.update(str(manifest.relative_to(bundle)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(manifest.read_bytes())
+    return digest.hexdigest()
+
+
 def main() -> int:
     if OUTPUT.exists():
         shutil.rmtree(OUTPUT)
     OUTPUT.mkdir(parents=True)
-    bundles = [_fx1(), _fx2(), _fx2l(), _fx3(), _fx4(), _fx4l(), _fx5()]
-    digests = {
-        bundle.name: hashlib.sha256((bundle / "bundle-manifest.json").read_bytes()).hexdigest()
-        for bundle in bundles
-    }
+    bundles = [_fx1(), _fx2(), _fx2_rerun(), _fx2l(), _fx3(), _fx4(), _fx4l(), _fx5()]
+    digests = {bundle.name: _bundle_digest(bundle) for bundle in bundles}
     _write_json(OUTPUT / "manifest-digests.json", digests)
     return 0
 
