@@ -1,0 +1,3 @@
+=========================== short test summary info ============================
+FAILED tests/integration/interop/test_aranum_acceptance.py::test_ac_16_no_inference
+1 failed, 18 deselected in 0.56s

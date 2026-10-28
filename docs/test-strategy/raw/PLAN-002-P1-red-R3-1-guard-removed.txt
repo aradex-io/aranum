@@ -1,0 +1,4 @@
+=========================== short test summary info ============================
+FAILED tests/unit/core/test_credential_models_p1.py::test_orm_migration_never_rewrites_an_existing_account_ref
+FAILED tests/unit/core/test_database.py::test_legacy_migration_never_rewrites_an_existing_account_ref
+2 failed in 12.00s

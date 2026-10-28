@@ -1,0 +1,82 @@
+{
+  "base_sha": "cc491ae",
+  "plan": "PLAN-002",
+  "results": {
+    "AC-01": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-1 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-1",
+      "state": "inconclusive"
+    },
+    "AC-02": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-1 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-1",
+      "state": "inconclusive"
+    },
+    "AC-03": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2",
+      "state": "inconclusive"
+    },
+    "AC-04": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2",
+      "state": "inconclusive"
+    },
+    "AC-05": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2",
+      "state": "inconclusive"
+    },
+    "AC-06": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2",
+      "state": "inconclusive"
+    },
+    "AC-07": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2",
+      "state": "inconclusive"
+    },
+    "AC-08": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2",
+      "state": "inconclusive"
+    },
+    "AC-09": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-3 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-3",
+      "state": "inconclusive"
+    },
+    "AC-10": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-1 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-1",
+      "state": "inconclusive"
+    },
+    "AC-11": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2",
+      "state": "inconclusive"
+    },
+    "AC-12": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-3 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-3",
+      "state": "inconclusive"
+    },
+    "AC-13": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2",
+      "state": "inconclusive"
+    },
+    "AC-14": {
+      "reason": "same-named local accounts remain distinct in session, SQLite, and ORM stores",
+      "state": "pass"
+    },
+    "AC-15": {
+      "reason": "auth_context survives direct, distributed, and assessment round trips",
+      "state": "pass"
+    },
+    "AC-16": {
+      "reason": "DOMAIN without declared scope leaves auth_context.scope null",
+      "state": "pass"
+    },
+    "AC-17": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-2l is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-2l",
+      "state": "inconclusive"
+    },
+    "AC-18": {
+      "reason": "INCONCLUSIVE: fixture bundle fx-4 is absent at /srv/share/dev/purplesploit/build/worktrees/p1/python/tests/fixtures/interop/aranum/fx-4",
+      "state": "inconclusive"
+    },
+    "AC-19": {
+      "reason": "201 persisted observation IDs match across 30 cases",
+      "state": "pass"
+    }
+  }
+}
