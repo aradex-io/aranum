@@ -12,7 +12,32 @@
       "linux-lab.invalid",
       "windows-lab.invalid"
     ],
-    "coverage": []
+    "coverage": [
+      {
+        "host": "linux-lab.invalid",
+        "port": "22",
+        "protocol": "tcp",
+        "service": "ssh",
+        "status": "assessed_clean",
+        "reason": "dispatcher rc=0"
+      },
+      {
+        "host": "windows-lab.invalid",
+        "port": "445",
+        "protocol": "tcp",
+        "service": "smb",
+        "status": "confirmed",
+        "reason": "finding evidence recorded"
+      },
+      {
+        "host": "dc-lab.invalid",
+        "port": "389",
+        "protocol": "tcp",
+        "service": "ldap",
+        "status": "confirmed",
+        "reason": "finding evidence recorded"
+      }
+    ]
   },
   "findings": [
     {
@@ -365,6 +390,20 @@
           "T1136.002"
         ]
       }
+    }
+  },
+  "per_host": {
+    "windows-lab.invalid": {
+      "verdict": "high",
+      "findings": 2
+    },
+    "dc-lab.invalid": {
+      "verdict": "high",
+      "findings": 1
+    },
+    "linux-lab.invalid": {
+      "verdict": "medium",
+      "findings": 1
     }
   }
 }

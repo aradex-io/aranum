@@ -64,7 +64,7 @@
     {
       "path": "findings.json",
       "schema": "findings-2",
-      "sha256": "e2f2072bec9d99852c96efbf4e826d33946d68c9894f0a6b366f2b99301663d4",
+      "sha256": "ba25ed5ebc7321189aa04e02f5ce4fbebc07d4888806c76cb5dee02b788e8735",
       "produced_by": "report"
     },
     {

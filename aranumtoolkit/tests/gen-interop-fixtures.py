@@ -274,8 +274,24 @@ def _fx2() -> Path:
                  auth_context=_auth_context("", None, "windows-lab.invalid",
                                             method="null-session", basis="invoked")),
     ]
-    _write_json(out / "findings.json", _findings(
-        run_id, "FX-2 v2", "mixed", records, inline_kb=True))
+    findings_json = _findings(run_id, "FX-2 v2", "mixed", records, inline_kb=True)
+    # Service-enumeration coverage rows and per-host roll-ups, mirroring the
+    # report.py _coverage()/per_host envelope, so the importer can represent
+    # AC-04's `coverage` and `per_host_rollup` observations.
+    findings_json["summary"]["coverage"] = [
+        {"host": "linux-lab.invalid", "port": "22", "protocol": "tcp", "service": "ssh",
+         "status": "assessed_clean", "reason": "dispatcher rc=0"},
+        {"host": "windows-lab.invalid", "port": "445", "protocol": "tcp", "service": "smb",
+         "status": "confirmed", "reason": "finding evidence recorded"},
+        {"host": "dc-lab.invalid", "port": "389", "protocol": "tcp", "service": "ldap",
+         "status": "confirmed", "reason": "finding evidence recorded"},
+    ]
+    findings_json["per_host"] = {
+        "windows-lab.invalid": {"verdict": "high", "findings": 2},
+        "dc-lab.invalid": {"verdict": "high", "findings": 1},
+        "linux-lab.invalid": {"verdict": "medium", "findings": 1},
+    }
+    _write_json(out / "findings.json", findings_json)
     _write_json(out / "posture.json", _posture(run_id, "FX-2 v2", {
         "linux-lab.invalid": {"os": "linux", "checks": [{"id": "LIN-SUDO", "status": "WARN"}],
                               "auth_context": records[0]["auth_context"]},
