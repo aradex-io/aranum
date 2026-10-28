@@ -52,6 +52,33 @@ except ImportError:                       # noqa: BLE001
     )
 
 
+# Inventory contract (PLAN-002 A1.1). The ``--json`` envelope carries the
+# producer identity and a schema version so a consumer can pin what it parses.
+# Bumped only when the envelope's meaning changes (additive fields do not bump
+# it — the record level is permissive; see aranumtoolkit/schemas/inventory-1).
+_INVENTORY_SCHEMA_VERSION = "1"
+_TOOL_NAME = "aranum-nmap-parse"
+
+
+def _tool_version() -> str:
+    """aranum's version — the VERSION file, else the CHANGELOG top released
+    block, else ``unknown``. Resolved from the repo root relative to this file
+    so it is correct however nmap-parse.py is invoked."""
+    root = Path(__file__).resolve().parents[2]
+    vf = root / "VERSION"
+    if vf.is_file():
+        base = vf.read_text().strip()
+        if base:
+            return base
+    ch = root / "CHANGELOG.md"
+    if ch.is_file():
+        for line in ch.read_text().splitlines():
+            s = line.strip()
+            if s.startswith("## [v"):
+                return s[len("## [v"):].split("]", 1)[0]
+    return "unknown"
+
+
 # DTD constructs that enable XXE / billion-laughs.
 #   * <!ENTITY ...>     declares an entity (XXE-via-internal-entity, billion-laughs)
 #   * SYSTEM "..." or PUBLIC "..." inside DOCTYPE  (external DTD load)
@@ -611,6 +638,9 @@ def main():
             else:
                 unknown.append(ip_port)
         out = {
+            "schema_version": _INVENTORY_SCHEMA_VERSION,
+            "tool": _TOOL_NAME,
+            "tool_version": _tool_version(),
             "summary": {
                 # ``hosts`` remains the compatibility alias for all up hosts.
                 "hosts":      len({h["ip"] for h in hosts if h["state"] in ("up", "unknown")}),
