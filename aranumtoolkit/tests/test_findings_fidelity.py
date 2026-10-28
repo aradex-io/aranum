@@ -17,10 +17,17 @@ Run: python3 -m unittest tests.test_findings_fidelity
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import jsonschema
 
 REPO = Path(__file__).resolve().parents[2]
 REPORT_PATH = REPO / "aranumtoolkit" / "network" / "report.py"
@@ -41,6 +48,9 @@ R = _load_report()
 _RULES = list(R._DEFAULT_RULES) + list(R._AD_DEPTH_RULES) + list(R._GENERIC_FALLBACK_RULES)
 _CORPUS = extract_emissions(REPO)
 _MISSLOG = [r for r in _CORPUS if r["kind"] in ("miss", "log")]
+INTEROP = REPO / "aranumtoolkit" / "tests" / "fixtures" / "interop"
+RAW_KB_PATH = REPO / "aranumtoolkit" / "network" / "finding-kb.json"
+KB_SUBSET_SCHEMA = REPO / "aranumtoolkit" / "schemas" / "kb-subset-1.schema.json"
 
 
 class TestCorpusIsReal(unittest.TestCase):
@@ -187,6 +197,64 @@ class TestOperatorCustomRulesNeverSuppressed(unittest.TestCase):
         rule = _json.dumps({"pattern": r"ACME-SIGNAL", "severity": "high"}) + "\n"
         self.assertEqual(_cid(rule), _cid("# leading comment\n\n" + rule),
                          "custom rule id must not depend on the file line number")
+
+
+class TestInlineKbSubset(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.payload = json.loads((INTEROP / "FX-2-v1" / "findings.json").read_text())
+        cls.subset = cls.payload["kb"]
+        cls.raw = json.loads(RAW_KB_PATH.read_text())
+
+    def test_subset_schema_and_reference_closure(self):
+        schema = json.loads(KB_SUBSET_SCHEMA.read_text())
+        jsonschema.Draft202012Validator(schema).validate(self.subset)
+        categories = self.subset["categories"]
+        for section in ("classes", "checks"):
+            for entry_id, entry in self.subset[section].items():
+                self.assertIn(entry["category"], categories,
+                              f"{section}.{entry_id} category missing from closure")
+        referenced = set(self.subset["classes"]) | set(self.subset["checks"])
+        for finding in self.payload["findings"]:
+            if finding.get("kb_id"):
+                self.assertIn(finding["kb_id"], referenced)
+
+    def test_subset_reloads_through_aranum_normalizer(self):
+        temp_kb = {
+            "schema": self.subset["schema"],
+            "categories": self.subset["categories"],
+            "service_categories": {},
+            "classes": self.subset["classes"],
+            "checks": self.subset["checks"],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "finding-kb.json"
+            path.write_text(json.dumps(temp_kb), encoding="utf-8")
+            with mock.patch.dict(os.environ, {"ARANUM_FINDING_KB": str(path)}):
+                loaded = R._load_finding_kb()
+        self.assertEqual(set(loaded["checks"]), set(self.subset["checks"]))
+        self.assertTrue(set(self.subset["classes"]).issubset(loaded["classes"]))
+        for section in ("classes", "checks"):
+            for entry_id, entry in self.subset[section].items():
+                normalized = loaded[section][entry_id]
+                for field in ("title", "why", "test", "fix", "refs"):
+                    self.assertEqual(normalized[field], entry[field],
+                                     f"normalizer changed {section}.{entry_id}.{field}")
+
+    def test_subset_entries_preserve_raw_kb_authored_fields(self):
+        self.assertEqual(
+            self.subset["digest"], hashlib.sha256(RAW_KB_PATH.read_bytes()).hexdigest())
+        for name, entry in self.subset["categories"].items():
+            self.assertEqual(entry, self.raw["categories"][name])
+        authored = ("category", "title", "why", "test", "fix", "refs")
+        for section in ("classes", "checks"):
+            for entry_id, entry in self.subset[section].items():
+                raw_entry = self.raw[section][entry_id]
+                self.assertEqual(set(entry) - set(raw_entry), {"attack_ids"})
+                self.assertEqual(set(raw_entry) - set(entry), set())
+                for field in authored:
+                    self.assertEqual(entry[field], raw_entry[field],
+                                     f"subset changed {section}.{entry_id}.{field}")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the small, deterministic PLAN-002 A1 interop fixture bundles."""
+"""Build the small, deterministic PLAN-002 interop fixture bundles."""
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +27,17 @@ def _load_manifest_module():
 
 
 MANIFEST = _load_manifest_module()
+
+
+def _load_report_module():
+    spec = importlib.util.spec_from_file_location("aranum_fixture_report", NETWORK / "report.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["aranum_fixture_report"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+REPORT = _load_report_module()
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -62,11 +73,12 @@ def _run_state(run_id: str, services: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _finding(finding_id: str, host: str, service: str, severity: str, title: str,
              *, port: str = "0", line: str = "synthetic lab observation",
-             triage: Optional[str] = None) -> dict[str, Any]:
+             triage: Optional[str] = None, kb_id: Optional[str] = None) -> dict[str, Any]:
+    rule_id = kb_id or f"LAB-{finding_id}"
     item = {
         "schema_version": "2",
         "finding_id": finding_id,
-        "rule_id": f"LAB-{finding_id}",
+        "rule_id": rule_id,
         "host": host,
         "port": port,
         "service": service,
@@ -76,13 +88,25 @@ def _finding(finding_id: str, host: str, service: str, severity: str, title: str
         "evidence_path": f"{service}/{host}/synthetic.txt",
         "evidence_paths": [f"{service}/{host}/synthetic.txt"],
     }
+    if kb_id:
+        raw, _ = REPORT._raw_finding_kb()
+        entry = raw.get("classes", {}).get(kb_id) or raw.get("checks", {}).get(kb_id) or {}
+        item.update({
+            "logical_id": REPORT._logical_finding_id(rule_id, "", host, port, service),
+            "category": str(entry.get("category") or ""),
+            "kb_id": kb_id,
+            "kb_match": "rule",
+            "confidence": "high" if severity in ("critical", "high") else "medium",
+            "scope": "endpoint" if port != "0" else "host",
+        })
     if triage is not None:
         item["triage"] = triage
     return item
 
 
 def _findings(run_id: str, label: str, mode: str, records: list[dict[str, Any]], *,
-              redacted: bool = False, partial: bool = False) -> dict[str, Any]:
+              redacted: bool = False, partial: bool = False,
+              inline_kb: bool = False) -> dict[str, Any]:
     hosts = sorted({item["host"] for item in records})
     value: dict[str, Any] = {
         "schema_version": "2",
@@ -94,6 +118,8 @@ def _findings(run_id: str, label: str, mode: str, records: list[dict[str, Any]],
         "summary": {"total": len(records), "hosts": hosts, "coverage": []},
         "findings": records,
     }
+    if inline_kb:
+        value["kb"] = REPORT._kb_subset(records)
     if partial:
         value["partial"] = True
         value["errors"] = [{
@@ -172,9 +198,9 @@ def _fx1() -> Path:
 
 
 def _fx2() -> Path:
-    out = OUTPUT / "FX-2-v0"
+    out = OUTPUT / "FX-2-v1"
     out.mkdir(parents=True)
-    run_id = "fx-2-v0-run"
+    run_id = "fx-2-v1-run"
     _write_json(out / "inventory.json", _synthetic_inventory())
     _write_json(out / "run-state.json", _run_state(run_id, [
         {"service": "ssh", "status": "done", "rc": 0},
@@ -184,26 +210,31 @@ def _fx2() -> Path:
     records = [
         _finding("FX2-LOCAL-LINUX", "linux-lab.invalid", "linlocal", "medium",
                  "Local account labadmin on Linux host",
-                 line="local labadmin context on linux-lab.invalid"),
+                 line="local labadmin context on linux-lab.invalid",
+                 kb_id="LIN-ACCT-NOPASSWD"),
         _finding("FX2-LOCAL-WINDOWS", "windows-lab.invalid", "winlocal", "high",
                  "Local account labadmin on Windows host",
-                 line="local labadmin context on windows-lab.invalid"),
+                 line="local labadmin context on windows-lab.invalid",
+                 kb_id="WIN-UAC-LATFP"),
         _finding("FX2-DOMAIN", "dc-lab.invalid", "ldap", "high",
                  "Domain account lab-reader exposure", port="389",
-                 line="domain lab-reader context in LAB.INVALID"),
+                 line="domain lab-reader context in LAB.INVALID",
+                 kb_id="kerberoastable-hash-es-captured-aada6591"),
         _finding("FX2-MACHINE", "windows-lab.invalid", "smb", "medium",
                  "Machine principal WINLAB$ observation", port="445",
-                 line="machine WINLAB$ context"),
+                 line="machine WINLAB$ context", kb_id="AD-MAQ"),
         _finding("FX2-NULL", "windows-lab.invalid", "smb", "high",
                  "Null-session share listing", port="445",
-                 line="null-session synthetic share exposure"),
+                 line="null-session synthetic share exposure",
+                 kb_id="bsigning-disabled-b-bsigning-enabled-but-not-required-b-65edaf46"),
     ]
-    _write_json(out / "findings.json", _findings(run_id, "FX-2 v0", "mixed", records))
-    _write_json(out / "posture.json", _posture(run_id, "FX-2 v0", {
+    _write_json(out / "findings.json", _findings(
+        run_id, "FX-2 v1", "mixed", records, inline_kb=True))
+    _write_json(out / "posture.json", _posture(run_id, "FX-2 v1", {
         "linux-lab.invalid": {"os": "linux", "checks": [{"id": "LIN-SUDO", "status": "WARN"}]},
         "windows-lab.invalid": {"os": "windows", "checks": [{"id": "WIN-SMB", "status": "FAIL"}]},
     }, {"LAB.INVALID": {"checks": [{"id": "AD-LDAP-SIGN", "status": "WARN"}]}}))
-    _render_placeholders(out, "FX-2 v0")
+    _render_placeholders(out, "FX-2 v1")
     _stage(out, "run", run_id, "complete", 0)
     _stage(out, "local", run_id, "complete", 0)
     _stage(out, "report", run_id, "complete", 0)

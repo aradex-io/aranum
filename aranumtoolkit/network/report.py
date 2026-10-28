@@ -189,6 +189,8 @@ def _coerce_service_metadata_services(raw: object) -> dict[str, dict]:
 _FINDING_KB_DEFAULT = Path(__file__).resolve().parent / "finding-kb.json"
 _FINDING_KB_CACHE: "dict | None" = None
 _FINDING_KB_CACHE_PATH: "str | None" = None
+_ATTACK_TECHNIQUE_RE = re.compile(
+    r"attack\.mitre\.org/techniques/(T\d{4})(?:/(\d{3}))?(?:/|$)", re.IGNORECASE)
 
 
 def _finding_kb_path() -> Path:
@@ -196,6 +198,99 @@ def _finding_kb_path() -> Path:
     RED proof points it at a temp copy with a class removed)."""
     override = os.environ.get("ARANUM_FINDING_KB", "").strip()
     return Path(override) if override else _FINDING_KB_DEFAULT
+
+
+def _tool_version() -> str:
+    """Return the repository version through manifest.py's shared reader."""
+    return MANIFEST._tool_version()
+
+
+def _raw_finding_kb() -> tuple[dict, str]:
+    """Load the installed KB without normalization and digest its file bytes."""
+    path = _finding_kb_path()
+    try:
+        data = path.read_bytes()
+    except OSError:
+        data = b""
+    try:
+        with path.open(encoding="utf-8") as stream:
+            raw = json.load(stream)
+    except (OSError, ValueError, TypeError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    return raw, hashlib.sha256(data).hexdigest()
+
+
+def _attack_ids(entry: dict) -> list[str]:
+    """Extract normalized ATT&CK technique ids from one raw KB entry."""
+    refs = entry.get("refs") if isinstance(entry.get("refs"), list) else []
+    attack_ids: list[str] = []
+    seen: set[str] = set()
+    for ref in refs:
+        if not isinstance(ref, str):
+            continue
+        match = _ATTACK_TECHNIQUE_RE.search(ref)
+        if match is None:
+            continue
+        attack_id = match.group(1).upper()
+        if match.group(2):
+            attack_id += f".{match.group(2)}"
+        if attack_id not in seen:
+            seen.add(attack_id)
+            attack_ids.append(attack_id)
+    return attack_ids
+
+
+def _kb_subset(findings: Iterable[dict]) -> dict:
+    """Build the run-pinned, reference-closed subset of the raw installed KB."""
+    records = list(findings)
+    raw, digest = _raw_finding_kb()
+    raw_categories = raw.get("categories") if isinstance(raw.get("categories"), dict) else {}
+    raw_classes = raw.get("classes") if isinstance(raw.get("classes"), dict) else {}
+    raw_checks = raw.get("checks") if isinstance(raw.get("checks"), dict) else {}
+    referenced_ids = {
+        str(finding.get("kb_id"))
+        for finding in records
+        if finding.get("kb_id") not in (None, "")
+    }
+
+    def selected_entries(source: dict) -> dict:
+        selected = {}
+        for entry_id, entry in source.items():
+            if entry_id not in referenced_ids or not isinstance(entry, dict):
+                continue
+            copied = dict(entry)
+            copied["attack_ids"] = _attack_ids(entry)
+            selected[entry_id] = copied
+        return selected
+
+    classes = selected_entries(raw_classes)
+    checks = selected_entries(raw_checks)
+    category_names = {
+        str(finding.get("category"))
+        for finding in records
+        if finding.get("category") not in (None, "")
+    }
+    for entry in itertools.chain(classes.values(), checks.values()):
+        category = entry.get("category")
+        if isinstance(category, str) and category:
+            category_names.add(category)
+    categories = {
+        name: entry for name, entry in raw_categories.items()
+        if name in category_names and isinstance(entry, dict)
+    }
+    schema = raw.get("schema", 1)
+    if not isinstance(schema, int) or isinstance(schema, bool):
+        schema = 1
+    return {
+        "schema": schema,
+        "aranum_version": _tool_version(),
+        "digest": digest,
+        "categories": categories,
+        "classes": classes,
+        "checks": checks,
+    }
 
 
 def _load_finding_kb() -> dict:
@@ -407,6 +502,7 @@ def _structured_finding(
     evidence_identity = hashlib.sha256(complete_line.encode()).hexdigest()
     _id_seed = f"{service}|{host}|{port}|{protocol}|{severity}|{evidence_identity}"
     finding_id = f"{_FINDING_ID_PREFIX}-{hashlib.sha1(_id_seed.encode()).hexdigest()[:14]}"
+    logical_id = _logical_finding_id(rule_id, evidence_identity, host, port, service)
     return {
         "host": host,
         "port": port,
@@ -418,6 +514,7 @@ def _structured_finding(
         "evidence_paths": [evidence_path] if evidence_path else [],
         "evidence_identity": evidence_identity,
         "finding_id": finding_id,
+        "logical_id": logical_id,
         "rule_id": rule_id,
         "title": _finding_title(service, severity, normalized_line, cfg),
         "confidence": _coerce_str(cfg.get("confidence"), fallback=_SEVERITY_TO_CONFIDENCE.get(severity, "medium")),
@@ -427,6 +524,14 @@ def _structured_finding(
         "triage_status": _coerce_str(cfg.get("triage_status"), fallback="new"),
         "schema_version": _FINDINGS_SCHEMA_VERSION,
     }
+
+
+def _logical_finding_id(rule_id: object, evidence_identity: object, host: object,
+                        port: object, service: object) -> str:
+    """Cross-run finding identity; user and artifact slots are reserved for A3."""
+    rid = str(rule_id or evidence_identity or "")
+    seed = f"{rid}|{host or ''}|{port or ''}|{service or ''}||"
+    return "AR-L-" + hashlib.sha256(seed.encode()).hexdigest()[:14]
 
 
 # ---------------------------------------------------- rule identity
@@ -1714,6 +1819,9 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
         if not identity:
             identity = hashlib.sha256(str(finding.get("line", "")).encode()).hexdigest()
             finding["evidence_identity"] = identity
+        finding["logical_id"] = _logical_finding_id(
+            finding.get("rule_id"), identity, finding.get("host"),
+            finding.get("port"), finding.get("service"))
         _refresh_finding_identity(finding)
         key = tuple(str(finding.get(k, "")) for k in
                     ("host", "port", "protocol", "service", "severity",
@@ -2698,31 +2806,73 @@ _SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low"
 
 
 def _to_sarif(findings: list[dict], label: str) -> dict:
-    """Minimal SARIF 2.1.0 subset so findings drop into standard security
-    dashboards / CI (GitHub code-scanning, DefectDojo, etc.)."""
+    """Return SARIF 2.1.0 with KB rule metadata and endpoint locations."""
     results = []
+    rule_ids: list[str] = []
+    seen_rule_ids: set[str] = set()
     for f in findings:
         sev = str(f.get("severity", "low")).lower()
-        loc = []
+        rule_id = str(f.get("rule_id") or f.get("kb_id") or f.get("service") or "finding")
+        if rule_id not in seen_rule_ids:
+            seen_rule_ids.add(rule_id)
+            rule_ids.append(rule_id)
+        location = {
+            "logicalLocations": [{
+                "fullyQualifiedName": f"{f.get('host') or ''}:{f.get('port') or ''}",
+            }],
+        }
         ev = f.get("evidence_path")
         if ev:
-            loc = [{"physicalLocation": {"artifactLocation": {"uri": str(ev)}}}]
+            location["physicalLocation"] = {"artifactLocation": {"uri": str(ev)}}
         results.append({
-            "ruleId": f.get("service", "finding") or "finding",
+            "ruleId": rule_id,
             "level": _SARIF_LEVEL.get(sev, "note"),
             "message": {"text": (f.get("title") or f.get("line", "")).strip()[:400]},
-            "locations": loc,
+            "locations": [location],
             "properties": {
                 "host": f.get("host", ""), "port": f.get("port", ""),
                 "severity": sev, "finding_id": f.get("finding_id", ""),
+                "category": f.get("category", ""), "kb_id": f.get("kb_id", ""),
+                "confidence": f.get("confidence"), "scope": f.get("scope"),
             },
         })
+
+    kb = _load_finding_kb()
+    descriptors = []
+    for rule_id in rule_ids:
+        entry = kb.get("classes", {}).get(rule_id)
+        if not isinstance(entry, dict):
+            entry = kb.get("checks", {}).get(rule_id)
+        if not isinstance(entry, dict):
+            continue
+        title = str(entry.get("title") or rule_id)
+        fixes = []
+        for fix in entry.get("fix", []):
+            if not isinstance(fix, dict):
+                continue
+            fix_label = str(fix.get("label") or "").strip()
+            fix_text = str(fix.get("text") or "").strip()
+            if fix_label and fix_text:
+                fixes.append(f"{fix_label}: {fix_text}")
+            elif fix_label or fix_text:
+                fixes.append(fix_label or fix_text)
+        descriptor = {
+            "id": rule_id,
+            "name": title,
+            "shortDescription": {"text": title},
+            "fullDescription": {"text": str(entry.get("why") or "")},
+            "help": {"text": "\n".join(fixes)},
+        }
+        refs = entry.get("refs", [])
+        if isinstance(refs, list) and refs:
+            descriptor["helpUri"] = str(refs[0])
+        descriptors.append(descriptor)
     return {
         "version": "2.1.0",
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "runs": [{
             "tool": {"driver": {"name": "aranum", "informationUri": "https://github.com/aradex-io/aranum",
-                                "version": _FINDINGS_SCHEMA_VERSION, "rules": []}},
+                                "version": _tool_version(), "rules": descriptors}},
             "properties": {"label": label},
             "results": results,
         }],
@@ -2874,6 +3024,7 @@ def main() -> int:
         "mode":          collection.mode,
         "summary":       summary,
         "findings":      findings,
+        "kb":            _kb_subset(findings),
     }
     if quarantined:
         findings_json["posture_quarantine"] = quarantined

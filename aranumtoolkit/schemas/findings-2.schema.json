@@ -14,6 +14,7 @@
     "redacted": {"type": "boolean"},
     "mode": {"type": "string"},
     "summary": {"type": "object", "additionalProperties": true},
+    "kb": {"type": "object", "additionalProperties": true},
     "findings": {
       "type": "array",
       "items": {
