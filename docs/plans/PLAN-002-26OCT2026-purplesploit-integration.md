@@ -527,3 +527,114 @@ Hypotheses H11–H15 adopted as Phase-6 probes (A1.6 / A3.5 tests named above).
     R3-1 guard tests fail with the guard removed.
 - **Phase 8 — benefit (measured, same harness):** AC-14, AC-15, AC-16 fail → pass; AC-19
   pass → pass; AC-01..13, 17, 18 inconclusive → inconclusive (fixtures arrive with A1–A3).
+
+### A1 — aranum interop contract, 27 OCT 2026
+
+- **Branch** `dev/a1-interop-contract`, base `main@2493def`; ff-merged to `main` at `337cc7a`,
+  PR #10 (MERGED), remote+local branch deleted. Four commits: `2bfac0c` (plan docs), `636409d`
+  (A1.1 inventory envelope + A1.2 six schemas), `a795965` (A1.3 manifest module), `337cc7a`
+  (A1.3/A1.4 stage wiring + A1.5 dispatcher registry + A1.6 contract tests + A1.7 fixtures).
+- **Implementer:** codex (`gpt-5.6-sol`, effort high) to the `.interop/a1-codex-prompt-1.md` brief
+  (per the 27 OCT division of labor: Claude plans, codex implements).
+- **Phase 6 — independent review (Claude; implementer = codex):** verified the auto-enum EXIT
+  trap placement (SCRIPT_DIR defined, no pre-existing trap clobbered), local-enum mint/inherit +
+  always-rc-0, report.py run_id resolution (run>local>run-state else null) stamped into both
+  findings.json and posture.json on every emit path, aranum.py `_chain_exit_code` exit precedence
+  + rc-4 continuation, `test_unified_cli` delegation shims (stub `_chain_exit_code`, no assertion
+  weakened), dispatchers.json (76 records / 16 credential-aware / sorted, schema-conformant), and
+  the findings-2/posture-1 nullable-`run_id` additions (match R-21).
+- **Phase 7 — gate (host; codex's sandbox denies loopback binds):** `pytest aranumtoolkit/tests/`
+  → **598 passed, 5 skipped, 100 subtests** (baseline 588 + 10 new contract tests); the 5 failures
+  codex reported were all socket-bind denials under its sandbox and pass on the host. `smoke.sh`
+  → **652 pass / 0 fail / 1 skip** (incl. fp-harness). RED proofs: codex measured 8 contract
+  falsifiers and reverted them.
+- **Phase 8 — benefit:** the interop contract is now machine-checkable — every published emitter
+  validates against a pinned schema, bundles carry a tree-derived completeness status, and
+  partial runs no longer drop findings. Importer-side benefit (AC-01..13) is realized in P2b.
+
+## 15. Credential-reuse testing (owner addendum, 27 OCT 2026)
+
+Owner refinement after the P1 merge: "I want the ability to test local accounts
+across various hosts — e.g. for password reuse. think about all of the different
+pentesting checklists and possibilities." Owner approved this as **its own sprint**
+and chose the ownership split: **purplesploit drives (selects + accounts for
+lockout); aranum executes (runs each credentialed test via its existing
+dispatchers); P4/P6 derive findings.** Also approved `key` as an `auth_method`
+(§12).
+
+### 15.1 What this adds
+
+The account model (P1) already keeps per-host local accounts distinct — the
+foundation for reuse testing. P4 derives reuse *passively* from what was observed.
+This adds the *active* side: take a credential set the stores hold, test it against
+an explicit host set under a declared scope over chosen transports, and record the
+outcome as the reuse signal.
+
+**The matrix (the "checklists and possibilities"):**
+- **Scope axis (identity):** local account across hosts (`--auth-scope local` /
+  aranum `--local-auth`, A3) — the no-LAPS local-admin-reuse check; domain account
+  effective-on-host (P4 edge); machine account (kept distinct, P1).
+- **Secret axis:** password, NTLM hash, Kerberos ticket, SSH key (`key` auth_method).
+- **Transport axis:** the same local secret tested over SMB / WinRM / RDP / MSSQL /
+  SSH / VNC — reuse is cross-protocol, so the loop iterates transports, it does not
+  assume one.
+- **Discipline:** the host set and credential set are always operator-provided and
+  explicit (never a discovery-driven open sweep — aranum §9 forbids mass-targeting);
+  lockout/attempt accounting is tracked across the whole campaign; every result is an
+  observation carrying its `auth_context` so P4/P6 can promote confirmed reuse.
+
+### 15.2 Sprints
+
+**A4 (aranum) — auth-outcome signal.** Credentialed dispatchers emit one explicit
+`auth_outcome` observation per credentialed attempt:
+`{host, transport, scope, account_label, outcome ∈ success|failure|lockout|error|
+anonymous|null-session}` (account_label only, never the secret). Rides on A3's
+`auth_context`/`invocation`; no new spray logic in aranum — aranum still runs one
+credentialed pass per (cred, host-set, transport, scope) exactly as A3/P3 drive it.
+This is the machine-readable reuse signal the importer reads. New fixture FX-5
+(reuse): one local account that authenticates on 2 of 3 hosts, one that is locked
+out, one domain account effective on a host it is not local to. Feeds AC-20..22.
+
+**P6 (purplesploit) — reuse campaign.** Built on P1+A3+P2b+P3+P4; lands after P4.
+- **Selector:** choose accounts × hosts × scope × transports from the stores
+  (explicit, bounded sets; a "test this local cred against these hosts" operation).
+- **Lockout accounting:** track attempts per account across the campaign; respect a
+  configurable threshold; never exceed it; surface near-lockout.
+- **Fan-out:** drive aranum per (cred, host-batch, transport, scope) via the P3
+  `recon/aranum` module; import each bundle via P2b.
+- **Derivation (extends P4):** a local secret confirmed on ≥2 hosts ⇒ a
+  reuse finding; a domain account confirmed effective on a host ⇒ a graph edge; a
+  machine account stays distinct; null scope ⇒ no derivation. All derived only from
+  non-null `auth_outcome`/`auth_context` — never inferred.
+
+### 15.3 Acceptance checks (append to §6)
+
+| # | Check | Pass condition | Sprint |
+|---|---|---|---|
+| AC-20 | Auth-outcome fidelity | every credentialed attempt in FX-5 yields one `auth_outcome` observation with the right outcome and `auth_context`; anonymous/null-session recorded, not dropped | A4+P2b |
+| AC-21 | Local reuse finding | a local account whose `auth_outcome=success` on ≥2 distinct hosts ⇒ one reuse finding naming those hosts; a one-host success ⇒ no reuse finding | P6 |
+| AC-22 | No open sweep / lockout safety | the selector never emits a (cred,host) pair outside the operator's explicit sets; attempts per account never exceed the configured lockout threshold (fake runner counts attempts) | P6 |
+| AC-23 | Cross-transport | the same local cred is tested over each selected transport; a cred blocked on one transport but accepted on another is reported per transport, not collapsed | P6 |
+| AC-24 | Scope honesty | a domain-account success on a host is an effective-on-host edge, not a local-reuse finding; machine accounts never fold into local reuse; null scope ⇒ no derivation | P6+P4 |
+
+### 15.4 Sprint map (revised)
+
+```
+A1 ✅ ─ A2 ── A3 ── A4 ──┐
+P1 ✅ ─ P2a ✅ ─────────┴── P2b ── P3 ── P4 ── P6
+```
+
+A4 branches from A3's tip; P6 is the last purplesploit sprint, after P4. P5
+(interchange) is independent and may land any time after A2.
+
+### 15.5 Decision — new aranum spray mode vs. reuse-via-existing-dispatchers
+
+(a) **reuse-via-existing-dispatchers + an explicit auth_outcome signal (chosen):**
+aranum runs the credentialed dispatchers it already has, per (cred, host, transport,
+scope); the only aranum addition is emitting the outcome. purplesploit owns the
+corpus, the fan-out, and the lockout state. (b) a dedicated aranum spray engine —
+rejected: duplicates purplesploit's account model and campaign state in aranum, and
+pushes mass-iteration logic into the enumeration tool against §9. Flip if: driving
+per-host from purplesploit proves too slow and a single aranum batch call is needed —
+then add a thin `--reuse <credset> <hostset>` fan-out to aranum that still emits the
+same per-attempt outcome.
