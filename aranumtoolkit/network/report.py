@@ -524,6 +524,12 @@ def _coerce_str(value: object, *, fallback: str = "") -> str:
     return value.strip() if isinstance(value, str) and value.strip() else fallback
 
 
+# QT-1: a colon-head that is only a dispatcher marker (`[!]`/`[+]`/`[-]`/`[*]`)
+# and/or a bare severity word — no informative text of its own.
+_TITLE_MARKER_HEAD_RE = re.compile(
+    r"^(?:\[[!+\-*]\])?\s*(?:CRITICAL|HIGH|MEDIUM|LOW|INFO)?$", re.I)
+
+
 def _finding_title(service: str, severity: str, line: str, cfg: dict[str, object]) -> str:
     title = _coerce_str(cfg.get("title"), fallback="")
     if not title:
@@ -533,8 +539,17 @@ def _finding_title(service: str, severity: str, line: str, cfg: dict[str, object
             return title.format(service=service, severity=severity, line=line.strip())
         except (IndexError, KeyError):
             return title
-    head = line.strip().split(":", 1)[0].strip()
+    head, sep, rest = line.strip().partition(":")
+    head = head.strip()
     if head:
+        # QT-1: a head that is only a dispatcher marker and/or a bare severity
+        # word (`[!] CRITICAL`, `HIGH`, `[+]`) carries no information — title on
+        # the text after the first colon instead. Any other head, or an empty
+        # remainder, keeps the head-only title.
+        if sep and _TITLE_MARKER_HEAD_RE.match(head):
+            rest = rest.strip()
+            if rest:
+                return f"{service.upper()}: {rest[:90]}"
         return f"{service.upper()}: {head[:90]}"
     return f"{service.upper()}: {severity.upper()} finding"
 
@@ -1068,6 +1083,26 @@ def _classify_line(line: str, rules: "list[Rule]") -> "Rule | None":
     if crit_marked:
         return _apply_critical_floor(matched, cleaned)
     return matched
+
+
+# NR-1: lines the walker line-scans must skip before classification — they are
+# structure, not findings. Exactly three shapes: a `#` comment line (ldapsearch
+# echoes `# filter: ...` / `# requesting: ...`), a blank line, and a BARE
+# dispatcher severity marker with nothing after it. The marker anchor ends at
+# `\s*$` so `[!] CRITICAL: real content` (which carries content after the
+# colon) is NOT noise. Applied at the walker call sites, never inside
+# `_structured_finding`, so a structured promoter can still build a finding
+# whose evidence is a `#`-comment hint file.
+_NOISE_COMMENT_RE = re.compile(r"^\s*#")
+_NOISE_BARE_MARKER_RE = re.compile(
+    r"^\s*\[!\]\s*(?:CRITICAL|HIGH|MEDIUM|LOW|INFO)\s*$", re.I)
+
+
+def _is_noise_line(line: str) -> bool:
+    cleaned = _clean_line(line)
+    return (not cleaned.strip()
+            or _NOISE_COMMENT_RE.match(cleaned) is not None
+            or _NOISE_BARE_MARKER_RE.match(cleaned) is not None)
 
 
 def _load_rules(path: Path | None) -> "list[Rule]":
@@ -2126,6 +2161,8 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None,
                 except Exception:
                     continue
                 for line in text.splitlines():
+                    if _is_noise_line(line):
+                        continue
                     matched = _classify_line(line, rules)
                     if matched is None:
                         continue
@@ -2149,6 +2186,8 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None,
             except Exception:
                 continue
             for line in text.splitlines():
+                if _is_noise_line(line):
+                    continue
                 matched = _classify_line(line, rules)
                 if matched is None:
                     continue
