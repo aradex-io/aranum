@@ -2123,11 +2123,14 @@ _ADCS_CRITICAL_ESCS = frozenset({"ESC1", "ESC2", "ESC3", "ESC4", "ESC6", "ESC8",
 _KRB5TGS_ACCOUNT_RE = re.compile(r"\$krb5tgs\$\d+\$\*([^$*]+)", re.I)
 _KRB5ASREP_USER_RE = re.compile(r"\$krb5asrep\$\d+\$([^@:$]+)", re.I)
 _IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
-# Plan F5: the real petitpotam signal grades HIGH only on a positive result;
-# ACCESS_DENIED (and anything that is not a positive token) grades INFO. The
-# static _petitpotam_hint.txt boilerplate always contains "pipe", so it is NEVER
-# read here — only the actual _petitpotam_signal.txt result.
-_COERCE_POSITIVE_RE = re.compile(r"vulnerable|pipe|open|success", re.I)
+# F5 + Review round 2 F1: _petitpotam_signal.txt is `rpcclient -U '' -N <DC>
+# -c enumprinters` stdout (enum-smb.sh:155-160). Severity keys on the dispatcher's
+# OWN result tokens: a positive anonymous-lsarpc reachability prints the printer
+# enumeration (`flags:` / `printers:` — enum-smb.sh:159) -> HIGH; a denied probe
+# prints `NT_STATUS_ACCESS_DENIED` / `NT_STATUS_LOGON_FAILURE` (enum-smb.sh:157),
+# and anything else, -> INFO. The static _petitpotam_hint.txt boilerplate is
+# NEVER read here, only the actual signal file.
+_COERCE_POSITIVE_RE = re.compile(r"flags:|printers:", re.I)
 
 
 def _adcs_severity(esc: str) -> str:
@@ -2240,10 +2243,11 @@ def _promote_relay(out_dir: Path, service_metadata: dict) -> list[dict]:
 
 
 def _promote_coerce(out_dir: Path, service_metadata: dict) -> list[dict]:
-    """coerce (QT-2 class) — severity keyed on the REAL result in
-    _petitpotam_signal.txt: HIGH only on a positive (vulnerable/pipe/open/success)
-    result, ACCESS_DENIED -> INFO. The static _petitpotam_hint.txt boilerplate
-    (always contains "pipe") is NEVER read here (plan F5)."""
+    """coerce (QT-2 class) — severity keyed on the REAL enumprinters result in
+    _petitpotam_signal.txt (enum-smb.sh:155-160): a positive anonymous-lsarpc
+    probe prints the printer enumeration (`flags:`/`printers:`) -> HIGH; a denied
+    probe (`NT_STATUS_ACCESS_DENIED`/`NT_STATUS_LOGON_FAILURE`), and anything else,
+    -> INFO. The static _petitpotam_hint.txt boilerplate is NEVER read here."""
     findings: list[dict] = []
     root = out_dir.resolve()
     for fp in sorted(out_dir.glob("smb/_petitpotam_signal.txt")):
@@ -2254,7 +2258,7 @@ def _promote_coerce(out_dir: Path, service_metadata: dict) -> list[dict]:
         body = txt.strip()
         sev = "high" if _COERCE_POSITIVE_RE.search(body) else "info"
         first = next((ln.strip() for ln in body.splitlines() if ln.strip()), body)
-        line = f"Coercion probe result (PetitPotam/spoolss): {first[:160]}"
+        line = f"Coercion probe result (PetitPotam/spoolss/lsarpc): {first[:160]}"
         findings.append(_structured_finding(
             "", "", "smb", sev, line, rel, service_metadata,
             rule_id="promoted-coerce-signal"))
@@ -2399,24 +2403,42 @@ def _promote_ad_signals(out_dir: Path, service_metadata: dict) -> Iterable[dict]
 
 # ---------------------------------------------------- cross-source dedup (F4)
 # Map a finding to the AD class it structurally represents (promoter findings
-# only — identified by the stable rule_id the promoter stamped).
+# only — identified by the stable rule_id the promoter stamped). All of these are
+# recognized as promoter findings and are ALWAYS kept; only the subset in
+# _SUBSUMABLE_CLASSES participates in coarse-summary subsumption.
 _PROMOTED_CLASS_BY_RULE = {
     "promoted-adcs-ca": "adcs",
     "promoted-adcs-tpl": "adcs",
     "promoted-relay-candidate": "relay",
-    "promoted-coerce-signal": "coerce",
     "promoted-kerberoast-spn": "kerberoast",
+    "promoted-asrep-user": "asrep",
+    "promoted-asrep-userlist": "asrep",
+    # coerce + shadow_creds are recognized promoters (always kept) but are NOT
+    # subsumable — their coarse dispatcher lines describe a DIFFERENT fact
+    # (Review round 2, F2: `[!] HIGH: PetitPotam coerce chain available`,
+    # enum-smb.sh:193, fires on DC-set + relay-candidates-present, not on the
+    # probe RESULT my promoter reads), so both are kept.
+    "promoted-coerce-signal": "coerce",
+    "promoted-shadow-creds": "shadow",
 }
 
-# Line signatures of the coarse dispatcher `[!] CRITICAL:`/`[!] HIGH:` summaries,
-# per subsumable class. A non-promoter finding whose line matches is the coarse
-# representation of that class (its host may already have been re-attributed off
-# "(dispatcher)" by finalize, so match on the line, not the host).
+# Classes whose coarse dispatcher summary may be subsumed into their structured
+# per-entity findings. coerce is deliberately EXCLUDED (F2); shadow has no coarse
+# summary rule.
+_SUBSUMABLE_CLASSES = ("adcs", "relay", "kerberoast", "asrep")
+
+# Line signatures of the coarse dispatcher `[!] CRITICAL:` summaries, per
+# subsumable class, taken verbatim from the real dispatcher `err` emit strings
+# (enum-smb.sh:144, enum-kerberos.sh:63/107, ldap Certipy summary). A non-promoter
+# finding whose line matches is the coarse representation of that class (its host
+# may already have been re-attributed off "(dispatcher)" by finalize, so match on
+# the line, not the host). The coerce `PetitPotam coerce chain available` line is
+# intentionally absent (F2).
 _COARSE_CLASS_SIGNATURES = (
     ("adcs", re.compile(r"Certipy found AD CS|AD CS misconfiguration", re.I)),
     ("relay", re.compile(r"NTLM[- ]relay candidate", re.I)),
-    ("coerce", re.compile(r"PetitPotam coerce chain", re.I)),
-    ("kerberoast", re.compile(r"kerberoastable hash", re.I)),
+    ("kerberoast", re.compile(r"kerberoastable hash\(es\) captured", re.I)),
+    ("asrep", re.compile(r"AS-REP-roastable hash\(es\) captured", re.I)),
 )
 
 
@@ -2441,24 +2463,42 @@ def _absorb_evidence(target: dict, dropped: dict) -> None:
             paths.append(p)
 
 
+def _sev_order(finding: dict) -> int:
+    # Smaller == more severe. "info" (and any unknown) sorts least-severe.
+    return _SEV_ORDER.get(str(finding.get("severity", "")), 9)
+
+
 def _dedup_cross_source(findings: list[dict]) -> list[dict]:
-    """F4 — collapse cross-source duplicates that evidence-identity dedup cannot:
+    """F4 — collapse cross-source duplicates that evidence-identity dedup cannot,
+    LOSSLESSLY (Review round 2, F3 + owner "never lose findings"): a coarse
+    summary is subsumed ONLY when the surviving structured per-entity findings
+    already carry a severity >= the summary's; otherwise the coarse summary is
+    KEPT alongside them (so a CRITICAL class summary is never downgraded to the
+    per-entity HIGH). This rule is applied uniformly to all four subsumable
+    classes and to the ADCS text/JSON collapse.
+
     (A) a text-rule `ESC\\d (Vulnerable)` finding and a certipy-JSON promoter
     finding for the same ESC are the same AD CS fact (different evidence_identity,
-    so never deduped upstream); (B) class subsumption — when >=1 structured
-    per-entity promoter finding exists for a class (adcs/relay/coerce/kerberoast),
-    the coarse `[!] CRITICAL:`/`[!] HIGH:` dispatcher summary for that class is
-    collapsed into it (summary path kept as secondary evidence). No-op (returns
-    the list unchanged) when no promoter findings are present, so non-AD trees are
-    untouched."""
-    promoted: dict[str, list[dict]] = {c: [] for c in
-                                       ("adcs", "relay", "coerce", "kerberoast")}
+    so never deduped upstream) — collapse to the JSON finding when that does not
+    downgrade severity. (B) class subsumption for adcs/relay/kerberoast/asrep —
+    the coarse `[!] CRITICAL:` dispatcher summary is collapsed into its structured
+    per-entity findings under the same no-downgrade rule (summary path kept as
+    secondary evidence). coerce is excluded entirely (F2). No-op when no promoter
+    findings are present, so non-AD trees are untouched."""
+    promoted: dict[str, list[dict]] = {c: [] for c in _SUBSUMABLE_CLASSES}
+    any_promoter = False
     for f in findings:
         cls = _promoted_class(f)
+        if cls is not None:
+            any_promoter = True
         if cls in promoted:
             promoted[cls].append(f)
-    if not any(promoted.values()):
+    if not any_promoter:
         return findings
+
+    # Most-severe (smallest order) surviving promoter severity per class.
+    best_order = {c: min((_sev_order(x) for x in fs), default=9)
+                  for c, fs in promoted.items()}
 
     # (A) first promoter ADCS finding per ESC number, for the text-rule collapse.
     adcs_by_esc: dict[str, dict] = {}
@@ -2473,15 +2513,21 @@ def _dedup_cross_source(findings: list[dict]) -> list[dict]:
             out.append(f)                         # a promoter finding: always kept
             continue
         line = str(f.get("line", ""))
-        # (A) text-rule ESCn (Vulnerable) subsumed by the JSON ESCn promoter.
+        f_order = _sev_order(f)
+        # (A) text-rule ESCn (Vulnerable) collapsed into the JSON ESCn promoter —
+        # only when the JSON finding is at least as severe (no downgrade).
         if promoted["adcs"]:
             m = re.search(r"ESC(\d+)\s*\(Vulnerable\)", line, re.I)
             if m and m.group(1) in adcs_by_esc:
-                _absorb_evidence(adcs_by_esc[m.group(1)], f)
-                continue
-        # (B) coarse class summary subsumed by its structured per-entity findings.
+                target = adcs_by_esc[m.group(1)]
+                if _sev_order(target) <= f_order:
+                    _absorb_evidence(target, f)
+                    continue
+                # else: would downgrade — keep the text finding too.
+        # (B) coarse class summary collapsed into its per-entity findings — only
+        # when a survivor is at least as severe; else keep the summary (lossless).
         cls = _coarse_class(line)
-        if cls and promoted.get(cls):
+        if cls and promoted.get(cls) and best_order[cls] <= f_order:
             _absorb_evidence(promoted[cls][0], f)
             continue
         out.append(f)

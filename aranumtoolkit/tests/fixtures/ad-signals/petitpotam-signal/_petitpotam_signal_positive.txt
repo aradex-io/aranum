@@ -1,1 +1,8 @@
-[+] \pipe\lsarpc is open and reachable on the DC — coercion probe success
+	flags:[0x800000]
+	name:[\\10.0.0.10\Microsoft XPS Document Writer]
+	description:[\\10.0.0.10\Microsoft XPS Document Writer,,]
+	comment:[]
+	flags:[0x800000]
+	name:[\\10.0.0.10\Microsoft Print to PDF]
+	description:[\\10.0.0.10\Microsoft Print to PDF,,]
+	comment:[]

@@ -415,8 +415,39 @@ class TestAdSignalPromoters(unittest.TestCase):
             # applies to a promoter finding.
             self.assertFalse(R._is_noise_line(fs[0]["line"]))
 
-    # -------- F4(B) class subsumption of coarse dispatcher summaries --------
-    def test_relay_subsumes_coarse_dispatcher_summary(self):
+    # -------- F4(B)/F3 lossless class subsumption of coarse summaries --------
+    # Rule (uniform across adcs/relay/kerberoast/asrep): a coarse `[!] CRITICAL:`
+    # dispatcher summary is subsumed into the per-entity findings ONLY when a
+    # survivor is already at least as severe; otherwise the summary is KEPT (never
+    # downgrade CRITICAL -> the per-entity HIGH). Coarse phrasings below are the
+    # verbatim dispatcher `err` strings (enum-smb.sh:144/193, enum-kerberos.sh:63/
+    # 107). coerce is excluded from subsumption entirely (F2).
+
+    def test_adcs_coarse_summary_subsumed_when_survivor_is_critical(self):
+        """ADCS coarse CRITICAL + JSON survivors that INCLUDE a critical template
+        -> subsumed, no loss, path retained as secondary evidence."""
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "ldap/dc01_389/certipy_Certipy.json":
+                    AD_FIX / "certipy-esc-json" / "certipy_Certipy.json",
+                "ldap/_dispatcher.log":
+                    "[!] CRITICAL: Certipy found AD CS misconfiguration(s) — see "
+                    "ldap/dc01_389/certipy_Certipy.json\n",
+            })
+            fs = _collect_findings(out)
+            self.assertEqual(
+                [f for f in fs if "Certipy found AD CS" in f["line"]], [],
+                "ADCS coarse summary must be subsumed (survivors include critical)")
+            adcs = _by_class(fs, "adcs")
+            self.assertEqual(len(adcs), 3)
+            self.assertTrue(
+                any("_dispatcher.log" in p
+                    for f in adcs for p in f.get("evidence_paths", [])),
+                "subsumed ADCS summary path must be kept as secondary evidence")
+
+    def test_relay_coarse_critical_kept_alongside_per_ip_highs(self):
+        """F3 — relay coarse CRITICAL survives (survivors are HIGH); subsuming
+        would downgrade, so BOTH are kept (lossless)."""
         with tempfile.TemporaryDirectory() as td:
             out = _build_tree(td, {
                 "smb/_relay_candidates.txt":
@@ -426,19 +457,14 @@ class TestAdSignalPromoters(unittest.TestCase):
                     "not-required — NTLM-relay candidates in _relay_candidates.txt\n",
             })
             fs = _collect_findings(out)
-            # the coarse summary is collapsed, not emitted as its own finding
-            self.assertEqual(
-                [f for f in fs if "candidates in _relay_candidates" in f["line"]], [],
-                "coarse relay summary must be subsumed")
+            coarse = [f for f in fs if "candidates in _relay_candidates" in f["line"]]
+            self.assertEqual(len(coarse), 1, "coarse relay CRITICAL must be KEPT")
+            self.assertEqual(coarse[0]["severity"], "critical")
             relay = _by_class(fs, "relay")
             self.assertEqual(len(relay), 2)
-            # summary path retained as secondary evidence on a surviving finding
-            self.assertTrue(
-                any("_dispatcher.log" in p
-                    for f in relay for p in f.get("evidence_paths", [])),
-                "subsumed summary path must be kept as secondary evidence")
+            self.assertTrue(all(f["severity"] == "high" for f in relay))
 
-    def test_kerberoast_subsumes_coarse_dispatcher_summary(self):
+    def test_kerberoast_coarse_critical_kept_alongside_per_account_highs(self):
         with tempfile.TemporaryDirectory() as td:
             out = _build_tree(td, {
                 "kerberos/_kerberoast_hashcat.txt":
@@ -448,10 +474,53 @@ class TestAdSignalPromoters(unittest.TestCase):
                     "_kerberoast_hashcat.txt (hashcat -m 13100)\n",
             })
             fs = _collect_findings(out)
-            self.assertEqual(
-                [f for f in fs if "kerberoastable hash(es) captured" in f["line"]], [],
-                "coarse kerberoast summary must be subsumed")
+            coarse = [f for f in fs if "kerberoastable hash(es) captured" in f["line"]]
+            self.assertEqual(len(coarse), 1, "coarse kerberoast CRITICAL must be KEPT")
+            self.assertEqual(coarse[0]["severity"], "critical")
             self.assertEqual(len(_by_class(fs, "kerberoast")), 2)
+
+    def test_asrep_coarse_critical_kept_alongside_per_user_highs(self):
+        """asrep is now handled consistently with relay/kerberoast (previously it
+        was not subsumed at all = inconsistent): coarse CRITICAL kept, per-user
+        HIGH present, no double-drop and no downgrade."""
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "kerberos/_asrep_hashcat.txt":
+                    AD_FIX / "asrep" / "_asrep_hashcat.txt",
+                "kerberos/_dispatcher.log":
+                    "[!] CRITICAL: 1 AS-REP-roastable hash(es) captured to "
+                    "_asrep_hashcat.txt (hashcat -m 18200)\n",
+            })
+            fs = _collect_findings(out)
+            coarse = [f for f in fs if "AS-REP-roastable hash(es) captured" in f["line"]]
+            self.assertEqual(len(coarse), 1, "coarse asrep CRITICAL must be KEPT")
+            self.assertEqual(coarse[0]["severity"], "critical")
+            per_user = [f for f in fs
+                        if str(f.get("rule_id", "")) == "promoted-asrep-user"]
+            self.assertEqual(len(per_user), 1)
+            self.assertEqual(per_user[0]["severity"], "high")
+
+    def test_coerce_chain_summary_and_probe_result_both_kept(self):
+        """F2 — the coarse `[!] HIGH: PetitPotam coerce chain available`
+        (enum-smb.sh:193, a chain-availability assessment) and the probe-RESULT
+        promoter finding (enum-smb.sh:155-160) are DIFFERENT facts: keep both.
+        coerce is excluded from subsumption."""
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "smb/_petitpotam_signal.txt":
+                    AD_FIX / "petitpotam-signal" / "_petitpotam_signal_negative.txt",
+                "smb/_dispatcher.log":
+                    "[!] HIGH: PetitPotam coerce chain available — see "
+                    "_petitpotam_hint.txt for the exact commands\n",
+            })
+            fs = _collect_findings(out)
+            chain = [f for f in fs if "PetitPotam coerce chain available" in f["line"]]
+            self.assertEqual(len(chain), 1, "coarse coerce-chain HIGH must survive")
+            self.assertEqual(chain[0]["severity"], "high")
+            probe = [f for f in fs
+                     if str(f.get("rule_id", "")) == "promoted-coerce-signal"]
+            self.assertEqual(len(probe), 1)
+            self.assertEqual(probe[0]["severity"], "info")  # ACCESS_DENIED result
 
     # -------- robustness: malformed/empty artifact -> [] without raising --------
     def test_malformed_or_empty_artifacts_yield_no_findings_no_raise(self):
