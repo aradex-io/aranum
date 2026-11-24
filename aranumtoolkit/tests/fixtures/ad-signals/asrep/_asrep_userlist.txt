@@ -1,0 +1,4 @@
+# AS-REP candidate users (UF_DONT_REQUIRE_PREAUTH) — pre-auth roast candidates
+alice
+bob
+carol

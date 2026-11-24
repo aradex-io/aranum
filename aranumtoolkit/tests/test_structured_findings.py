@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -212,6 +213,266 @@ class TestCLIV2Output(unittest.TestCase):
             self.assertIn("line", f)
             self.assertIn("evidence_path", f)
             self.assertIn("host", f)
+
+
+AD_FIX = REPO / "aranumtoolkit" / "tests" / "fixtures" / "ad-signals"
+
+
+def _ad_rules():
+    # Same composition the auto-enum CLI path uses (report.py main()).
+    return R._compose_rules(R._load_rules(None), R._AD_DEPTH_RULES)
+
+
+def _build_tree(td: str, files: dict) -> Path:
+    """files maps a tree-relative path -> str content OR a Path to copy."""
+    out = Path(td)
+    for rel, content in files.items():
+        p = out / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, Path):
+            shutil.copy(content, p)
+        else:
+            p.write_text(content)
+    return out
+
+
+def _collect_findings(out: Path) -> list[dict]:
+    return R.collect(out, _ad_rules(), R._load_service_metadata(out),
+                     diagnostics=[]).findings
+
+
+def _by_class(findings, cls):
+    return [f for f in findings if R._promoted_class(f) == cls]
+
+
+class TestAdSignalPromoters(unittest.TestCase):
+    """S2 — structured per-entity AD promoters (ST-1..4, RC-1, coerce/QT-2) and
+    the cross-source dedup (F4). Each promoter is exercised through the real
+    walk_findings -> finalize_findings pipeline (collect), so a passing assertion
+    on the typed finding is absent at base SHA 8cca59aa (no promoter) and present
+    after — a non-vacuous RED proof per promoter."""
+
+    # -------- ST-1 ADCS from certipy JSON --------
+    def test_adcs_promotes_per_ca_and_template_from_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "ldap/dc01_389/certipy_Certipy.json":
+                    AD_FIX / "certipy-esc-json" / "certipy_Certipy.json",
+            })
+            fs = _collect_findings(out)
+            adcs = _by_class(fs, "adcs")
+            # CA ESC7(high)+ESC8(critical) + template ESC1(critical) = 3
+            self.assertEqual(len(adcs), 3, [f["line"] for f in adcs])
+            for f in adcs:
+                self.assertEqual(f["service"], "ldap")
+            sev = {f["severity"] for f in adcs}
+            self.assertEqual(sev, {"critical", "high"})
+            esc8 = [f for f in adcs if "ESC8" in f["line"]][0]
+            self.assertEqual(esc8["severity"], "critical")
+            self.assertEqual(esc8["host"], "dc01.lab.local")  # real CA DNS name
+            esc7 = [f for f in adcs if "ESC7" in f["line"]][0]
+            self.assertEqual(esc7["severity"], "high")         # ESC7 not in crit set
+            esc1 = [f for f in adcs if "ESC1" in f["line"]][0]
+            self.assertEqual(esc1["severity"], "critical")
+            self.assertEqual(esc1["host"], "dc01.lab.local")   # template host via CA
+            self.assertIn("ESC1", esc1["title"])               # informative title
+
+    def test_adcs_genuine_red_text_only_fixture_has_no_vulnerable(self):
+        """F4 — the companion certipy .txt carries NO `(Vulnerable)` token, so the
+        text rule emits nothing; ADCS recall is owned solely by the JSON promoter
+        (the absent-at-base proof is genuine, not a reused Vulnerable fixture)."""
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "ldap/dc01_389/certipy.txt":
+                    AD_FIX / "certipy-esc-json" / "certipy_novuln.txt",
+            })
+            # no JSON here: line-scan of the no-Vulnerable text must yield 0 ADCS.
+            line_only = list(R.walk_findings(out, _ad_rules()))
+            self.assertEqual(
+                [f for f in line_only if "(Vulnerable)" in f["line"]], [],
+                "no-Vulnerable certipy text must not fire the ESC text rule")
+
+    def test_adcs_cross_source_dedup_text_and_json_collapse(self):
+        """F4(A) — a tree with BOTH the text `ESC1 (Vulnerable)` rule and the JSON
+        promoter yields ONE ADCS finding per (host, template, ESC): no double
+        count, and the text finding's path is kept as secondary evidence."""
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                # certipy-esc1 text carries `ESC1 (Vulnerable)` (fires text rule)
+                "ldap/dc01_389/certipy.txt":
+                    FIXTURES / "certipy_20260520.txt",
+                # JSON carries the same ESC1 (template) + ESC7/ESC8 (CA)
+                "ldap/dc01_389/certipy_Certipy.json":
+                    AD_FIX / "certipy-esc-json" / "certipy_Certipy.json",
+            })
+            fs = _collect_findings(out)
+            esc1 = [f for f in fs if re.search(r"ESC1\b", f["line"])]
+            self.assertEqual(len(esc1), 1,
+                             f"ESC1 must not double-count: {[f['line'] for f in esc1]}")
+            survivor = esc1[0]
+            self.assertEqual(R._promoted_class(survivor), "adcs",
+                             "the structured JSON finding is the survivor")
+            # the subsumed text finding's path is retained as secondary evidence
+            paths = " ".join(survivor.get("evidence_paths", []))
+            self.assertIn("certipy.txt", paths)
+
+    # -------- ST-2 relay per-host --------
+    def test_relay_one_high_per_ip_with_real_host(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "smb/_relay_candidates.txt":
+                    AD_FIX / "relay-candidates" / "_relay_candidates.txt",
+            })
+            relay = _by_class(_collect_findings(out), "relay")
+            self.assertEqual({f["host"] for f in relay}, {"10.0.0.22", "10.0.0.23"})
+            for f in relay:
+                self.assertEqual(f["service"], "smb")
+                self.assertEqual(f["severity"], "high")
+
+    # -------- ST-3 kerberoast per-SPN (deduped across files) --------
+    def test_kerberoast_per_account_deduped_across_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "kerberos/_kerberoast_hashcat.txt":
+                    AD_FIX / "kerberoast-hash" / "_kerberoast_hashcat.txt",
+                # same svc_sql hash also appears here -> must dedup by account
+                "ldap/impacket_spns.txt":
+                    AD_FIX / "kerberoast-hash" / "impacket_spns.txt",
+            })
+            kerb = _by_class(_collect_findings(out), "kerberoast")
+            accts = sorted(
+                re.search(r"account (\S+):", f["line"]).group(1) for f in kerb)
+            self.assertEqual(accts, ["svc_sql", "svc_web"])  # 2, not 3
+            for f in kerb:
+                self.assertEqual(f["service"], "kerberos")
+                self.assertEqual(f["severity"], "high")
+
+    # -------- ST-4 asrep per-user + userlist-only --------
+    def test_asrep_per_user_deduped_across_two_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "kerberos/_asrep_hashcat.txt":
+                    AD_FIX / "asrep" / "_asrep_hashcat.txt",
+                "kerberos/asrep_bulk.txt":
+                    AD_FIX / "asrep" / "asrep_bulk.txt",
+            })
+            fs = [f for f in _collect_findings(out)
+                  if str(f.get("rule_id", "")).startswith("promoted-asrep")]
+            self.assertEqual(len(fs), 1, [f["line"] for f in fs])  # deduped user
+            self.assertEqual(fs[0]["severity"], "high")
+            self.assertIn("noPreAuthUser", fs[0]["line"])
+
+    def test_asrep_userlist_only_is_info(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "kerberos/_asrep_userlist.txt":
+                    AD_FIX / "asrep" / "_asrep_userlist.txt",
+            })
+            fs = R._promote_asrep(out, R._load_service_metadata(out))
+            self.assertEqual(len(fs), 1)
+            self.assertEqual(fs[0]["severity"], "info")
+            self.assertEqual(fs[0]["rule_id"], "promoted-asrep-userlist")
+
+    # -------- coerce (QT-2 / F5): severity keyed on the REAL result --------
+    def test_coerce_access_denied_is_info_not_high(self):
+        with tempfile.TemporaryDirectory() as td:
+            # include the static hint boilerplate ("pipe") to prove it is NOT
+            # read as a HIGH source (plan F5).
+            out = _build_tree(td, {
+                "smb/_petitpotam_signal.txt":
+                    AD_FIX / "petitpotam-signal" / "_petitpotam_signal_negative.txt",
+                "smb/_petitpotam_hint.txt":
+                    AD_FIX / "petitpotam-signal" / "_petitpotam_hint.txt",
+            })
+            fs = R._promote_coerce(out, R._load_service_metadata(out))
+            self.assertEqual(len(fs), 1, "coerce reads the signal file only")
+            self.assertEqual(fs[0]["severity"], "info")  # ACCESS_DENIED -> INFO
+
+    def test_coerce_positive_result_is_high(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "smb/_petitpotam_signal.txt":
+                    AD_FIX / "petitpotam-signal" / "_petitpotam_signal_positive.txt",
+            })
+            fs = R._promote_coerce(out, R._load_service_metadata(out))
+            self.assertEqual(len(fs), 1)
+            self.assertEqual(fs[0]["severity"], "high")
+
+    # -------- RC-1 shadow_creds (the only fully-missing class) --------
+    def test_shadow_creds_info_with_non_comment_line(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "smb/_shadow_creds_hint.txt":
+                    AD_FIX / "shadow-creds" / "_shadow_creds_hint.txt",
+            })
+            fs = [f for f in _collect_findings(out)
+                  if str(f.get("rule_id", "")) == "promoted-shadow-creds"]
+            self.assertEqual(len(fs), 1)
+            self.assertEqual(fs[0]["severity"], "info")
+            self.assertEqual(fs[0]["service"], "smb")
+            # must pass a non-comment, non-empty line so S1's noise guard (which
+            # the hint file would otherwise trip, being all `#`-comments) never
+            # applies to a promoter finding.
+            self.assertFalse(R._is_noise_line(fs[0]["line"]))
+
+    # -------- F4(B) class subsumption of coarse dispatcher summaries --------
+    def test_relay_subsumes_coarse_dispatcher_summary(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "smb/_relay_candidates.txt":
+                    AD_FIX / "relay-candidates" / "_relay_candidates.txt",
+                "smb/_dispatcher.log":
+                    "[!] CRITICAL: 2 SMB host(s) with signing disabled or "
+                    "not-required — NTLM-relay candidates in _relay_candidates.txt\n",
+            })
+            fs = _collect_findings(out)
+            # the coarse summary is collapsed, not emitted as its own finding
+            self.assertEqual(
+                [f for f in fs if "candidates in _relay_candidates" in f["line"]], [],
+                "coarse relay summary must be subsumed")
+            relay = _by_class(fs, "relay")
+            self.assertEqual(len(relay), 2)
+            # summary path retained as secondary evidence on a surviving finding
+            self.assertTrue(
+                any("_dispatcher.log" in p
+                    for f in relay for p in f.get("evidence_paths", [])),
+                "subsumed summary path must be kept as secondary evidence")
+
+    def test_kerberoast_subsumes_coarse_dispatcher_summary(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "kerberos/_kerberoast_hashcat.txt":
+                    AD_FIX / "kerberoast-hash" / "_kerberoast_hashcat.txt",
+                "kerberos/_dispatcher.log":
+                    "[!] CRITICAL: 2 kerberoastable hash(es) captured to "
+                    "_kerberoast_hashcat.txt (hashcat -m 13100)\n",
+            })
+            fs = _collect_findings(out)
+            self.assertEqual(
+                [f for f in fs if "kerberoastable hash(es) captured" in f["line"]], [],
+                "coarse kerberoast summary must be subsumed")
+            self.assertEqual(len(_by_class(fs, "kerberoast")), 2)
+
+    # -------- robustness: malformed/empty artifact -> [] without raising --------
+    def test_malformed_or_empty_artifacts_yield_no_findings_no_raise(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = _build_tree(td, {
+                "ldap/dc01_389/certipy_Certipy.json": "{ this is not json ",
+                "smb/_relay_candidates.txt": "",
+                "smb/_petitpotam_signal.txt": "",
+                "smb/_shadow_creds_hint.txt": "",
+                "kerberos/_kerberoast_hashcat.txt": "no hashes here at all\n",
+                "kerberos/_asrep_hashcat.txt": "junk with no krb5 token\n",
+            })
+            meta = R._load_service_metadata(out)
+            for fn in (R._promote_adcs, R._promote_relay, R._promote_coerce,
+                       R._promote_shadow_creds, R._promote_kerberoast,
+                       R._promote_asrep):
+                with self.subTest(promoter=fn.__name__):
+                    result = fn(out, meta)  # must not raise
+                    self.assertEqual(result, [], fn.__name__)
+            # and the whole report still collects cleanly (no crash)
+            self.assertIsInstance(_collect_findings(out), list)
 
 
 if __name__ == "__main__":

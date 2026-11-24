@@ -1,0 +1,1 @@
+[+] \pipe\lsarpc is open and reachable on the DC — coercion probe success

@@ -1,0 +1,6 @@
+ServicePrincipalName          Name     MemberOf   PasswordLastSet   Delegation
+----------------------------  -------  ---------  ----------------  ----------
+MSSQLSvc/db.lab.local         svc_sql
+HTTP/web.lab.local            svc_web
+
+$krb5tgs$23$*svc_sql$LAB.LOCAL$lab.local/svc_sql*$0011223344556677$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899

@@ -1,0 +1,37 @@
+{
+  "Certificate Authorities": {
+    "0": {
+      "CA Name": "LAB-CA",
+      "DNS Name": "dc01.lab.local",
+      "Certificate Subject": "CN=LAB-CA, DC=lab, DC=local",
+      "Web Enrollment": {
+        "http": {
+          "enabled": true
+        }
+      },
+      "[!] Vulnerabilities": {
+        "ESC7": "User has dangerous permissions.",
+        "ESC8": "Web Enrollment is enabled over HTTP."
+      }
+    }
+  },
+  "Certificate Templates": {
+    "0": {
+      "Template Name": "VulnUserCert",
+      "Display Name": "Vulnerable User Cert",
+      "Certificate Authorities": [
+        "LAB-CA"
+      ],
+      "[!] Vulnerabilities": {
+        "ESC1": "Enrollee supplies subject and template allows client authentication."
+      }
+    },
+    "1": {
+      "Template Name": "SafeTemplate",
+      "Display Name": "Safe Template",
+      "Certificate Authorities": [
+        "LAB-CA"
+      ]
+    }
+  }
+}

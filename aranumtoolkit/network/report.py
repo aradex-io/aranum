@@ -1967,7 +1967,11 @@ def finalize_findings(out_dir: Path, findings: Iterable[dict]) -> list[dict]:
             prior["evidence_path"] = path
     # D1.4 — after exact-identity dedup, collapse dispatcher summary lines into
     # the per-host finding they echo (token-safe, one-to-one, boundary-only).
-    return _dedup_echoes(list(deduped.values()))
+    collapsed = _dedup_echoes(list(deduped.values()))
+    # S2/F4 — cross-source dedup: collapse the text-rule ESC finding and the
+    # coarse class dispatcher summaries into the structured per-entity promoter
+    # findings when those exist (no-op when no promoter findings are present).
+    return _dedup_cross_source(collapsed)
 
 
 def _coverage(out_dir: Path, findings: list[dict]) -> list[dict]:
@@ -2094,6 +2098,396 @@ def _coverage(out_dir: Path, findings: list[dict]) -> list[dict]:
     return coverage
 
 
+# ---------------------------------------------------- structured AD promoters
+# S2 (ST-1..4, RC-1, QT-2): the dispatchers persist STRUCTURED artifacts
+# (certipy JSON, _relay_candidates.txt, kerberoast/asrep hashes, coercion probe
+# result, shadow-creds hint) alongside their coarse `[!] CRITICAL:`/`[!] HIGH:`
+# stdout summaries. The line-scan walker only grades the coarse summaries (and
+# skips `.json` entirely, _SKIP_SCAN_SUFFIXES), so AD recall "to the class" looks
+# fine while recall "to the entity" (which ESC template, which relay host, which
+# SPN/user) and host attribution are poor, and shadow_creds falls through. These
+# promoters read the structured artifacts directly and emit typed, per-entity
+# findings through the canonical `_structured_finding` constructor so they flow
+# through finalize_findings (KB attach / identity / dedup) unchanged.
+#
+# Each promoter: (a) reads its artifact inside the scan tree, (b) try/excepts a
+# malformed/empty artifact to [] without crashing the report, and (c) passes a
+# NON-comment, NON-empty `line` so S1's walker-call-site noise guard never
+# applies and the finding survives.
+
+# ESCs that are directly escalation-exploitable grade critical; the rest high.
+# Unified across CA and template (plan S2, supersedes the reference impl's two
+# separate per-source ESC sets).
+_ADCS_CRITICAL_ESCS = frozenset({"ESC1", "ESC2", "ESC3", "ESC4", "ESC6", "ESC8", "ESC11"})
+
+_KRB5TGS_ACCOUNT_RE = re.compile(r"\$krb5tgs\$\d+\$\*([^$*]+)", re.I)
+_KRB5ASREP_USER_RE = re.compile(r"\$krb5asrep\$\d+\$([^@:$]+)", re.I)
+_IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+# Plan F5: the real petitpotam signal grades HIGH only on a positive result;
+# ACCESS_DENIED (and anything that is not a positive token) grades INFO. The
+# static _petitpotam_hint.txt boilerplate always contains "pipe", so it is NEVER
+# read here — only the actual _petitpotam_signal.txt result.
+_COERCE_POSITIVE_RE = re.compile(r"vulnerable|pipe|open|success", re.I)
+
+
+def _adcs_severity(esc: str) -> str:
+    return "critical" if esc.strip().upper() in _ADCS_CRITICAL_ESCS else "high"
+
+
+def _safe_read_text(fp: Path, root: Path) -> str:
+    """Read a text artifact inside the scan tree. Containment (OPSEC §9): never
+    read a file that resolves outside `root` (symlink/`..` escape). Empty / absent
+    / unreadable -> ""."""
+    try:
+        if root not in fp.resolve().parents:
+            return ""
+        if not fp.is_file() or fp.stat().st_size == 0:
+            return ""
+        return fp.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def _promote_adcs(out_dir: Path, service_metadata: dict) -> list[dict]:
+    """ST-1 — AD CS / ESC from certipy JSON (the walker skips `.json`). One typed
+    finding per CA-vuln and per vulnerable template. Real host = CA DNS name;
+    template host resolved via its referenced CA where known."""
+    findings: list[dict] = []
+    root = out_dir.resolve()
+    for jp in sorted(out_dir.glob("ldap/**/certipy_Certipy.json")):
+        txt = _safe_read_text(jp, root)
+        if not txt.strip():
+            continue
+        try:
+            doc = json.loads(txt)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(doc, dict):
+            continue
+        rel = str(jp.relative_to(out_dir))
+        cas = doc.get("Certificate Authorities")
+        ca_dns: dict[str, str] = {}
+        if isinstance(cas, dict):
+            for ca in cas.values():
+                if isinstance(ca, dict) and ca.get("CA Name"):
+                    ca_dns[str(ca["CA Name"])] = str(ca.get("DNS Name", "") or "")
+        # per CA-vuln
+        if isinstance(cas, dict):
+            for ca in cas.values():
+                if not isinstance(ca, dict):
+                    continue
+                name = str(ca.get("CA Name", "") or "CA")
+                dns = str(ca.get("DNS Name", "") or "")
+                vulns = ca.get("[!] Vulnerabilities")
+                for esc, desc in (vulns.items() if isinstance(vulns, dict) else []):
+                    esc_s = str(esc).strip()
+                    if not re.match(r"ESC\d", esc_s, re.I):
+                        continue
+                    where = f" ({dns})" if dns else ""
+                    line = (f"{esc_s} (Vulnerable) on AD CS CA {name}{where}: "
+                            f"{str(desc)[:120]}")
+                    findings.append(_structured_finding(
+                        dns, "", "ldap", _adcs_severity(esc_s), line, rel,
+                        service_metadata, rule_id="promoted-adcs-ca"))
+        # per vulnerable template
+        tpls = doc.get("Certificate Templates")
+        if isinstance(tpls, dict):
+            for tpl in tpls.values():
+                if not isinstance(tpl, dict):
+                    continue
+                tname = str(tpl.get("Template Name", "") or "template")
+                vulns = tpl.get("[!] Vulnerabilities")
+                host = ""
+                tpl_cas = tpl.get("Certificate Authorities")
+                if isinstance(tpl_cas, list):
+                    for cn in tpl_cas:
+                        if ca_dns.get(str(cn)):
+                            host = ca_dns[str(cn)]
+                            break
+                for esc, desc in (vulns.items() if isinstance(vulns, dict) else []):
+                    esc_s = str(esc).strip()
+                    if not re.match(r"ESC\d", esc_s, re.I):
+                        continue
+                    line = (f"{esc_s} (Vulnerable) on AD CS template {tname}: "
+                            f"{str(desc)[:120]}")
+                    findings.append(_structured_finding(
+                        host, "", "ldap", _adcs_severity(esc_s), line, rel,
+                        service_metadata, rule_id="promoted-adcs-tpl"))
+    return findings
+
+
+def _promote_relay(out_dir: Path, service_metadata: dict) -> list[dict]:
+    """ST-2 — one HIGH per signing-disabled relay candidate IP, host = that IP
+    (fixes QT-2 host attribution)."""
+    findings: list[dict] = []
+    root = out_dir.resolve()
+    seen: set[str] = set()
+    for fp in sorted(out_dir.glob("smb/_relay_candidates.txt")):
+        txt = _safe_read_text(fp, root)
+        if not txt.strip():
+            continue
+        rel = str(fp.relative_to(out_dir))
+        for raw in txt.splitlines():
+            ip = raw.strip()
+            if not _IPV4_RE.match(ip) or ip in seen:
+                continue
+            seen.add(ip)
+            line = f"SMB signing not required — NTLM relay target {ip}"
+            findings.append(_structured_finding(
+                ip, "445", "smb", "high", line, rel, service_metadata,
+                protocol="tcp", rule_id="promoted-relay-candidate"))
+    return findings
+
+
+def _promote_coerce(out_dir: Path, service_metadata: dict) -> list[dict]:
+    """coerce (QT-2 class) — severity keyed on the REAL result in
+    _petitpotam_signal.txt: HIGH only on a positive (vulnerable/pipe/open/success)
+    result, ACCESS_DENIED -> INFO. The static _petitpotam_hint.txt boilerplate
+    (always contains "pipe") is NEVER read here (plan F5)."""
+    findings: list[dict] = []
+    root = out_dir.resolve()
+    for fp in sorted(out_dir.glob("smb/_petitpotam_signal.txt")):
+        txt = _safe_read_text(fp, root)
+        if not txt.strip():
+            continue
+        rel = str(fp.relative_to(out_dir))
+        body = txt.strip()
+        sev = "high" if _COERCE_POSITIVE_RE.search(body) else "info"
+        first = next((ln.strip() for ln in body.splitlines() if ln.strip()), body)
+        line = f"Coercion probe result (PetitPotam/spoolss): {first[:160]}"
+        findings.append(_structured_finding(
+            "", "", "smb", sev, line, rel, service_metadata,
+            rule_id="promoted-coerce-signal"))
+    return findings
+
+
+def _promote_shadow_creds(out_dir: Path, service_metadata: dict) -> list[dict]:
+    """RC-1 — the only fully-missing class. The hint file is all `#`-comments, so
+    emit a synthesized non-comment INFO finding framed as a viability hint
+    (operator ACL confirmation required), not a confirmed finding."""
+    findings: list[dict] = []
+    root = out_dir.resolve()
+    for fp in sorted(out_dir.glob("smb/_shadow_creds_hint.txt")):
+        txt = _safe_read_text(fp, root)
+        if not txt.strip():
+            continue
+        rel = str(fp.relative_to(out_dir))
+        line = ("Shadow-credentials viability hint collected "
+                "(msDS-KeyCredentialLink write path; operator ACL confirmation required)")
+        findings.append(_structured_finding(
+            "", "", "smb", "info", line, rel, service_metadata,
+            rule_id="promoted-shadow-creds"))
+    return findings
+
+
+def _promote_kerberoast(out_dir: Path, service_metadata: dict) -> list[dict]:
+    """ST-3 — per-SPN/account `$krb5tgs$` hashes, HIGH. Deduped by account across
+    _kerberoast_hashcat.txt, ldap/impacket_spns.txt and spns_*.txt (the same hash
+    set is captured in more than one artifact)."""
+    findings: list[dict] = []
+    root = out_dir.resolve()
+    paths = sorted(set(
+        list(out_dir.glob("**/_kerberoast_hashcat.txt"))
+        + list(out_dir.glob("ldap/impacket_spns.txt"))
+        + list(out_dir.glob("**/spns_*.txt"))))
+    seen: set[str] = set()
+    unparsed = 0
+    unparsed_rel = ""
+    for fp in paths:
+        txt = _safe_read_text(fp, root)
+        if not txt:
+            continue
+        rel = str(fp.relative_to(out_dir))
+        for ln in txt.splitlines():
+            if "$krb5tgs$" not in ln.lower():
+                continue
+            m = _KRB5TGS_ACCOUNT_RE.search(ln)
+            if m and m.group(1).strip():
+                acct = m.group(1).strip()
+                if acct.lower() in seen:
+                    continue
+                seen.add(acct.lower())
+                line = (f"Kerberoastable SPN account {acct}: "
+                        f"$krb5tgs$ hash captured (hashcat -m 13100)")
+                findings.append(_structured_finding(
+                    "", "", "kerberos", "high", line, rel, service_metadata,
+                    rule_id="promoted-kerberoast-spn"))
+            else:
+                unparsed += 1
+                unparsed_rel = unparsed_rel or rel
+    if not findings and unparsed:
+        line = f"Kerberoastable SPN hash(es) captured: {unparsed} (hashcat -m 13100)"
+        findings.append(_structured_finding(
+            "", "", "kerberos", "high", line, unparsed_rel, service_metadata,
+            rule_id="promoted-kerberoast-spn"))
+    return findings
+
+
+def _promote_asrep(out_dir: Path, service_metadata: dict) -> list[dict]:
+    """ST-4 — per-user `$krb5asrep$` hashes -> HIGH, deduped by user across the
+    two asrep files (hashcat + bulk). No hash anywhere but an enumerated userlist
+    -> one INFO (candidates only)."""
+    findings: list[dict] = []
+    root = out_dir.resolve()
+    seen: set[str] = set()
+    unparsed = 0
+    unparsed_rel = ""
+    userlist_n = 0
+    userlist_rel = ""
+    for fp in sorted(set(out_dir.glob("**/*asrep*"))):
+        if not fp.is_file():
+            continue
+        txt = _safe_read_text(fp, root)
+        if not txt:
+            continue
+        rel = str(fp.relative_to(out_dir))
+        file_has_hash = False
+        for ln in txt.splitlines():
+            if "$krb5asrep$" not in ln.lower():
+                continue
+            file_has_hash = True
+            m = _KRB5ASREP_USER_RE.search(ln)
+            if m and m.group(1).strip():
+                user = m.group(1).strip()
+                if user.lower() in seen:
+                    continue
+                seen.add(user.lower())
+                line = (f"AS-REP-roastable account {user}: "
+                        f"$krb5asrep$ hash captured (hashcat -m 18200)")
+                findings.append(_structured_finding(
+                    "", "", "kerberos", "high", line, rel, service_metadata,
+                    rule_id="promoted-asrep-user"))
+            else:
+                unparsed += 1
+                unparsed_rel = unparsed_rel or rel
+        if not file_has_hash and "userlist" in fp.name.lower():
+            cand = [l.strip() for l in txt.splitlines()
+                    if l.strip() and not l.strip().startswith("#")]
+            if len(cand) > userlist_n:
+                userlist_n = len(cand)
+                userlist_rel = rel
+    if not findings and unparsed:
+        line = f"AS-REP-roastable hash(es) captured: {unparsed} (hashcat -m 18200)"
+        findings.append(_structured_finding(
+            "", "", "kerberos", "high", line, unparsed_rel, service_metadata,
+            rule_id="promoted-asrep-user"))
+    if not findings and userlist_n:
+        line = (f"AS-REP candidate users enumerated "
+                f"(no pre-auth-disabled hash captured yet): {userlist_n}")
+        findings.append(_structured_finding(
+            "", "", "kerberos", "info", line, userlist_rel, service_metadata,
+            rule_id="promoted-asrep-userlist"))
+    return findings
+
+
+_AD_PROMOTERS = (
+    _promote_adcs, _promote_relay, _promote_coerce,
+    _promote_shadow_creds, _promote_kerberoast, _promote_asrep,
+)
+
+
+def _promote_ad_signals(out_dir: Path, service_metadata: dict) -> Iterable[dict]:
+    """Yield typed per-entity AD findings from the structured artifacts. Each
+    promoter is isolated: a malformed/empty artifact yields [] and never crashes
+    the report."""
+    for promoter in _AD_PROMOTERS:
+        try:
+            yield from promoter(out_dir, service_metadata)
+        except Exception:
+            continue
+
+
+# ---------------------------------------------------- cross-source dedup (F4)
+# Map a finding to the AD class it structurally represents (promoter findings
+# only — identified by the stable rule_id the promoter stamped).
+_PROMOTED_CLASS_BY_RULE = {
+    "promoted-adcs-ca": "adcs",
+    "promoted-adcs-tpl": "adcs",
+    "promoted-relay-candidate": "relay",
+    "promoted-coerce-signal": "coerce",
+    "promoted-kerberoast-spn": "kerberoast",
+}
+
+# Line signatures of the coarse dispatcher `[!] CRITICAL:`/`[!] HIGH:` summaries,
+# per subsumable class. A non-promoter finding whose line matches is the coarse
+# representation of that class (its host may already have been re-attributed off
+# "(dispatcher)" by finalize, so match on the line, not the host).
+_COARSE_CLASS_SIGNATURES = (
+    ("adcs", re.compile(r"Certipy found AD CS|AD CS misconfiguration", re.I)),
+    ("relay", re.compile(r"NTLM[- ]relay candidate", re.I)),
+    ("coerce", re.compile(r"PetitPotam coerce chain", re.I)),
+    ("kerberoast", re.compile(r"kerberoastable hash", re.I)),
+)
+
+
+def _promoted_class(finding: dict) -> "str | None":
+    return _PROMOTED_CLASS_BY_RULE.get(str(finding.get("rule_id", "")))
+
+
+def _coarse_class(line: str) -> "str | None":
+    for cls, rx in _COARSE_CLASS_SIGNATURES:
+        if rx.search(line):
+            return cls
+    return None
+
+
+def _absorb_evidence(target: dict, dropped: dict) -> None:
+    """Retain the subsumed finding's evidence path(s) as secondary provenance on
+    the surviving structured finding."""
+    paths = target.setdefault("evidence_paths", [])
+    for p in (dropped.get("evidence_paths")
+              or ([dropped.get("evidence_path")] if dropped.get("evidence_path") else [])):
+        if p and p not in paths:
+            paths.append(p)
+
+
+def _dedup_cross_source(findings: list[dict]) -> list[dict]:
+    """F4 — collapse cross-source duplicates that evidence-identity dedup cannot:
+    (A) a text-rule `ESC\\d (Vulnerable)` finding and a certipy-JSON promoter
+    finding for the same ESC are the same AD CS fact (different evidence_identity,
+    so never deduped upstream); (B) class subsumption — when >=1 structured
+    per-entity promoter finding exists for a class (adcs/relay/coerce/kerberoast),
+    the coarse `[!] CRITICAL:`/`[!] HIGH:` dispatcher summary for that class is
+    collapsed into it (summary path kept as secondary evidence). No-op (returns
+    the list unchanged) when no promoter findings are present, so non-AD trees are
+    untouched."""
+    promoted: dict[str, list[dict]] = {c: [] for c in
+                                       ("adcs", "relay", "coerce", "kerberoast")}
+    for f in findings:
+        cls = _promoted_class(f)
+        if cls in promoted:
+            promoted[cls].append(f)
+    if not any(promoted.values()):
+        return findings
+
+    # (A) first promoter ADCS finding per ESC number, for the text-rule collapse.
+    adcs_by_esc: dict[str, dict] = {}
+    for f in promoted["adcs"]:
+        m = re.search(r"ESC(\d+)", str(f.get("line", "")))
+        if m:
+            adcs_by_esc.setdefault(m.group(1), f)
+
+    out: list[dict] = []
+    for f in findings:
+        if _promoted_class(f) is not None:
+            out.append(f)                         # a promoter finding: always kept
+            continue
+        line = str(f.get("line", ""))
+        # (A) text-rule ESCn (Vulnerable) subsumed by the JSON ESCn promoter.
+        if promoted["adcs"]:
+            m = re.search(r"ESC(\d+)\s*\(Vulnerable\)", line, re.I)
+            if m and m.group(1) in adcs_by_esc:
+                _absorb_evidence(adcs_by_esc[m.group(1)], f)
+                continue
+        # (B) coarse class summary subsumed by its structured per-entity findings.
+        cls = _coarse_class(line)
+        if cls and promoted.get(cls):
+            _absorb_evidence(promoted[cls][0], f)
+            continue
+        out.append(f)
+    return out
+
+
 # ---------------------------------------------------- walker
 def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None,
                   exclude: "set | None" = None) -> Iterable[dict]:
@@ -2201,6 +2595,12 @@ def walk_findings(out_dir: Path, rules, service_metadata: dict | None = None,
                     service_metadata,
                     rule_id=matched.rule_id,
                 )
+    # S2 — promote the dispatchers' STRUCTURED artifacts into typed per-entity
+    # findings (ST-1..4, RC-1, QT-2). yield-from on the auto-enum/walk_findings
+    # path so they flow through finalize_findings (KB attach / identity / dedup)
+    # exactly like line-scanned findings. A pure bulk-enum tree never calls
+    # walk_findings, so these never fire there.
+    yield from _promote_ad_signals(out_dir, service_metadata)
 
 
 # ---------------------------------------------------- bulk-enum walker

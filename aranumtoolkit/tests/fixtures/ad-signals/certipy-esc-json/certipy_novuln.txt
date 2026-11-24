@@ -1,0 +1,19 @@
+Certipy v4.8.2 - by Oliver Lyak (ly4k)
+
+Certificate Authorities
+  0
+    CA Name                             : LAB-CA
+    DNS Name                            : dc01.lab.local
+    Certificate Subject                 : CN=LAB-CA, DC=lab, DC=local
+    Web Enrollment                      : Enabled (HTTP)
+    [!] Vulnerabilities
+      ESC7                              : User has dangerous permissions.
+      ESC8                              : Web Enrollment is enabled over HTTP.
+Certificate Templates
+  0
+    Template Name                       : VulnUserCert
+    Display Name                        : Vulnerable User Cert
+    Certificate Authorities             : LAB-CA
+    Enabled                             : True
+    [!] Vulnerabilities
+      ESC1                              : Enrollee supplies subject + Client Auth

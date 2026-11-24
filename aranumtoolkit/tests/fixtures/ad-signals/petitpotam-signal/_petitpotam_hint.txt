@@ -1,0 +1,6 @@
+# PetitPotam coerce + NTLM relay chain (operator-opt-in only)
+# Pre-reqs:
+#   - signing-disabled relay candidate(s) in _relay_candidates.txt
+#   - DC with reachable \pipe\lsarpc
+# Step 1 — start ntlmrelayx against a signing-disabled target
+# Step 2 — coerce DC auth via PetitPotam (see impacket docs)

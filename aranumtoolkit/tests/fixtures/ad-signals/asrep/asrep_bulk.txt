@@ -1,0 +1,4 @@
+Impacket v0.14.0.dev0 - Copyright Fortra, LLC and its affiliated companies
+
+$krb5asrep$23$noPreAuthUser@LAB.LOCAL:00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabb
+[-] User otherUser doesn't have UF_DONT_REQUIRE_PREAUTH set

